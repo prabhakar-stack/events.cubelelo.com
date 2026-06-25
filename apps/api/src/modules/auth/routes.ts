@@ -52,6 +52,8 @@ export async function registerAuthRoutes(
           email: claims.email ?? "",
           name: claims.name ?? claims.email?.split("@")[0] ?? "Cuber",
           role: "user",
+          wcaVerified: false,
+          accountStage: "active",
           createdAt: new Date().toISOString(),
         };
         db.users.set(user.id, user);

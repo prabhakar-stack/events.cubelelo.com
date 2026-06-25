@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { ao5, computeStats } from "@cubers/timer-core";
-import type { Solve, SolvePenalty } from "@cubers/types";
+import type { Solve, SolvePenalty, FlagStatus } from "@cubers/types";
 import type { Db } from "../../db/store";
-import { resultsForRound } from "../../db/store";
+import { resultsForRound, eventForRound } from "../../db/store";
 import type { Result } from "../../db/types";
 import type { Realtime } from "../../sockets/realtime";
 import { requireAuth } from "../../auth/plugin";
@@ -70,19 +70,37 @@ export async function registerResultRoutes(
     if (!solves) return reply.code(400).send({ error: "invalid_solves" });
 
     const stats = computeStats(solves);
+    const computedAo5 = ao5(solves);
+
+    // Anti-cheat: flag suspiciously fast results per event type
+    const event = eventForRound(db, round);
+    let flagStatus: FlagStatus = "clean";
+    if (computedAo5 !== null && computedAo5 !== Infinity) {
+      const thresholds: Record<string, number> = {
+        "333": 3000, "222": 800, "444": 18000, "555": 35000,
+        "666": 75000, "777": 110000, "pyram": 1000, "skewb": 1200,
+        "minx": 25000, "333oh": 6000, "333bf": 12000, "sq1": 5000, "clock": 3000,
+      };
+      const eventType = event?.eventType ?? "333";
+      const threshold = thresholds[eventType] ?? 3000;
+      if (computedAo5 < threshold) {
+        flagStatus = "flagged";
+      }
+    }
+
     const result: Result = {
       id: randomUUID(),
       roundId: round.id,
       userId,
       solves,
       bestSingleMs: stats.best_single_ms,
-      ao5Ms: ao5(solves),
+      ao5Ms: computedAo5,
       meanMs: stats.mean_ms,
       medianMs: stats.median_ms,
       stdMs: stats.std_ms,
       rank: null,
       videoUrl: req.body?.videoUrl ?? null,
-      flagStatus: "clean", // TODO: statistical outlier check vs history
+      flagStatus,
       submittedAt: new Date().toISOString(),
     };
     db.results.set(result.id, result);

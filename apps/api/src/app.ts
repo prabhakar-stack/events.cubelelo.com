@@ -9,6 +9,9 @@ import { registerCompetitionRoutes } from "./modules/competitions/routes";
 import { registerRoundRoutes } from "./modules/rounds/routes";
 import { registerResultRoutes } from "./modules/results/routes";
 import { registerAdminRoutes } from "./modules/admin/routes";
+import { registerRegistrationRoutes } from "./modules/registration/routes";
+import { registerPaymentRoutes } from "./modules/payments/routes";
+import { registerUserRoutes } from "./modules/users/routes";
 
 /** Build the Fastify app around a db, realtime emitter, and auth verifier. */
 export async function buildApp(
@@ -28,6 +31,9 @@ export async function buildApp(
   await registerRoundRoutes(app, db, realtime);
   await registerResultRoutes(app, db, realtime);
   await registerAdminRoutes(app, db);
+  await registerRegistrationRoutes(app, db);
+  await registerPaymentRoutes(app, db);
+  await registerUserRoutes(app, db);
 
   return app;
 }

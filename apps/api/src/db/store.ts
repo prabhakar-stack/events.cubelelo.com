@@ -7,6 +7,10 @@ import type {
   ScrambleSet,
   Result,
   User,
+  Registration,
+  RegistrationEvent,
+  Payment,
+  AuditLogEntry,
 } from "./types";
 
 /** The in-memory database. Swap this for a Postgres repository later. */
@@ -19,6 +23,10 @@ export interface Db {
   /** Ephemeral lobby roster: roundId -> (userId -> display name). */
   roster: Map<string, Map<string, string>>;
   users: Map<string, User>;
+  registrations: Map<string, Registration>;
+  registrationEvents: RegistrationEvent[];
+  payments: Map<string, Payment>;
+  auditLog: AuditLogEntry[];
   /** CL ID sequence per year. */
   clSeq: Map<number, number>;
 }
@@ -32,6 +40,10 @@ export function createDb(): Db {
     results: new Map(),
     roster: new Map(),
     users: new Map(),
+    registrations: new Map(),
+    registrationEvents: [],
+    payments: new Map(),
+    auditLog: [],
     clSeq: new Map(),
   };
 }
@@ -48,6 +60,10 @@ export function userByEmail(db: Db, email: string): User | undefined {
   return [...db.users.values()].find((u) => u.email === email);
 }
 
+export function userByClId(db: Db, clId: string): User | undefined {
+  return [...db.users.values()].find((u) => u.clId === clId);
+}
+
 /** Snapshot of the current lobby roster for a round. */
 export function rosterSnapshot(
   db: Db,
@@ -58,24 +74,20 @@ export function rosterSnapshot(
   return [...r.entries()].map(([userId, name]) => ({ userId, name }));
 }
 
-/**
- * Seed a demo competition: one 3x3 event, round 1 already OPEN with a locked
- * scramble set, so the web terminal at /competitions/demo/round/1 works
- * end-to-end without an admin first generating scrambles.
- */
 /** Email of the seeded admin — use it with /auth/dev-login to act as admin. */
 export const SEED_ADMIN_EMAIL = "admin@cubelelo.com";
 
 export async function seed(db: Db): Promise<void> {
   const now = new Date().toISOString();
 
-  // Seed an admin so RBAC + the admin panel are usable out of the box.
   const admin: User = {
     id: "dev-admin",
     clId: nextClId(db),
     email: SEED_ADMIN_EMAIL,
     name: "Demo Admin",
     role: "admin",
+    wcaVerified: false,
+    accountStage: "active",
     createdAt: now,
   };
   db.users.set(admin.id, admin);
@@ -85,8 +97,13 @@ export async function seed(db: Db): Promise<void> {
     title: "Demo Open",
     type: "free",
     status: "live",
+    description: "A demo competition to test the platform end-to-end.",
     rulesMd:
       "WCA regulations apply. 15s inspection (mandatory). ao5 format — best and worst trimmed. Penalties: +2 / DNF per the WCA guidelines.",
+    baseFee: 0,
+    perEventFee: 0,
+    createdBy: admin.clId,
+    createdAt: now,
   };
   db.competitions.set(competition.id, competition);
 
@@ -141,4 +158,21 @@ export function scrambleSetForRound(db: Db, roundId: string): ScrambleSet | unde
 
 export function resultsForRound(db: Db, roundId: string): Result[] {
   return [...db.results.values()].filter((r) => r.roundId === roundId);
+}
+
+export function registrationsForUser(db: Db, userId: string): Registration[] {
+  return [...db.registrations.values()].filter((r) => r.userId === userId);
+}
+
+export function registrationsForCompetition(db: Db, competitionId: string): Registration[] {
+  return [...db.registrations.values()].filter((r) => r.competitionId === competitionId);
+}
+
+export function eventsForRegistration(db: Db, registrationId: string): CompetitionEvent[] {
+  const eventIds = db.registrationEvents
+    .filter((re) => re.registrationId === registrationId)
+    .map((re) => re.competitionEventId);
+  return eventIds
+    .map((id) => db.events.get(id))
+    .filter((e): e is CompetitionEvent => e !== undefined);
 }

@@ -3,31 +3,47 @@ import type {
   CompType,
   RoundStatus,
   FlagStatus,
+  PaymentStatus,
+  AccountStage,
   Solve,
   UserRole,
 } from "@cubers/types";
 
 export interface User {
-  id: string; // Supabase auth uid (or dev sub)
-  clId: string; // CL-YYYY-XXXX
+  id: string;
+  clId: string;
   email: string;
   name: string;
+  lastName?: string;
+  gender?: string;
+  dob?: string;
+  mobileNo?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  avatarUrl?: string;
+  instagram?: string;
+  wcaId?: string;
+  wcaVerified: boolean;
   role: UserRole;
+  accountStage: AccountStage;
   createdAt: string;
 }
 
-/**
- * In-memory domain model. Field names are camelCase to match the JSON the API
- * returns. This mirrors packages/database/schema.sql and will be swapped for a
- * Postgres-backed repository once Supabase is provisioned — the route layer
- * depends only on the repository interface, not on these Maps.
- */
 export interface Competition {
   id: string;
   title: string;
   type: CompType;
   status: CompStatus;
+  description?: string;
   rulesMd?: string;
+  baseFee: number;
+  perEventFee: number;
+  registrationDeadline?: string;
+  coverUrl?: string;
+  bannerUrl?: string;
+  createdBy?: string;
+  createdAt: string;
 }
 
 export interface CompetitionEvent {
@@ -35,6 +51,8 @@ export interface CompetitionEvent {
   competitionId: string;
   eventType: string;
   roundCount: number;
+  cutoffMs?: number;
+  timeLimitMs?: number;
 }
 
 export interface Round {
@@ -42,6 +60,7 @@ export interface Round {
   competitionEventId: string;
   roundNumber: number;
   status: RoundStatus;
+  advancementCount?: number;
   opensAt?: string;
   closesAt?: string;
 }
@@ -68,5 +87,41 @@ export interface Result {
   rank: number | null;
   videoUrl: string | null;
   flagStatus: FlagStatus;
+  verifiedBy?: string;
+  verifiedAt?: string;
   submittedAt: string;
+}
+
+export interface Registration {
+  id: string;
+  userId: string;
+  competitionId: string;
+  paymentStatus: PaymentStatus;
+  createdAt: string;
+}
+
+export interface RegistrationEvent {
+  registrationId: string;
+  competitionEventId: string;
+}
+
+export interface Payment {
+  id: string;
+  userId: string;
+  registrationId: string;
+  amount: number;
+  currency: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  status: PaymentStatus;
+  createdAt: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  adminId: string;
+  action: string;
+  target?: string;
+  reason?: string;
+  createdAt: string;
 }

@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { isEventId } from "@cubers/scramble-core";
-import type { CompStatus, CompType } from "@cubers/types";
+import type { CompStatus, CompType, FlagStatus } from "@cubers/types";
 import type { Db } from "../../db/store";
-import type { Competition, CompetitionEvent, Round } from "../../db/types";
+import { roundsForCompetition, resultsForRound } from "../../db/store";
+import type { Competition, CompetitionEvent, Round, AuditLogEntry } from "../../db/types";
 import { requireRole } from "../../auth/plugin";
 
 const COMP_TYPES: CompType[] = ["paid", "free", "practice"];
@@ -17,81 +18,190 @@ const COMP_STATUSES: CompStatus[] = [
   "results_pending",
   "completed",
 ];
+const FLAG_ACTIONS: FlagStatus[] = ["verified", "disqualified"];
 
-/** Admin competition management (auth deferred). Round/scramble controls live
- *  in the rounds module. */
 export async function registerAdminRoutes(
   app: FastifyInstance,
   db: Db,
 ): Promise<void> {
   const adminOnly = { preHandler: requireRole(db, "admin") };
 
-  // Create a competition with one event and N pending rounds.
+  // Create a competition with one or more events.
   app.post<{
     Body: {
       title?: string;
       type?: CompType;
+      description?: string;
+      rulesMd?: string;
+      baseFee?: number;
+      perEventFee?: number;
+      registrationDeadline?: string;
       eventType?: string;
       roundCount?: number;
-      rulesMd?: string;
+      events?: Array<{
+        eventType: string;
+        roundCount?: number;
+        cutoffMs?: number;
+        timeLimitMs?: number;
+      }>;
     };
   }>("/api/v1/admin/competitions", adminOnly, async (req, reply) => {
-    const { title, type, eventType, roundCount, rulesMd } = req.body ?? {};
+    const { title, type, description, rulesMd, baseFee, perEventFee, registrationDeadline } =
+      req.body ?? {};
     if (!title || typeof title !== "string") {
       return reply.code(400).send({ error: "missing_title" });
     }
-    if (!eventType || !isEventId(eventType)) {
-      return reply.code(400).send({ error: "invalid_event_type" });
-    }
+
+    const user = db.users.get(req.authClaims!.sub);
+    const now = new Date().toISOString();
 
     const competition: Competition = {
       id: randomUUID().slice(0, 8),
       title,
       type: type && COMP_TYPES.includes(type) ? type : "free",
       status: "draft",
+      description: typeof description === "string" ? description : undefined,
       rulesMd: typeof rulesMd === "string" ? rulesMd : undefined,
+      baseFee: typeof baseFee === "number" ? baseFee : 0,
+      perEventFee: typeof perEventFee === "number" ? perEventFee : 0,
+      registrationDeadline:
+        typeof registrationDeadline === "string" ? registrationDeadline : undefined,
+      createdBy: user?.clId,
+      createdAt: now,
     };
     db.competitions.set(competition.id, competition);
 
-    const rounds = Math.max(1, Math.min(roundCount ?? 1, 10));
-    const event: CompetitionEvent = {
-      id: randomUUID(),
-      competitionId: competition.id,
-      eventType,
-      roundCount: rounds,
-    };
-    db.events.set(event.id, event);
+    // Support multi-event creation via `events` array, fallback to single `eventType`
+    const eventSpecs = req.body?.events?.length
+      ? req.body.events
+      : req.body?.eventType
+        ? [{ eventType: req.body.eventType, roundCount: req.body.roundCount }]
+        : [];
 
-    for (let i = 1; i <= rounds; i++) {
-      const round: Round = {
+    // Validate that at least one valid event type is provided
+    const validSpecs = eventSpecs.filter((s) => s.eventType && isEventId(s.eventType));
+    if (eventSpecs.length > 0 && validSpecs.length === 0) {
+      db.competitions.delete(competition.id);
+      return reply.code(400).send({ error: "invalid_event_type" });
+    }
+
+    for (const spec of validSpecs) {
+
+      const rounds = Math.max(1, Math.min(spec.roundCount ?? 1, 10));
+      const event: CompetitionEvent = {
         id: randomUUID(),
-        competitionEventId: event.id,
-        roundNumber: i,
-        status: "pending",
+        competitionId: competition.id,
+        eventType: spec.eventType,
+        roundCount: rounds,
+        cutoffMs: spec.cutoffMs,
+        timeLimitMs: spec.timeLimitMs,
       };
-      db.rounds.set(round.id, round);
+      db.events.set(event.id, event);
+
+      for (let i = 1; i <= rounds; i++) {
+        const round: Round = {
+          id: randomUUID(),
+          competitionEventId: event.id,
+          roundNumber: i,
+          status: "pending",
+        };
+        db.rounds.set(round.id, round);
+      }
     }
 
     return reply.code(201).send({ id: competition.id });
   });
 
-  // Edit title / status / rules.
+  // Edit competition fields.
   app.patch<{
     Params: { id: string };
-    Body: { title?: string; status?: CompStatus; rulesMd?: string };
+    Body: {
+      title?: string;
+      status?: CompStatus;
+      description?: string;
+      rulesMd?: string;
+      baseFee?: number;
+      perEventFee?: number;
+      registrationDeadline?: string;
+    };
   }>("/api/v1/admin/competitions/:id", adminOnly, async (req, reply) => {
     const competition = db.competitions.get(req.params.id);
     if (!competition) {
       return reply.code(404).send({ error: "competition_not_found" });
     }
-    const { title, status, rulesMd } = req.body ?? {};
+    const { title, status, description, rulesMd, baseFee, perEventFee, registrationDeadline } =
+      req.body ?? {};
     if (typeof title === "string") competition.title = title;
+    if (typeof description === "string") competition.description = description;
     if (typeof rulesMd === "string") competition.rulesMd = rulesMd;
+    if (typeof baseFee === "number") competition.baseFee = baseFee;
+    if (typeof perEventFee === "number") competition.perEventFee = perEventFee;
+    if (typeof registrationDeadline === "string")
+      competition.registrationDeadline = registrationDeadline;
     if (status && COMP_STATUSES.includes(status)) competition.status = status;
     return {
       id: competition.id,
       title: competition.title,
       status: competition.status,
     };
+  });
+
+  // Flagged results verification queue for a competition.
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/admin/competitions/:id/queue",
+    adminOnly,
+    async (req, reply) => {
+      const comp = db.competitions.get(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const rounds = roundsForCompetition(db, comp.id);
+      const flagged = rounds.flatMap((round) =>
+        resultsForRound(db, round.id).filter((r) => r.flagStatus === "flagged"),
+      );
+
+      return flagged.map((r) => ({
+        id: r.id,
+        roundId: r.roundId,
+        userId: r.userId,
+        ao5Ms: r.ao5Ms,
+        bestSingleMs: r.bestSingleMs,
+        videoUrl: r.videoUrl,
+        flagStatus: r.flagStatus,
+        submittedAt: r.submittedAt,
+      }));
+    },
+  );
+
+  // Verify / override a flagged result.
+  app.post<{
+    Params: { id: string };
+    Body: { action?: FlagStatus; reason?: string };
+  }>("/api/v1/admin/results/:id/verify", adminOnly, async (req, reply) => {
+    const result = db.results.get(req.params.id);
+    if (!result) return reply.code(404).send({ error: "result_not_found" });
+
+    const action = req.body?.action;
+    if (!action || !FLAG_ACTIONS.includes(action)) {
+      return reply.code(400).send({ error: "invalid_action" });
+    }
+
+    const admin = db.users.get(req.authClaims!.sub);
+    const now = new Date().toISOString();
+
+    result.flagStatus = action;
+    result.verifiedBy = admin?.clId;
+    result.verifiedAt = now;
+
+    const entry: AuditLogEntry = {
+      id: randomUUID(),
+      adminId: admin?.clId ?? req.authClaims!.sub,
+      action: `result_${action}`,
+      target: result.id,
+      reason: req.body?.reason,
+      createdAt: now,
+    };
+    db.auditLog.push(entry);
+
+    return { id: result.id, flagStatus: result.flagStatus };
   });
 }

@@ -17,4 +17,7 @@ export const env = {
   DEV_AUTH_SECRET: process.env.DEV_AUTH_SECRET ?? "dev-secret-change-me",
   /** "supabase" once a JWKS URL is configured, otherwise the dev fallback. */
   authMode: (SUPABASE_JWKS_URL ? "supabase" : "dev") as "supabase" | "dev",
+  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID ?? "",
+  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET ?? "",
+  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET ?? "",
 };
