@@ -10,16 +10,24 @@ export default function Home() {
         </p>
       </div>
 
-      <Link
-        href="/competitions/demo/round/1"
-        className="rounded-lg bg-emerald-600 px-6 py-3 font-semibold text-white transition hover:bg-emerald-500"
-      >
-        Open Competition Terminal (3×3) →
-      </Link>
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <Link
+          href="/competitions/demo/lobby"
+          className="rounded-lg border border-zinc-700 px-6 py-3 font-semibold text-zinc-100 transition hover:bg-zinc-900"
+        >
+          Competition Lobby →
+        </Link>
+        <Link
+          href="/competitions/demo/round/1"
+          className="rounded-lg bg-emerald-600 px-6 py-3 font-semibold text-white transition hover:bg-emerald-500"
+        >
+          Open Competition Terminal (3×3) →
+        </Link>
+      </div>
 
       <p className="max-w-md text-sm text-zinc-500">
-        The terminal runs the WCA timer engine in a Web Worker with mandatory
-        inspection, and renders the scramble with a 2D cube visualizer.
+        The lobby shows a live roster + countdown; the terminal runs the WCA
+        timer engine in a Web Worker with a 2D cube visualizer.
       </p>
     </main>
   );

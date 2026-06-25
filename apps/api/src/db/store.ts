@@ -15,6 +15,8 @@ export interface Db {
   rounds: Map<string, Round>;
   scrambleSets: Map<string, ScrambleSet>;
   results: Map<string, Result>;
+  /** Ephemeral lobby roster: roundId -> (userId -> display name). */
+  roster: Map<string, Map<string, string>>;
 }
 
 export function createDb(): Db {
@@ -24,7 +26,18 @@ export function createDb(): Db {
     rounds: new Map(),
     scrambleSets: new Map(),
     results: new Map(),
+    roster: new Map(),
   };
+}
+
+/** Snapshot of the current lobby roster for a round. */
+export function rosterSnapshot(
+  db: Db,
+  roundId: string,
+): { userId: string; name: string }[] {
+  const r = db.roster.get(roundId);
+  if (!r) return [];
+  return [...r.entries()].map(([userId, name]) => ({ userId, name }));
 }
 
 /**
@@ -40,6 +53,8 @@ export async function seed(db: Db): Promise<void> {
     title: "Demo Open",
     type: "free",
     status: "live",
+    rulesMd:
+      "WCA regulations apply. 15s inspection (mandatory). ao5 format — best and worst trimmed. Penalties: +2 / DNF per the WCA guidelines.",
   };
   db.competitions.set(competition.id, competition);
 

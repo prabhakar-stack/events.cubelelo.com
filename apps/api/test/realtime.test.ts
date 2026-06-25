@@ -17,7 +17,7 @@ beforeAll(async () => {
   realtime = createRealtime();
   app = await buildApp(db, realtime);
   await app.ready();
-  realtime.attach(app);
+  realtime.attach(app, db);
   await app.listen({ port: 0, host: "127.0.0.1" });
 
   const { port } = app.server.address() as AddressInfo;

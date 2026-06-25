@@ -17,6 +17,7 @@ export interface Competition {
   title: string;
   type: CompType;
   status: CompStatus;
+  rulesMd?: string;
 }
 
 export interface CompetitionEvent {

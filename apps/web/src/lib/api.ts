@@ -58,3 +58,24 @@ export async function submitResult(
 export function fetchLeaderboard(roundId: string): Promise<ResultDto[]> {
   return getJson<ResultDto[]>(`/api/v1/rounds/${roundId}/results`);
 }
+
+export interface RosterEntry {
+  userId: string;
+  name: string;
+}
+
+export interface LobbyState {
+  round: {
+    id: string;
+    roundNumber: number;
+    status: string;
+    opensAt: string | null;
+    eventType: string | null;
+  };
+  competition: { id: string | null; title: string | null; rulesMd: string | null };
+  roster: RosterEntry[];
+}
+
+export function fetchLobby(roundId: string): Promise<LobbyState> {
+  return getJson<LobbyState>(`/api/v1/rounds/${roundId}/lobby`);
+}

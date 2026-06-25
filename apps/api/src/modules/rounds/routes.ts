@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { generateScrambleSet, isEventId } from "@cubers/scramble-core";
 import type { Db } from "../../db/store";
-import { eventForRound, scrambleSetForRound } from "../../db/store";
+import { eventForRound, scrambleSetForRound, rosterSnapshot } from "../../db/store";
 import type { ScrambleSet } from "../../db/types";
+import type { Realtime } from "../../sockets/realtime";
 
 export async function registerRoundRoutes(
   app: FastifyInstance,
   db: Db,
+  realtime: Realtime,
 ): Promise<void> {
   // Round detail.
   app.get<{ Params: { id: string } }>(
@@ -23,6 +25,35 @@ export async function registerRoundRoutes(
         status: round.status,
         eventType: event?.eventType,
         scrambleLocked: Boolean(set?.lockedAt),
+      };
+    },
+  );
+
+  // Lobby snapshot: round + competition rules + current roster. The roster then
+  // updates live over Socket.io (`lobby:roster`).
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/rounds/:id/lobby",
+    async (req, reply) => {
+      const round = db.rounds.get(req.params.id);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+      const event = eventForRound(db, round);
+      const competition = event
+        ? db.competitions.get(event.competitionId)
+        : undefined;
+      return {
+        round: {
+          id: round.id,
+          roundNumber: round.roundNumber,
+          status: round.status,
+          opensAt: round.opensAt ?? null,
+          eventType: event?.eventType ?? null,
+        },
+        competition: {
+          id: competition?.id ?? null,
+          title: competition?.title ?? null,
+          rulesMd: competition?.rulesMd ?? null,
+        },
+        roster: rosterSnapshot(db, round.id),
       };
     },
   );
@@ -91,6 +122,7 @@ export async function registerRoundRoutes(
       if (!round) return reply.code(404).send({ error: "round_not_found" });
       round.opensAt = new Date().toISOString();
       round.status = "open";
+      realtime.emitRoundStatus(round.id, round.status, round.opensAt);
       return { id: round.id, status: round.status };
     },
   );
@@ -102,6 +134,7 @@ export async function registerRoundRoutes(
       if (!round) return reply.code(404).send({ error: "round_not_found" });
       round.closesAt = new Date().toISOString();
       round.status = "closed";
+      realtime.emitRoundStatus(round.id, round.status, round.opensAt);
       return { id: round.id, status: round.status };
     },
   );

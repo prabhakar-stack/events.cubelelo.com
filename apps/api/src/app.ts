@@ -18,7 +18,7 @@ export async function buildApp(
   app.get("/health", async () => ({ status: "ok" }));
 
   await registerCompetitionRoutes(app, db);
-  await registerRoundRoutes(app, db);
+  await registerRoundRoutes(app, db, realtime);
   await registerResultRoutes(app, db, realtime);
 
   return app;

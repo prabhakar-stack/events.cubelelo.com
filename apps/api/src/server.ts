@@ -9,7 +9,7 @@ await seed(db);
 const realtime = createRealtime();
 const app = await buildApp(db, realtime);
 await app.ready();
-realtime.attach(app); // attach Socket.io to the underlying HTTP server
+realtime.attach(app, db); // attach Socket.io to the underlying HTTP server
 
 try {
   await app.listen({ port: env.PORT, host: env.HOST });
