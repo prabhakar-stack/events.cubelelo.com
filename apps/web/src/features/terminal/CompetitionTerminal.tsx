@@ -6,10 +6,10 @@ import { ao5, formatSolve, formatTime } from "@cubers/timer-core";
 import type { Solve, SolvePenalty } from "@cubers/types";
 import { useTimer } from "@/features/timer/useTimer";
 import { TwistyPlayer } from "@/features/scramble/TwistyPlayer";
+import { useLeaderboard } from "@/features/realtime/useLeaderboard";
 import {
   fetchCompetition,
   fetchScramble,
-  fetchLeaderboard,
   submitResult,
   type ResultDto,
 } from "@/lib/api";
@@ -47,7 +47,7 @@ export function CompetitionTerminal({
   const [submit, setSubmit] = useState<
     | { kind: "idle" }
     | { kind: "submitting" }
-    | { kind: "done"; rank: number | null; board: ResultDto[] }
+    | { kind: "done"; rank: number | null }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
 
@@ -143,8 +143,8 @@ export function CompetitionTerminal({
         solves,
         videoUrl: videoUrl.trim() || undefined,
       });
-      const board = await fetchLeaderboard(load.roundId);
-      setSubmit({ kind: "done", rank: result.rank, board });
+      // The live leaderboard updates itself via the socket broadcast.
+      setSubmit({ kind: "done", rank: result.rank });
     } catch (e) {
       setSubmit({
         kind: "error",
@@ -169,6 +169,8 @@ export function CompetitionTerminal({
     () => getEvent(load.kind === "ready" ? load.eventType : eventId),
     [load, eventId],
   );
+
+  const liveBoard = useLeaderboard(load.kind === "ready" ? load.roundId : null);
 
   if (load.kind === "loading") {
     return <CenterMessage>Loading round…</CenterMessage>;
@@ -217,6 +219,7 @@ export function CompetitionTerminal({
           setVideoUrl={setVideoUrl}
           onSubmit={handleSubmit}
           userId={userId}
+          board={liveBoard}
         />
       ) : focusMode ? (
         <div
@@ -248,7 +251,8 @@ export function CompetitionTerminal({
               />
             </div>
 
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+            <div className="flex flex-col gap-6">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
               <div className="mb-3 flex items-center justify-between text-sm">
                 <span className="text-zinc-400">This round</span>
                 <span className="text-zinc-400">
@@ -273,6 +277,8 @@ export function CompetitionTerminal({
                   </li>
                 ))}
               </ol>
+              </div>
+              <LeaderboardCard board={liveBoard} userId={userId} />
             </div>
           </div>
 
@@ -335,18 +341,20 @@ function RoundComplete({
   setVideoUrl,
   onSubmit,
   userId,
+  board,
 }: {
   finalAo5: number | null;
   solves: Solve[];
   submit:
     | { kind: "idle" }
     | { kind: "submitting" }
-    | { kind: "done"; rank: number | null; board: ResultDto[] }
+    | { kind: "done"; rank: number | null }
     | { kind: "error"; message: string };
   videoUrl: string;
   setVideoUrl: (v: string) => void;
   onSubmit: () => void;
   userId: string;
+  board: ResultDto[];
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10">
@@ -361,30 +369,11 @@ function RoundComplete({
       </div>
 
       {submit.kind === "done" ? (
-        <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-          <div className="mb-3 text-center text-sm text-zinc-400">
-            Submitted · your rank{" "}
-            <span className="font-mono font-bold text-emerald-400">
-              #{submit.rank ?? "—"}
-            </span>
-          </div>
-          <ol className="space-y-1 font-mono text-sm">
-            {submit.board.map((r) => (
-              <li
-                key={r.id}
-                className={`flex justify-between rounded px-2 py-1 ${
-                  r.userId === userId ? "bg-emerald-900/30" : ""
-                }`}
-              >
-                <span className="text-zinc-400">
-                  #{r.rank} {r.userId === userId ? "(you)" : r.userId.slice(0, 8)}
-                </span>
-                <span className="text-zinc-100">
-                  {r.ao5Ms === null ? "DNF" : formatTime(r.ao5Ms)}
-                </span>
-              </li>
-            ))}
-          </ol>
+        <div className="text-center text-sm text-zinc-400">
+          Submitted · your rank{" "}
+          <span className="font-mono font-bold text-emerald-400">
+            #{submit.rank ?? "—"}
+          </span>
         </div>
       ) : (
         <div className="flex w-full max-w-md flex-col items-center gap-3">
@@ -405,6 +394,50 @@ function RoundComplete({
             <p className="text-sm text-red-400">{submit.message}</p>
           )}
         </div>
+      )}
+
+      <div className="w-full max-w-md">
+        <LeaderboardCard board={board} userId={userId} />
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardCard({
+  board,
+  userId,
+}: {
+  board: ResultDto[];
+  userId: string;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="mb-3 flex items-center justify-between text-sm">
+        <span className="text-zinc-400">Live leaderboard</span>
+        <span className="text-zinc-500">
+          {board.length} competitor{board.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      {board.length === 0 ? (
+        <p className="text-sm text-zinc-600">No submissions yet.</p>
+      ) : (
+        <ol className="space-y-1 font-mono text-sm">
+          {board.map((r) => (
+            <li
+              key={r.id}
+              className={`flex justify-between rounded px-2 py-1 ${
+                r.userId === userId ? "bg-emerald-900/30" : ""
+              }`}
+            >
+              <span className="text-zinc-400">
+                #{r.rank} {r.userId === userId ? "(you)" : r.userId.slice(0, 8)}
+              </span>
+              <span className="text-zinc-100">
+                {r.ao5Ms === null ? "DNF" : formatTime(r.ao5Ms)}
+              </span>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );

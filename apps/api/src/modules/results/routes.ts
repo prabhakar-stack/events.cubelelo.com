@@ -5,6 +5,15 @@ import type { Solve, SolvePenalty } from "@cubers/types";
 import type { Db } from "../../db/store";
 import { resultsForRound } from "../../db/store";
 import type { Result } from "../../db/types";
+import type { Realtime } from "../../sockets/realtime";
+
+/** Leaderboard for a round, ordered by rank. */
+function leaderboard(db: Db, roundId: string): Result[] {
+  return resultsForRound(db, roundId).sort(
+    (a, b) =>
+      (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),
+  );
+}
 
 const PENALTIES: SolvePenalty[] = ["none", "plus2", "dnf"];
 
@@ -39,6 +48,7 @@ function recomputeRanks(db: Db, roundId: string): void {
 export async function registerResultRoutes(
   app: FastifyInstance,
   db: Db,
+  realtime: Realtime,
 ): Promise<void> {
   app.post<{
     Params: { id: string };
@@ -72,17 +82,15 @@ export async function registerResultRoutes(
     db.results.set(result.id, result);
     recomputeRanks(db, round.id);
 
+    // Broadcast the updated leaderboard to everyone watching this round.
+    realtime.emitLeaderboard(round.id, leaderboard(db, round.id));
+
     return reply.code(201).send(result);
   });
 
   // Leaderboard for a round.
   app.get<{ Params: { id: string } }>(
     "/api/v1/rounds/:id/results",
-    async (req) => {
-      return resultsForRound(db, req.params.id).sort(
-        (a, b) =>
-          (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),
-      );
-    },
+    async (req) => leaderboard(db, req.params.id),
   );
 }
