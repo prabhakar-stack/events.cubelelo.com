@@ -29,6 +29,10 @@ export default function Home() {
         The lobby shows a live roster + countdown; the terminal runs the WCA
         timer engine in a Web Worker with a 2D cube visualizer.
       </p>
+
+      <Link href="/admin" className="text-sm text-zinc-500 underline hover:text-zinc-300">
+        Admin panel
+      </Link>
     </main>
   );
 }

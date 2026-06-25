@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../../db/store";
-import { roundsForCompetition, eventForRound } from "../../db/store";
+import {
+  roundsForCompetition,
+  eventForRound,
+  scrambleSetForRound,
+} from "../../db/store";
 
 export async function registerCompetitionRoutes(
   app: FastifyInstance,
@@ -47,6 +51,7 @@ export async function registerCompetitionRoutes(
               roundNumber: r.roundNumber,
               status: r.status,
               eventType: eventForRound(db, r)?.eventType ?? e.eventType,
+              scrambleLocked: Boolean(scrambleSetForRound(db, r.id)?.lockedAt),
             })),
         })),
       };

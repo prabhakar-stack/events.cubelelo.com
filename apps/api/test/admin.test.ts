@@ -1,0 +1,78 @@
+import { describe, it, expect, beforeAll } from "vitest";
+import type { FastifyInstance } from "fastify";
+import { buildApp } from "../src/app";
+import { createDb, seed } from "../src/db/store";
+
+let app: FastifyInstance;
+
+beforeAll(async () => {
+  const db = createDb();
+  await seed(db);
+  app = await buildApp(db);
+});
+
+async function post(url: string, payload: object) {
+  const res = await app.inject({ method: "POST", url, payload });
+  return { status: res.statusCode, body: res.json() };
+}
+async function patch(url: string, payload: object) {
+  const res = await app.inject({ method: "PATCH", url, payload });
+  return { status: res.statusCode, body: res.json() };
+}
+async function get(url: string) {
+  const res = await app.inject({ method: "GET", url });
+  return { status: res.statusCode, body: res.json() };
+}
+
+describe("admin competition lifecycle", () => {
+  let compId: string;
+  let round1: string;
+
+  it("creates a competition with an event and rounds", async () => {
+    const res = await post("/api/v1/admin/competitions", {
+      title: "Midweek Madness",
+      type: "free",
+      eventType: "333",
+      roundCount: 2,
+    });
+    expect(res.status).toBe(201);
+    compId = res.body.id;
+
+    const detail = await get(`/api/v1/competitions/${compId}`);
+    expect(detail.body.status).toBe("draft");
+    const event = detail.body.events[0];
+    expect(event.eventType).toBe("333");
+    expect(event.rounds).toHaveLength(2);
+    expect(event.rounds[0].status).toBe("pending");
+    expect(event.rounds[0].scrambleLocked).toBe(false);
+    round1 = event.rounds[0].id;
+  });
+
+  it("rejects an invalid event type", async () => {
+    const res = await post("/api/v1/admin/competitions", {
+      title: "Bad",
+      eventType: "not-a-cube",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("generates + locks scrambles, then opens the round", async () => {
+    expect((await post(`/api/v1/admin/rounds/${round1}/scrambles`, { count: 5 })).status).toBe(201);
+
+    const detail = await get(`/api/v1/competitions/${compId}`);
+    expect(detail.body.events[0].rounds[0].scrambleLocked).toBe(true);
+
+    // not open yet → scramble blocked
+    expect((await get(`/api/v1/rounds/${round1}/scramble`)).status).toBe(409);
+
+    expect((await post(`/api/v1/admin/rounds/${round1}/open`, {})).body.status).toBe("open");
+    const scramble = await get(`/api/v1/rounds/${round1}/scramble`);
+    expect(scramble.status).toBe(200);
+    expect(scramble.body.scrambles).toHaveLength(5);
+  });
+
+  it("updates competition status", async () => {
+    const res = await patch(`/api/v1/admin/competitions/${compId}`, { status: "live" });
+    expect(res.body.status).toBe("live");
+  });
+});
