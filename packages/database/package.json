@@ -1,0 +1,7 @@
+{
+  "name": "@cubers/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Canonical PostgreSQL schema + (future) migrations and ETL for the platform"
+}

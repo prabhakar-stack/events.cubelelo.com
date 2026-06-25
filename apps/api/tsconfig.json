@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "paths": {
+      "@cubers/types": ["../../packages/types/src/index.ts"],
+      "@cubers/scramble-core": ["../../packages/scramble-core/src/index.ts"],
+      "@cubers/timer-core": ["../../packages/timer-core/src/index.ts"]
+    }
+  },
+  "include": ["src", "test"]
+}
