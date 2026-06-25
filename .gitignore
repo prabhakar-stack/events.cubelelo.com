@@ -1,0 +1,64 @@
+# ──────────────────────────────────────────────
+# Internal planning docs (kept local, not committed)
+# ──────────────────────────────────────────────
+project_details/
+_docx_extract/
+
+# ──────────────────────────────────────────────
+# Dependencies
+# ──────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ──────────────────────────────────────────────
+# Build outputs
+# ──────────────────────────────────────────────
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# ──────────────────────────────────────────────
+# Environment & secrets
+# ──────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+*.pem
+
+# ──────────────────────────────────────────────
+# Logs
+# ──────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ──────────────────────────────────────────────
+# Testing / coverage
+# ──────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ──────────────────────────────────────────────
+# Claude Code (keep launch.json; ignore local/secret settings)
+# ──────────────────────────────────────────────
+.claude/settings.local.json
+
+# ──────────────────────────────────────────────
+# Editor / OS
+# ──────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
