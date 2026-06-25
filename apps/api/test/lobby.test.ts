@@ -5,11 +5,14 @@ import { io as ioClient, type Socket } from "socket.io-client";
 import { buildApp } from "../src/app";
 import { createDb, seed } from "../src/db/store";
 import { createRealtime, type AttachableRealtime } from "../src/sockets/realtime";
+import { devTokenHttp } from "./helpers";
+import { SEED_ADMIN_EMAIL } from "../src/db/store";
 
 let app: FastifyInstance;
 let realtime: AttachableRealtime;
 let baseUrl: string;
 let roundId: string;
+let adminAuth: { authorization: string };
 
 beforeAll(async () => {
   const db = createDb();
@@ -27,6 +30,9 @@ beforeAll(async () => {
     await fetch(`${baseUrl}/api/v1/competitions/demo`)
   ).json()) as { events: { eventType: string; rounds: { id: string }[] }[] };
   roundId = detail.events.find((e) => e.eventType === "333")!.rounds[0]!.id;
+
+  const token = await devTokenHttp(baseUrl, SEED_ADMIN_EMAIL);
+  adminAuth = { authorization: `Bearer ${token}` };
 });
 
 afterAll(async () => {
@@ -73,11 +79,17 @@ describe("competition lobby", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     const closed = once<{ status: string }>(c, "round:status");
-    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}/close`, { method: "POST" });
+    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}/close`, {
+      method: "POST",
+      headers: adminAuth,
+    });
     expect((await closed).status).toBe("closed");
 
     const opened = once<{ status: string }>(c, "round:status");
-    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}/open`, { method: "POST" });
+    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}/open`, {
+      method: "POST",
+      headers: adminAuth,
+    });
     expect((await opened).status).toBe("open");
 
     c.disconnect();

@@ -2,21 +2,24 @@ import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 import { createDb, seed } from "../src/db/store";
+import { adminToken, bearer, devToken } from "./helpers";
 
 let app: FastifyInstance;
+let admin: string;
 
 beforeAll(async () => {
   const db = createDb();
   await seed(db);
   app = await buildApp(db);
+  admin = await adminToken(app);
 });
 
-async function post(url: string, payload: object) {
-  const res = await app.inject({ method: "POST", url, payload });
+async function post(url: string, payload: object, token = admin) {
+  const res = await app.inject({ method: "POST", url, payload, headers: bearer(token) });
   return { status: res.statusCode, body: res.json() };
 }
-async function patch(url: string, payload: object) {
-  const res = await app.inject({ method: "PATCH", url, payload });
+async function patch(url: string, payload: object, token = admin) {
+  const res = await app.inject({ method: "PATCH", url, payload, headers: bearer(token) });
   return { status: res.statusCode, body: res.json() };
 }
 async function get(url: string) {
@@ -74,5 +77,31 @@ describe("admin competition lifecycle", () => {
   it("updates competition status", async () => {
     const res = await patch(`/api/v1/admin/competitions/${compId}`, { status: "live" });
     expect(res.body.status).toBe("live");
+  });
+});
+
+describe("admin RBAC", () => {
+  it("rejects unauthenticated admin calls (401)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/competitions",
+      payload: { title: "x", eventType: "333" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("forbids non-admin users (403)", async () => {
+    const userTok = await devToken(app, "regular@x.com");
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/sync",
+      headers: bearer(userTok),
+    });
+    const res = await post(
+      "/api/v1/admin/competitions",
+      { title: "x", eventType: "333" },
+      userTok,
+    );
+    expect(res.status).toBe(403);
   });
 });

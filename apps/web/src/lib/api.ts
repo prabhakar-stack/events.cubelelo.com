@@ -2,6 +2,23 @@ import type { Solve } from "@cubers/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
+// ── Auth token (set by the AuthProvider; attached to every request) ──
+let authToken: string | null = null;
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+function authHeaders(): Record<string, string> {
+  return authToken ? { authorization: `Bearer ${authToken}` } : {};
+}
+
+export interface AuthUser {
+  id: string;
+  clId: string;
+  email: string;
+  name: string;
+  role: string;
+}
+
 export interface RoundRef {
   id: string;
   roundNumber: number;
@@ -33,7 +50,7 @@ export interface ResultDto {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`);
+  const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() });
   if (!res.ok) {
     throw new Error(`${res.status} ${res.statusText} for ${path}`);
   }
@@ -47,7 +64,10 @@ async function sendJson<T>(
 ): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers: {
+      ...authHeaders(),
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -72,17 +92,28 @@ export function fetchScramble(
   return getJson(`/api/v1/rounds/${roundId}/scramble`);
 }
 
-export async function submitResult(
+export function submitResult(
   roundId: string,
-  body: { userId: string; solves: Solve[]; videoUrl?: string },
+  body: { solves: Solve[]; videoUrl?: string },
 ): Promise<ResultDto> {
-  const res = await fetch(`${BASE_URL}/api/v1/rounds/${roundId}/results`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Submit failed: ${res.status}`);
-  return res.json() as Promise<ResultDto>;
+  // userId is derived server-side from the authenticated user's CL ID.
+  return sendJson("POST", `/api/v1/rounds/${roundId}/results`, body);
+}
+
+// ── Auth ──
+export function devLogin(
+  email: string,
+  name?: string,
+): Promise<{ token: string }> {
+  return sendJson("POST", `/api/v1/auth/dev-login`, { email, name });
+}
+
+export function syncUser(): Promise<AuthUser> {
+  return sendJson("POST", `/api/v1/auth/sync`);
+}
+
+export function fetchMe(): Promise<AuthUser> {
+  return getJson<AuthUser>(`/api/v1/users/me`);
 }
 
 export function fetchLeaderboard(roundId: string): Promise<ResultDto[]> {

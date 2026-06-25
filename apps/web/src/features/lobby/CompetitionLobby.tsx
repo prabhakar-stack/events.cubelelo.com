@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getEvent, isEventId, type EventId } from "@cubers/scramble-core";
 import { fetchCompetition } from "@/lib/api";
+import { useAuth } from "@/features/auth/AuthProvider";
 import { useLobby } from "@/features/realtime/useLobby";
 
 interface CompetitionLobbyProps {
@@ -35,12 +36,10 @@ export function CompetitionLobby({
   round,
   eventId,
 }: CompetitionLobbyProps) {
+  const { user } = useAuth();
   const [roundId, setRoundId] = useState<string | null>(null);
   const [eventType, setEventType] = useState<EventId>(eventId);
   const [error, setError] = useState<string | null>(null);
-  const [userId] = useState(() =>
-    typeof crypto !== "undefined" ? crypto.randomUUID() : "guest",
-  );
 
   useEffect(() => {
     let active = true;
@@ -63,8 +62,11 @@ export function CompetitionLobby({
   }, [competitionId, round, eventId]);
 
   const me = useMemo(
-    () => ({ userId, name: `Guest-${userId.slice(0, 4)}` }),
-    [userId],
+    () =>
+      user
+        ? { userId: user.clId, name: user.name }
+        : { userId: "guest", name: "Guest" },
+    [user],
   );
   const { roster, status, opensAt, rulesMd } = useLobby(roundId, me);
   const remaining = useCountdown(opensAt);
@@ -156,12 +158,12 @@ export function CompetitionLobby({
                 <li
                   key={c.userId}
                   className={`flex items-center justify-between rounded px-2 py-1 ${
-                    c.userId === userId ? "bg-emerald-900/30" : ""
+                    c.userId === user?.clId ? "bg-emerald-900/30" : ""
                   }`}
                 >
                   <span className="text-zinc-200">
                     {c.name}
-                    {c.userId === userId ? " (you)" : ""}
+                    {c.userId === user?.clId ? " (you)" : ""}
                   </span>
                   <span className="text-zinc-600">{c.userId.slice(0, 6)}</span>
                 </li>

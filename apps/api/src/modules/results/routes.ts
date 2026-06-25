@@ -6,6 +6,7 @@ import type { Db } from "../../db/store";
 import { resultsForRound } from "../../db/store";
 import type { Result } from "../../db/types";
 import type { Realtime } from "../../sockets/realtime";
+import { requireAuth } from "../../auth/plugin";
 
 /** Leaderboard for a round, ordered by rank. */
 function leaderboard(db: Db, roundId: string): Result[] {
@@ -52,13 +53,18 @@ export async function registerResultRoutes(
 ): Promise<void> {
   app.post<{
     Params: { id: string };
-    Body: { userId?: string; solves?: unknown; videoUrl?: string };
-  }>("/api/v1/rounds/:id/results", async (req, reply) => {
+    Body: { solves?: unknown; videoUrl?: string };
+  }>(
+    "/api/v1/rounds/:id/results",
+    { preHandler: requireAuth },
+    async (req, reply) => {
     const round = db.rounds.get(req.params.id);
     if (!round) return reply.code(404).send({ error: "round_not_found" });
 
-    const userId = req.body?.userId;
-    if (!userId) return reply.code(400).send({ error: "missing_userId" });
+    // The competitor is the authenticated user; results are keyed by CL ID.
+    const user = db.users.get(req.authClaims!.sub);
+    if (!user) return reply.code(403).send({ error: "not_synced" });
+    const userId = user.clId;
 
     const solves = parseSolves(req.body?.solves);
     if (!solves) return reply.code(400).send({ error: "invalid_solves" });

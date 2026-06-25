@@ -4,6 +4,7 @@ import { isEventId } from "@cubers/scramble-core";
 import type { CompStatus, CompType } from "@cubers/types";
 import type { Db } from "../../db/store";
 import type { Competition, CompetitionEvent, Round } from "../../db/types";
+import { requireRole } from "../../auth/plugin";
 
 const COMP_TYPES: CompType[] = ["paid", "free", "practice"];
 const COMP_STATUSES: CompStatus[] = [
@@ -23,6 +24,8 @@ export async function registerAdminRoutes(
   app: FastifyInstance,
   db: Db,
 ): Promise<void> {
+  const adminOnly = { preHandler: requireRole(db, "admin") };
+
   // Create a competition with one event and N pending rounds.
   app.post<{
     Body: {
@@ -32,7 +35,7 @@ export async function registerAdminRoutes(
       roundCount?: number;
       rulesMd?: string;
     };
-  }>("/api/v1/admin/competitions", async (req, reply) => {
+  }>("/api/v1/admin/competitions", adminOnly, async (req, reply) => {
     const { title, type, eventType, roundCount, rulesMd } = req.body ?? {};
     if (!title || typeof title !== "string") {
       return reply.code(400).send({ error: "missing_title" });
@@ -76,7 +79,7 @@ export async function registerAdminRoutes(
   app.patch<{
     Params: { id: string };
     Body: { title?: string; status?: CompStatus; rulesMd?: string };
-  }>("/api/v1/admin/competitions/:id", async (req, reply) => {
+  }>("/api/v1/admin/competitions/:id", adminOnly, async (req, reply) => {
     const competition = db.competitions.get(req.params.id);
     if (!competition) {
       return reply.code(404).send({ error: "competition_not_found" });

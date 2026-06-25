@@ -4,7 +4,17 @@ import type {
   RoundStatus,
   FlagStatus,
   Solve,
+  UserRole,
 } from "@cubers/types";
+
+export interface User {
+  id: string; // Supabase auth uid (or dev sub)
+  clId: string; // CL-YYYY-XXXX
+  email: string;
+  name: string;
+  role: UserRole;
+  createdAt: string;
+}
 
 /**
  * In-memory domain model. Field names are camelCase to match the JSON the API

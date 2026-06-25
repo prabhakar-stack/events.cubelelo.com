@@ -5,6 +5,7 @@ import { io as ioClient, type Socket } from "socket.io-client";
 import { buildApp } from "../src/app";
 import { createDb, seed } from "../src/db/store";
 import { createRealtime, type AttachableRealtime } from "../src/sockets/realtime";
+import { loginAndSync } from "./helpers";
 
 let app: FastifyInstance;
 let realtime: AttachableRealtime;
@@ -56,11 +57,11 @@ describe("live leaderboard over Socket.io", () => {
     const [a, b] = await Promise.all([connectAndJoin(), connectAndJoin()]);
     const updates = Promise.all([nextLeaderboard(a), nextLeaderboard(b)]);
 
+    const { token, clId } = await loginAndSync(baseUrl, "socket@x.com");
     const res = await fetch(`${baseUrl}/api/v1/rounds/${roundId}/results`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        userId: "socket-user",
         solves: [8000, 9000, 7000, 10000, 8500].map((t) => ({
           time_ms: t,
           penalty: "none",
@@ -72,7 +73,7 @@ describe("live leaderboard over Socket.io", () => {
     const [updateA, updateB] = await updates;
     expect(updateA.roundId).toBe(roundId);
     expect(updateA.board.length).toBe(1);
-    expect((updateA.board[0] as { userId: string }).userId).toBe("socket-user");
+    expect((updateA.board[0] as { userId: string }).userId).toBe(clId);
     // both clients in the room received it
     expect(updateB.board.length).toBe(1);
 

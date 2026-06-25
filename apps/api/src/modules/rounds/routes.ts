@@ -5,12 +5,14 @@ import type { Db } from "../../db/store";
 import { eventForRound, scrambleSetForRound, rosterSnapshot } from "../../db/store";
 import type { ScrambleSet } from "../../db/types";
 import type { Realtime } from "../../sockets/realtime";
+import { requireRole } from "../../auth/plugin";
 
 export async function registerRoundRoutes(
   app: FastifyInstance,
   db: Db,
   realtime: Realtime,
 ): Promise<void> {
+  const adminOnly = { preHandler: requireRole(db, "admin") };
   // Round detail.
   app.get<{ Params: { id: string } }>(
     "/api/v1/rounds/:id",
@@ -83,6 +85,7 @@ export async function registerRoundRoutes(
   // this is the roundId → eventId resolution living in the backend.
   app.post<{ Params: { id: string }; Body: { count?: number } }>(
     "/api/v1/admin/rounds/:id/scrambles",
+    adminOnly,
     async (req, reply) => {
       const round = db.rounds.get(req.params.id);
       if (!round) return reply.code(404).send({ error: "round_not_found" });
@@ -117,6 +120,7 @@ export async function registerRoundRoutes(
 
   app.post<{ Params: { id: string } }>(
     "/api/v1/admin/rounds/:id/open",
+    adminOnly,
     async (req, reply) => {
       const round = db.rounds.get(req.params.id);
       if (!round) return reply.code(404).send({ error: "round_not_found" });
@@ -129,6 +133,7 @@ export async function registerRoundRoutes(
 
   app.post<{ Params: { id: string } }>(
     "/api/v1/admin/rounds/:id/close",
+    adminOnly,
     async (req, reply) => {
       const round = db.rounds.get(req.params.id);
       if (!round) return reply.code(404).send({ error: "round_not_found" });

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getEvent, isEventId, type EventId } from "@cubers/scramble-core";
 import { ao5, formatSolve, formatTime } from "@cubers/timer-core";
 import type { Solve, SolvePenalty } from "@cubers/types";
+import Link from "next/link";
 import { useTimer } from "@/features/timer/useTimer";
 import { TwistyPlayer } from "@/features/scramble/TwistyPlayer";
 import { useLeaderboard } from "@/features/realtime/useLeaderboard";
+import { useAuth } from "@/features/auth/AuthProvider";
 import {
   fetchCompetition,
   fetchScramble,
@@ -39,10 +41,8 @@ export function CompetitionTerminal({
   const [solves, setSolves] = useState<Solve[]>([]);
   const [pendingPenalty, setPendingPenalty] = useState<SolvePenalty>("none");
 
-  // Demo competitor identity (no auth yet) — stable for this page session.
-  const [userId] = useState(() =>
-    typeof crypto !== "undefined" ? crypto.randomUUID() : "guest",
-  );
+  const { user } = useAuth();
+  const userId = user?.clId ?? "guest";
   const [videoUrl, setVideoUrl] = useState("");
   const [submit, setSubmit] = useState<
     | { kind: "idle" }
@@ -139,7 +139,6 @@ export function CompetitionTerminal({
     setSubmit({ kind: "submitting" });
     try {
       const result = await submitResult(load.roundId, {
-        userId,
         solves,
         videoUrl: videoUrl.trim() || undefined,
       });
@@ -220,6 +219,7 @@ export function CompetitionTerminal({
           onSubmit={handleSubmit}
           userId={userId}
           board={liveBoard}
+          signedIn={Boolean(user)}
         />
       ) : focusMode ? (
         <div
@@ -342,6 +342,7 @@ function RoundComplete({
   onSubmit,
   userId,
   board,
+  signedIn,
 }: {
   finalAo5: number | null;
   solves: Solve[];
@@ -355,6 +356,7 @@ function RoundComplete({
   onSubmit: () => void;
   userId: string;
   board: ResultDto[];
+  signedIn: boolean;
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10">
@@ -375,6 +377,13 @@ function RoundComplete({
             #{submit.rank ?? "—"}
           </span>
         </div>
+      ) : !signedIn ? (
+        <Link
+          href="/login"
+          className="rounded-lg bg-emerald-600 px-6 py-2 font-semibold text-white transition hover:bg-emerald-500"
+        >
+          Sign in to submit results
+        </Link>
       ) : (
         <div className="flex w-full max-w-md flex-col items-center gap-3">
           <input

@@ -6,6 +6,7 @@ import type {
   Round,
   ScrambleSet,
   Result,
+  User,
 } from "./types";
 
 /** The in-memory database. Swap this for a Postgres repository later. */
@@ -17,6 +18,9 @@ export interface Db {
   results: Map<string, Result>;
   /** Ephemeral lobby roster: roundId -> (userId -> display name). */
   roster: Map<string, Map<string, string>>;
+  users: Map<string, User>;
+  /** CL ID sequence per year. */
+  clSeq: Map<number, number>;
 }
 
 export function createDb(): Db {
@@ -27,7 +31,21 @@ export function createDb(): Db {
     scrambleSets: new Map(),
     results: new Map(),
     roster: new Map(),
+    users: new Map(),
+    clSeq: new Map(),
   };
+}
+
+/** Generate the next CL ID for the current year: CL-YYYY-0001, CL-YYYY-0002, … */
+export function nextClId(db: Db): string {
+  const year = new Date().getFullYear();
+  const seq = (db.clSeq.get(year) ?? 0) + 1;
+  db.clSeq.set(year, seq);
+  return `CL-${year}-${String(seq).padStart(4, "0")}`;
+}
+
+export function userByEmail(db: Db, email: string): User | undefined {
+  return [...db.users.values()].find((u) => u.email === email);
 }
 
 /** Snapshot of the current lobby roster for a round. */
@@ -45,8 +63,22 @@ export function rosterSnapshot(
  * scramble set, so the web terminal at /competitions/demo/round/1 works
  * end-to-end without an admin first generating scrambles.
  */
+/** Email of the seeded admin — use it with /auth/dev-login to act as admin. */
+export const SEED_ADMIN_EMAIL = "admin@cubelelo.com";
+
 export async function seed(db: Db): Promise<void> {
   const now = new Date().toISOString();
+
+  // Seed an admin so RBAC + the admin panel are usable out of the box.
+  const admin: User = {
+    id: "dev-admin",
+    clId: nextClId(db),
+    email: SEED_ADMIN_EMAIL,
+    name: "Demo Admin",
+    role: "admin",
+    createdAt: now,
+  };
+  db.users.set(admin.id, admin);
 
   const competition: Competition = {
     id: "demo",
