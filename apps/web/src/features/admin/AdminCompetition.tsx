@@ -96,6 +96,15 @@ export function AdminCompetition({ id }: { id: string }) {
 
       {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
+      <div className="mt-4">
+        <Link
+          href={`/admin/competitions/${id}/queue`}
+          className="text-sm text-amber-400 hover:text-amber-300"
+        >
+          Verification Queue →
+        </Link>
+      </div>
+
       {detail.events.map((ev) => (
         <div key={ev.id} className="mt-6">
           <div className="mb-2 text-sm font-semibold text-zinc-300">

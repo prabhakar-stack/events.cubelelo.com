@@ -85,6 +85,6 @@ describe("admin verification queue", () => {
 
     // Audit log should have the entry
     expect(db.auditLog).toHaveLength(1);
-    expect(db.auditLog[0].action).toBe("result_verified");
+    expect(db.auditLog[0]!.action).toBe("result_verified");
   });
 });

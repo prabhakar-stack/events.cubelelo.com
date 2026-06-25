@@ -17,6 +17,12 @@ export interface AuthUser {
   email: string;
   name: string;
   role: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  instagram?: string;
+  wcaId?: string;
+  wcaVerified?: boolean;
 }
 
 export interface RoundRef {
@@ -32,21 +38,82 @@ export interface CompetitionSummary {
   title: string;
   type: string;
   status: string;
+  description?: string;
+  baseFee?: number;
+  perEventFee?: number;
+  registrationDeadline?: string;
+  coverUrl?: string;
+  createdAt?: string;
+  eventTypes?: string[];
+  registrationCount?: number;
+}
+
+export interface EventDetail {
+  id: string;
+  eventType: string;
+  roundCount: number;
+  cutoffMs?: number;
+  timeLimitMs?: number;
+  rounds: RoundRef[];
 }
 
 export interface CompetitionDetail {
   id: string;
   title: string;
+  type: string;
   status: string;
-  events: { id: string; eventType: string; rounds: RoundRef[] }[];
+  description?: string;
+  rulesMd?: string;
+  baseFee?: number;
+  perEventFee?: number;
+  registrationDeadline?: string;
+  coverUrl?: string;
+  bannerUrl?: string;
+  createdBy?: string;
+  createdAt?: string;
+  registrationCount?: number;
+  events: EventDetail[];
 }
 
 export interface ResultDto {
   id: string;
   userId: string;
+  roundId?: string;
   ao5Ms: number | null;
   bestSingleMs: number | null;
   rank: number | null;
+  solves?: Solve[];
+  flagStatus?: string;
+  videoUrl?: string;
+}
+
+export interface RegistrationDto {
+  id: string;
+  competitionId: string;
+  competitionTitle: string;
+  paymentStatus: string;
+  events: { id: string; eventType: string }[];
+  createdAt: string;
+}
+
+export interface UserProfile {
+  clId: string;
+  name: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  avatarUrl?: string;
+  instagram?: string;
+  wcaId?: string;
+  wcaVerified?: boolean;
+  createdAt?: string;
+  competitionHistory: Array<{
+    competitionId: string;
+    competitionTitle: string;
+    status: string;
+    events: string[];
+  }>;
+  personalBests: Record<string, { bestSingle: number | null; bestAo5: number | null }>;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -82,6 +149,12 @@ async function sendJson<T>(
   return res.json() as Promise<T>;
 }
 
+// ── Competitions ──
+export function fetchCompetitions(status?: string): Promise<CompetitionSummary[]> {
+  const qs = status ? `?status=${status}` : "";
+  return getJson<CompetitionSummary[]>(`/api/v1/competitions${qs}`);
+}
+
 export function fetchCompetition(id: string): Promise<CompetitionDetail> {
   return getJson<CompetitionDetail>(`/api/v1/competitions/${id}`);
 }
@@ -96,8 +169,11 @@ export function submitResult(
   roundId: string,
   body: { solves: Solve[]; videoUrl?: string },
 ): Promise<ResultDto> {
-  // userId is derived server-side from the authenticated user's CL ID.
   return sendJson("POST", `/api/v1/rounds/${roundId}/results`, body);
+}
+
+export function fetchLeaderboard(roundId: string): Promise<ResultDto[]> {
+  return getJson<ResultDto[]>(`/api/v1/rounds/${roundId}/results`);
 }
 
 // ── Auth ──
@@ -116,10 +192,7 @@ export function fetchMe(): Promise<AuthUser> {
   return getJson<AuthUser>(`/api/v1/users/me`);
 }
 
-export function fetchLeaderboard(roundId: string): Promise<ResultDto[]> {
-  return getJson<ResultDto[]>(`/api/v1/rounds/${roundId}/results`);
-}
-
+// ── Lobby ──
 export interface RosterEntry {
   userId: string;
   name: string;
@@ -141,23 +214,65 @@ export function fetchLobby(roundId: string): Promise<LobbyState> {
   return getJson<LobbyState>(`/api/v1/rounds/${roundId}/lobby`);
 }
 
-// ── Admin ──
-export function fetchCompetitions(): Promise<CompetitionSummary[]> {
-  return getJson<CompetitionSummary[]>(`/api/v1/competitions`);
+// ── Registration ──
+export function registerForCompetition(
+  competitionId: string,
+  eventIds: string[],
+): Promise<{ registrationId: string; totalFee: number; paymentStatus: string }> {
+  return sendJson("POST", `/api/v1/competitions/${competitionId}/register`, {
+    eventIds,
+  });
 }
 
+export function fetchMyRegistrations(): Promise<RegistrationDto[]> {
+  return getJson<RegistrationDto[]>(`/api/v1/me/registrations`);
+}
+
+// ── Payments ──
+export function createPaymentOrder(
+  registrationId: string,
+): Promise<{ orderId: string; amount: number; currency: string; paymentId: string }> {
+  return sendJson("POST", `/api/v1/payments/order`, { registrationId });
+}
+
+// ── User Profiles ──
+export function fetchUserProfile(clId: string): Promise<UserProfile> {
+  return getJson<UserProfile>(`/api/v1/users/${clId}`);
+}
+
+export function updateMyProfile(
+  fields: Record<string, string>,
+): Promise<AuthUser> {
+  return sendJson("PATCH", `/api/v1/users/me`, fields);
+}
+
+// ── Admin ──
 export function createCompetition(body: {
   title: string;
   type: string;
-  eventType: string;
-  roundCount: number;
+  description?: string;
+  rulesMd?: string;
+  baseFee?: number;
+  perEventFee?: number;
+  registrationDeadline?: string;
+  eventType?: string;
+  roundCount?: number;
+  events?: Array<{ eventType: string; roundCount?: number; cutoffMs?: number; timeLimitMs?: number }>;
 }): Promise<{ id: string }> {
   return sendJson("POST", `/api/v1/admin/competitions`, body);
 }
 
 export function updateCompetition(
   id: string,
-  body: { title?: string; status?: string; rulesMd?: string },
+  body: {
+    title?: string;
+    status?: string;
+    description?: string;
+    rulesMd?: string;
+    baseFee?: number;
+    perEventFee?: number;
+    registrationDeadline?: string;
+  },
 ): Promise<{ id: string; title: string; status: string }> {
   return sendJson("PATCH", `/api/v1/admin/competitions/${id}`, body);
 }
@@ -175,4 +290,21 @@ export function openRound(roundId: string): Promise<{ id: string; status: string
 
 export function closeRound(roundId: string): Promise<{ id: string; status: string }> {
   return sendJson("POST", `/api/v1/admin/rounds/${roundId}/close`);
+}
+
+export function fetchVerificationQueue(
+  competitionId: string,
+): Promise<ResultDto[]> {
+  return getJson<ResultDto[]>(`/api/v1/admin/competitions/${competitionId}/queue`);
+}
+
+export function verifyResult(
+  resultId: string,
+  action: string,
+  reason?: string,
+): Promise<{ id: string; flagStatus: string }> {
+  return sendJson("POST", `/api/v1/admin/results/${resultId}/verify`, {
+    action,
+    reason,
+  });
 }

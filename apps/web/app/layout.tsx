@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/features/auth/AuthProvider";
+import { NavBar } from "@/features/layout/NavBar";
 
 export const metadata: Metadata = {
   title: "Cubelelo Events",
@@ -15,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <NavBar />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
