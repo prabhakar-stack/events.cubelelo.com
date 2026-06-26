@@ -2,10 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "api",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "watch", "src/server.ts"],
+      "port": 4000,
+      "cwd": "apps/api"
+    },
+    {
       "name": "web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "@cubers/web"],
-      "port": 3000
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev"],
+      "port": 3000,
+      "cwd": "apps/web"
     }
   ]
 }
