@@ -18,7 +18,7 @@ const COMP_STATUSES: CompStatus[] = [
   "results_pending",
   "completed",
 ];
-const FLAG_ACTIONS: FlagStatus[] = ["verified", "disqualified"];
+const FLAG_ACTIONS: FlagStatus[] = ["verified", "plus2", "dnf", "disqualified"];
 
 export async function registerAdminRoutes(
   app: FastifyInstance,
@@ -146,6 +146,84 @@ export async function registerAdminRoutes(
     };
   });
 
+  // Duplicate a competition (optionally reuse scrambles).
+  app.post<{
+    Params: { id: string };
+    Body: { reuseScrambles?: boolean; type?: CompType };
+  }>("/api/v1/admin/competitions/:id/duplicate", adminOnly, async (req, reply) => {
+    const source = db.competitions.get(req.params.id);
+    if (!source) return reply.code(404).send({ error: "competition_not_found" });
+
+    const user = db.users.get(req.authClaims!.sub);
+    const now = new Date().toISOString();
+    const overrideType =
+      req.body?.type && COMP_TYPES.includes(req.body.type) ? req.body.type : source.type;
+
+    const comp: Competition = {
+      id: randomUUID().slice(0, 8),
+      title: `${source.title} (copy)`,
+      type: overrideType,
+      status: "draft",
+      description: source.description,
+      rulesMd: source.rulesMd,
+      baseFee: overrideType === "free" ? 0 : source.baseFee,
+      perEventFee: overrideType === "free" ? 0 : source.perEventFee,
+      registrationDeadline: undefined,
+      createdBy: user?.clId,
+      createdAt: now,
+    };
+    db.competitions.set(comp.id, comp);
+
+    const sourceEvents = [...db.events.values()].filter(
+      (e) => e.competitionId === source.id,
+    );
+
+    for (const srcEvent of sourceEvents) {
+      const event: CompetitionEvent = {
+        id: randomUUID(),
+        competitionId: comp.id,
+        eventType: srcEvent.eventType,
+        roundCount: srcEvent.roundCount,
+        cutoffMs: srcEvent.cutoffMs,
+        timeLimitMs: srcEvent.timeLimitMs,
+      };
+      db.events.set(event.id, event);
+
+      const srcRounds = [...db.rounds.values()]
+        .filter((r) => r.competitionEventId === srcEvent.id)
+        .sort((a, b) => a.roundNumber - b.roundNumber);
+
+      for (const srcRound of srcRounds) {
+        const round: Round = {
+          id: randomUUID(),
+          competitionEventId: event.id,
+          roundNumber: srcRound.roundNumber,
+          status: "pending",
+        };
+        db.rounds.set(round.id, round);
+
+        if (req.body?.reuseScrambles) {
+          const srcSet = [...db.scrambleSets.values()].find(
+            (s) => s.roundId === srcRound.id,
+          );
+          if (srcSet) {
+            const newSet: import("../../db/types").ScrambleSet = {
+              id: randomUUID(),
+              roundId: round.id,
+              scrambles: [...srcSet.scrambles],
+              generatedAt: now,
+              lockedAt: now,
+              lockedBy: "duplicate",
+            };
+            db.scrambleSets.set(newSet.id, newSet);
+          }
+        }
+      }
+    }
+
+    return reply.code(201).send({ id: comp.id, title: comp.title });
+  });
+
   // Flagged results verification queue for a competition.
   app.get<{ Params: { id: string } }>(
     "/api/v1/admin/competitions/:id/queue",
@@ -159,16 +237,48 @@ export async function registerAdminRoutes(
         resultsForRound(db, round.id).filter((r) => r.flagStatus === "flagged"),
       );
 
-      return flagged.map((r) => ({
-        id: r.id,
-        roundId: r.roundId,
-        userId: r.userId,
-        ao5Ms: r.ao5Ms,
-        bestSingleMs: r.bestSingleMs,
-        videoUrl: r.videoUrl,
-        flagStatus: r.flagStatus,
-        submittedAt: r.submittedAt,
-      }));
+      const thresholds: Record<string, number> = {
+        "333": 3000, "222": 800, "444": 18000, "555": 35000,
+        "666": 75000, "777": 110000, "pyram": 1000, "skewb": 1200,
+        "minx": 25000, "333oh": 6000, "333bf": 12000, "sq1": 5000, "clock": 3000,
+      };
+
+      return flagged.map((r) => {
+        const round = db.rounds.get(r.roundId);
+        const event = round ? db.events.get(round.competitionEventId) : undefined;
+        const eventType = event?.eventType ?? "unknown";
+        const user = [...db.users.values()].find((u) => u.clId === r.userId);
+
+        const userResultCount = [...db.results.values()].filter(
+          (res) => res.userId === r.userId,
+        ).length;
+
+        const reasons: string[] = [];
+        const threshold = thresholds[eventType];
+        if (threshold && r.ao5Ms !== null && r.ao5Ms < threshold) {
+          reasons.push(`ao5 (${(r.ao5Ms / 1000).toFixed(2)}s) below ${eventType} threshold (${(threshold / 1000).toFixed(1)}s)`);
+        }
+        if (userResultCount <= 1) {
+          reasons.push("New user with no prior competition history");
+        }
+
+        return {
+          id: r.id,
+          roundId: r.roundId,
+          userId: r.userId,
+          userName: user?.name ?? r.userId,
+          userClId: user?.clId ?? r.userId,
+          eventType,
+          roundNumber: round?.roundNumber ?? null,
+          ao5Ms: r.ao5Ms,
+          bestSingleMs: r.bestSingleMs,
+          solves: r.solves,
+          videoUrl: r.videoUrl,
+          flagStatus: r.flagStatus,
+          suspicionReasons: reasons,
+          submittedAt: r.submittedAt,
+        };
+      });
     },
   );
 

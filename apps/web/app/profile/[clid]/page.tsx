@@ -4,10 +4,13 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { fetchUserProfile, type UserProfile } from "@/lib/api";
-import { formatTime } from "@cubers/timer-core";
+import { formatTime, formatSolve } from "@cubers/timer-core";
+import { useAuth } from "@/features/auth/AuthProvider";
+import { StatusBadge } from "@/features/competitions/StatusBadge";
 
 export default function ProfilePage() {
   const params = useParams<{ clid: string }>();
+  const { user: me } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,94 +39,509 @@ export default function ProfilePage() {
     );
   }
 
+  const isOwnProfile = me?.clId === profile.clId;
   const pbEntries = Object.entries(profile.personalBests);
+  const eventStatEntries = Object.entries(profile.stats?.eventStats ?? {});
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
-      {/* Identity block */}
-      <div className="mb-8 flex items-start gap-6">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800 text-xl font-bold text-zinc-400">
-          {profile.name.charAt(0).toUpperCase()}
+    <main className="mx-auto max-w-4xl px-6 py-8">
+      {/* ═══ Section 1: Profile Details ═══ */}
+      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <div className="flex items-start justify-between">
+          <div className="flex items-start gap-5">
+            <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-emerald-600 text-2xl font-bold text-white">
+              {profile.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-zinc-100">{profile.name}</h1>
+              <p className="font-mono text-sm text-emerald-400">{profile.clId}</p>
+              <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
+                {(profile.city || profile.state || profile.country) && (
+                  <span>
+                    {[profile.city, profile.state, profile.country]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </span>
+                )}
+                {profile.wcaId && (
+                  <span className={profile.wcaVerified ? "text-emerald-400" : ""}>
+                    WCA: {profile.wcaId}
+                    {profile.wcaVerified ? " ✓" : ""}
+                  </span>
+                )}
+                {profile.instagram && (
+                  <span className="text-zinc-400">@{profile.instagram}</span>
+                )}
+              </div>
+            </div>
+          </div>
+          {isOwnProfile && (
+            <Link
+              href="/settings"
+              className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
+            >
+              Edit Profile
+            </Link>
+          )}
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-100">{profile.name}</h1>
-          <p className="font-mono text-sm text-emerald-400">{profile.clId}</p>
-          <div className="mt-1 flex flex-wrap gap-3 text-xs text-zinc-500">
-            {profile.city && <span>{profile.city}</span>}
-            {profile.state && <span>{profile.state}</span>}
-            {profile.country && <span>{profile.country}</span>}
-            {profile.wcaId && (
-              <span className={profile.wcaVerified ? "text-emerald-400" : ""}>
-                WCA: {profile.wcaId}
-                {profile.wcaVerified ? " ✓" : ""}
-              </span>
-            )}
-            {profile.instagram && (
-              <span className="text-zinc-400">{profile.instagram}</span>
-            )}
+      </section>
+
+      {/* ═══ Section 2: Stats ═══ */}
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
+          Statistics
+        </h2>
+
+        {/* Summary counters */}
+        <div className="mb-6 flex gap-6">
+          <div className="text-center">
+            <div className="font-mono text-3xl font-bold text-zinc-100">
+              {profile.stats?.totalCompetitions ?? 0}
+            </div>
+            <div className="text-xs text-zinc-500">Competitions</div>
+          </div>
+          <div className="text-center">
+            <div className="font-mono text-3xl font-bold text-zinc-100">
+              {profile.stats?.totalSolves ?? 0}
+            </div>
+            <div className="text-xs text-zinc-500">Total Solves</div>
+          </div>
+          <div className="text-center">
+            <div className="font-mono text-3xl font-bold text-zinc-100">
+              {pbEntries.length}
+            </div>
+            <div className="text-xs text-zinc-500">Events</div>
           </div>
         </div>
-      </div>
 
-      {/* Personal Bests */}
-      {pbEntries.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500">
-            Personal Bests
-          </h2>
-          <div className="overflow-x-auto rounded-xl border border-zinc-800">
+        {/* Solve timeline line graph */}
+        <SolveTimelineGraph
+          timeline={profile.stats?.solveTimeline ?? {}}
+          eventStats={profile.stats?.eventStats ?? {}}
+        />
+
+        {/* Practice placeholder */}
+        <div className="mt-4 rounded-lg border border-dashed border-zinc-800 p-3 text-center text-xs text-zinc-600">
+          Practice stats coming soon
+        </div>
+      </section>
+
+      {/* ═══ Section 3: Personal Bests ═══ */}
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
+          Personal Bests
+        </h2>
+        {pbEntries.length > 0 ? (
+          <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500">
-                  <th className="px-4 py-3">Event</th>
-                  <th className="px-4 py-3 text-right">Best Single</th>
-                  <th className="px-4 py-3 text-right">Best ao5</th>
+                <tr className="border-b border-zinc-800 text-left text-[11px] uppercase tracking-wider text-zinc-500">
+                  <th className="pb-2 pr-4">Event</th>
+                  <th className="pb-2 px-4 text-right">Comp Single</th>
+                  <th className="pb-2 px-4 text-right">Comp ao5</th>
+                  <th className="pb-2 px-4 text-right text-zinc-700">Practice Single</th>
+                  <th className="pb-2 pl-4 text-right text-zinc-700">Practice ao5</th>
                 </tr>
               </thead>
               <tbody>
                 {pbEntries.map(([event, pb]) => (
-                  <tr key={event} className="border-b border-zinc-800/50">
-                    <td className="px-4 py-2.5 font-semibold text-zinc-200">
+                  <tr key={event} className="border-b border-zinc-800/40">
+                    <td className="py-2.5 pr-4 font-mono font-semibold text-zinc-200">
                       {event}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-zinc-300">
+                    <td className="py-2.5 px-4 text-right font-mono text-zinc-300">
                       {pb.bestSingle !== null ? formatTime(pb.bestSingle) : "—"}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-zinc-300">
+                    <td className="py-2.5 px-4 text-right font-mono text-zinc-300">
                       {pb.bestAo5 !== null ? formatTime(pb.bestAo5) : "—"}
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-mono text-zinc-700">
+                      —
+                    </td>
+                    <td className="py-2.5 pl-4 text-right font-mono text-zinc-700">
+                      —
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </section>
-      )}
+        ) : (
+          <p className="text-sm text-zinc-600">No personal bests yet.</p>
+        )}
+      </section>
 
-      {/* Competition history */}
-      <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500">
+      {/* ═══ Section 4: Competition History ═══ */}
+      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
           Competition History
         </h2>
         {profile.competitionHistory.length === 0 ? (
-          <p className="text-sm text-zinc-500">No competitions yet.</p>
+          <p className="text-sm text-zinc-600">No competitions yet.</p>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {profile.competitionHistory.map((h) => (
-              <Link
-                key={h.competitionId}
-                href={`/competitions/${h.competitionId}`}
-                className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3 transition hover:border-zinc-700"
-              >
-                <span className="text-zinc-200">{h.competitionTitle}</span>
-                <span className="text-xs text-zinc-500">
-                  {h.events.join(", ")}
-                </span>
-              </Link>
+              <CompetitionHistoryCard key={h.competitionId} entry={h} />
             ))}
           </div>
         )}
       </section>
+
+      {/* ═══ Footer ═══ */}
+      <footer className="mt-10 border-t border-zinc-800 py-6 text-center text-xs text-zinc-600">
+        <p>© {new Date().getFullYear()} Cubelelo Events. All rights reserved.</p>
+      </footer>
     </main>
+  );
+}
+
+/* ── Solve timeline line graph (LeetCode-style) ── */
+function SolveTimelineGraph({
+  timeline,
+  eventStats,
+}: {
+  timeline: Record<string, Array<{ timeMs: number; ao5Ms: number | null; date: string; compTitle: string }>>;
+  eventStats: Record<string, { mean: number | null; stdDev: number | null; solveCount: number }>;
+}) {
+  const eventTypes = Object.keys(timeline);
+  const [selected, setSelected] = useState(eventTypes[0] ?? "");
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  if (eventTypes.length === 0) {
+    return (
+      <p className="text-sm text-zinc-600">
+        No competition data yet. Compete to see your stats!
+      </p>
+    );
+  }
+
+  const points = timeline[selected] ?? [];
+  if (points.length === 0) return null;
+
+  const stat = eventStats[selected];
+  const times = points.map((p) => p.timeMs);
+  const minT = Math.min(...times);
+  const maxT = Math.max(...times);
+  const range = maxT - minT || 1;
+
+  const W = 600;
+  const H = 200;
+  const PAD_L = 52;
+  const PAD_R = 16;
+  const PAD_T = 20;
+  const PAD_B = 24;
+  const plotW = W - PAD_L - PAD_R;
+  const plotH = H - PAD_T - PAD_B;
+
+  const x = (i: number) => PAD_L + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
+  const y = (t: number) => PAD_T + plotH - ((t - minT) / range) * plotH;
+
+  const pathD = points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.timeMs).toFixed(1)}`)
+    .join(" ");
+
+  const gradientD = `${pathD} L ${x(points.length - 1).toFixed(1)} ${(PAD_T + plotH).toFixed(1)} L ${PAD_L.toFixed(1)} ${(PAD_T + plotH).toFixed(1)} Z`;
+
+  // Y-axis ticks (5 ticks)
+  const ticks = Array.from({ length: 5 }, (_, i) => minT + (range * i) / 4);
+
+  // Mean line
+  const meanY = stat?.mean != null ? y(stat.mean) : null;
+
+  return (
+    <div>
+      {/* Event selector tabs */}
+      <div className="mb-3 flex flex-wrap gap-1">
+        {eventTypes.map((et) => (
+          <button
+            key={et}
+            onClick={() => { setSelected(et); setHovered(null); }}
+            className={`rounded-lg px-3 py-1.5 font-mono text-xs font-semibold transition ${
+              selected === et
+                ? "bg-emerald-600 text-white"
+                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+            }`}
+          >
+            {et}
+          </button>
+        ))}
+      </div>
+
+      {/* Graph */}
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full"
+          style={{ maxHeight: 260 }}
+          onMouseLeave={() => setHovered(null)}
+        >
+          {/* Grid lines */}
+          {ticks.map((t, i) => (
+            <g key={i}>
+              <line
+                x1={PAD_L}
+                y1={y(t)}
+                x2={W - PAD_R}
+                y2={y(t)}
+                stroke="#27272a"
+                strokeWidth={1}
+              />
+              <text
+                x={PAD_L - 6}
+                y={y(t) + 3}
+                textAnchor="end"
+                fontSize={9}
+                fontFamily="monospace"
+                className="fill-zinc-600"
+              >
+                {formatTime(t)}
+              </text>
+            </g>
+          ))}
+
+          {/* Mean line */}
+          {meanY != null && meanY >= PAD_T && meanY <= PAD_T + plotH && (
+            <>
+              <line
+                x1={PAD_L}
+                y1={meanY}
+                x2={W - PAD_R}
+                y2={meanY}
+                stroke="#f59e0b"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+                opacity={0.6}
+              />
+              <text
+                x={W - PAD_R + 2}
+                y={meanY + 3}
+                fontSize={8}
+                fontFamily="monospace"
+                className="fill-amber-500"
+              >
+                avg
+              </text>
+            </>
+          )}
+
+          {/* Gradient fill */}
+          <defs>
+            <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <path d={gradientD} fill="url(#lineGrad)" />
+
+          {/* Line */}
+          <path
+            d={pathD}
+            fill="none"
+            stroke="#10b981"
+            strokeWidth={2}
+            strokeLinejoin="round"
+          />
+
+          {/* Data points + hover areas */}
+          {points.map((p, i) => (
+            <g key={i}>
+              <circle
+                cx={x(i)}
+                cy={y(p.timeMs)}
+                r={hovered === i ? 5 : 3}
+                className={hovered === i ? "fill-emerald-400" : "fill-emerald-600"}
+                stroke="#09090b"
+                strokeWidth={1.5}
+              />
+              {/* Invisible hover target */}
+              <rect
+                x={x(i) - (plotW / points.length) / 2}
+                y={PAD_T}
+                width={plotW / points.length}
+                height={plotH}
+                fill="transparent"
+                onMouseEnter={() => setHovered(i)}
+              />
+            </g>
+          ))}
+
+          {/* X-axis: solve numbers */}
+          {points.length <= 20
+            ? points.map((_, i) => (
+                <text
+                  key={i}
+                  x={x(i)}
+                  y={H - 4}
+                  textAnchor="middle"
+                  fontSize={8}
+                  fontFamily="monospace"
+                  className="fill-zinc-600"
+                >
+                  {i + 1}
+                </text>
+              ))
+            : [0, Math.floor(points.length / 2), points.length - 1].map((i) => (
+                <text
+                  key={i}
+                  x={x(i)}
+                  y={H - 4}
+                  textAnchor="middle"
+                  fontSize={8}
+                  fontFamily="monospace"
+                  className="fill-zinc-600"
+                >
+                  {i + 1}
+                </text>
+              ))}
+        </svg>
+
+        {/* Tooltip */}
+        {hovered !== null && points[hovered] && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs shadow-lg"
+            style={{
+              left: `${(x(hovered) / W) * 100}%`,
+              top: `${(y(points[hovered].timeMs) / H) * 100 - 14}%`,
+              transform: "translate(-50%, -100%)",
+            }}
+          >
+            <div className="font-mono font-bold text-emerald-400">
+              {formatTime(points[hovered].timeMs)}
+            </div>
+            {points[hovered].ao5Ms != null && (
+              <div className="text-zinc-400">
+                ao5: {formatTime(points[hovered].ao5Ms!)}
+              </div>
+            )}
+            <div className="text-zinc-500">{points[hovered].compTitle}</div>
+            <div className="text-zinc-600">Solve #{hovered + 1}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Summary stats below graph */}
+      {stat && (
+        <div className="mt-2 flex gap-6 text-xs text-zinc-500">
+          {stat.mean != null && (
+            <span>
+              Mean: <span className="font-mono text-zinc-300">{formatTime(stat.mean)}</span>
+            </span>
+          )}
+          {stat.stdDev != null && (
+            <span>
+              σ: <span className="font-mono text-zinc-300">{formatTime(stat.stdDev)}</span>
+            </span>
+          )}
+          <span>
+            Solves: <span className="font-mono text-zinc-300">{stat.solveCount}</span>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Competition history card (expandable) ── */
+function CompetitionHistoryCard({
+  entry,
+}: {
+  entry: UserProfile["competitionHistory"][number];
+}) {
+  const [open, setOpen] = useState(false);
+  const eventTypes = entry.events.map((e) => e.eventType).join(", ");
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950/40">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-zinc-900/40"
+      >
+        <div className="flex items-center gap-3">
+          <span className="font-semibold text-zinc-200">{entry.competitionTitle}</span>
+          <StatusBadge status={entry.status} />
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-zinc-500">{eventTypes}</span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-zinc-800 px-4 py-3">
+          {entry.events.length === 0 ? (
+            <p className="text-xs text-zinc-600">No results for this competition.</p>
+          ) : (
+            <div className="space-y-4">
+              {entry.events.map((ev) => (
+                <div key={ev.eventType}>
+                  <div className="mb-2 font-mono text-sm font-semibold text-zinc-300">
+                    {ev.eventType}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-zinc-800 text-left text-[10px] uppercase tracking-wider text-zinc-600">
+                          <th className="pb-1.5 pr-3">Round</th>
+                          <th className="pb-1.5 px-3 text-right">Rank</th>
+                          <th className="pb-1.5 px-3 text-right">ao5</th>
+                          <th className="pb-1.5 px-3 text-right">Best</th>
+                          <th className="pb-1.5 pl-3">Solves</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ev.rounds.map((rd) => (
+                          <tr key={rd.roundNumber} className="border-b border-zinc-800/30">
+                            <td className="py-1.5 pr-3 text-zinc-400">
+                              R{rd.roundNumber}
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-mono text-zinc-200">
+                              {rd.rank !== null ? `#${rd.rank}` : "—"}
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-mono text-zinc-200">
+                              {rd.ao5Ms !== null ? formatTime(rd.ao5Ms) : "DNF"}
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-mono text-zinc-200">
+                              {rd.bestSingleMs !== null
+                                ? formatTime(rd.bestSingleMs)
+                                : "—"}
+                            </td>
+                            <td className="py-1.5 pl-3 font-mono text-zinc-500">
+                              {rd.solves
+                                .map((s) => formatSolve(s))
+                                .join("  ")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 text-right">
+            <Link
+              href={`/competitions/${entry.competitionId}`}
+              className="text-xs text-zinc-500 transition hover:text-zinc-300"
+            >
+              View competition →
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

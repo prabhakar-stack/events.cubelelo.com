@@ -40,6 +40,7 @@ export function CompetitionTerminal({
   const [index, setIndex] = useState(0);
   const [solves, setSolves] = useState<Solve[]>([]);
   const [pendingPenalty, setPendingPenalty] = useState<SolvePenalty>("none");
+  const [scrambleStep, setScrambleStep] = useState(0);
 
   const { user } = useAuth();
   const userId = user?.clId ?? "guest";
@@ -51,7 +52,6 @@ export function CompetitionTerminal({
     | { kind: "error"; message: string }
   >({ kind: "idle" });
 
-  // Fetch the round + its server-locked scramble set from the API.
   useEffect(() => {
     let active = true;
     (async () => {
@@ -84,7 +84,6 @@ export function CompetitionTerminal({
     };
   }, [competitionId, round, eventId]);
 
-  // Seed penalty controls from the engine's verdict when a solve stops.
   useEffect(() => {
     if (snapshot.phase === "stopped" && snapshot.result) {
       setPendingPenalty(snapshot.result.penalty);
@@ -93,7 +92,19 @@ export function CompetitionTerminal({
 
   const roundComplete = solves.length >= SOLVES_PER_ROUND;
 
-  // Input: spacebar (any key stops a running solve), Escape cancels.
+  const currentScramble = load.kind === "ready" ? (load.scrambles[index] ?? "") : "";
+  const scrambleMoves = useMemo(() => currentScramble.trim().split(/\s+/).filter(Boolean), [currentScramble]);
+  const totalSteps = scrambleMoves.length;
+
+  useEffect(() => {
+    setScrambleStep(totalSteps);
+  }, [totalSteps]);
+
+  const visibleScrambleAlg = useMemo(
+    () => scrambleMoves.slice(0, scrambleStep).join(" "),
+    [scrambleMoves, scrambleStep],
+  );
+
   useEffect(() => {
     if (load.kind !== "ready" || roundComplete) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -142,7 +153,6 @@ export function CompetitionTerminal({
         solves,
         videoUrl: videoUrl.trim() || undefined,
       });
-      // The live leaderboard updates itself via the socket broadcast.
       setSubmit({ kind: "done", rank: result.rank });
     } catch (e) {
       setSubmit({
@@ -150,7 +160,7 @@ export function CompetitionTerminal({
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [load, userId, solves, videoUrl]);
+  }, [load, solves, videoUrl]);
 
   const onPointerDown = useCallback(() => {
     if (snapshot.phase === "stopped" || roundComplete) return;
@@ -162,7 +172,7 @@ export function CompetitionTerminal({
   }, [snapshot.phase, roundComplete, up]);
 
   const runningAo5 = ao5(solves);
-  const focusMode = snapshot.phase === "ready" || snapshot.phase === "solving";
+  const focusMode = snapshot.phase === "inspection" || snapshot.phase === "ready" || snapshot.phase === "solving";
 
   const event = useMemo(
     () => getEvent(load.kind === "ready" ? load.eventType : eventId),
@@ -188,15 +198,13 @@ export function CompetitionTerminal({
     );
   }
 
-  const currentScramble = load.scrambles[index] ?? "";
-
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 select-none">
-      {/* Locked header */}
-      <header className="flex items-center justify-between border-b border-zinc-800 px-6 py-3 text-sm">
+      {/* ── Locked header ── */}
+      <header className="pointer-events-none flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-6 py-3 text-sm">
         <div className="flex items-center gap-4">
           <span className="rounded bg-zinc-800 px-2 py-1 font-mono text-xs uppercase tracking-wide text-zinc-400">
-            Comp {competitionId}
+            {competitionId}
           </span>
           <span className="font-semibold">{event.name}</span>
           <span className="text-zinc-500">Round {round}</span>
@@ -222,6 +230,7 @@ export function CompetitionTerminal({
           signedIn={Boolean(user)}
         />
       ) : focusMode ? (
+        /* ── Full-screen timer (inspection / ready / solving) ── */
         <div
           className="flex flex-1 flex-col items-center justify-center gap-4 px-6"
           onPointerDown={onPointerDown}
@@ -232,58 +241,105 @@ export function CompetitionTerminal({
         </div>
       ) : (
         <>
-          {/* Scramble (locked, not selectable) */}
-          <div className="border-b border-zinc-800 px-6 py-4">
-            <div className="text-[11px] uppercase tracking-wider text-zinc-500">
-              Scramble
-            </div>
-            <div className="mt-1 font-mono text-lg text-zinc-200">
-              {currentScramble}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 p-6 md:grid-cols-2">
-            <div className="flex items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-              <TwistyPlayer
-                puzzle={event.puzzle}
-                scramble={currentScramble}
-                className="h-64 w-full"
-              />
-            </div>
-
-            <div className="flex flex-col gap-6">
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-              <div className="mb-3 flex items-center justify-between text-sm">
-                <span className="text-zinc-400">This round</span>
-                <span className="text-zinc-400">
-                  ao5:{" "}
-                  <span className="font-mono text-zinc-100">
-                    {runningAo5 === null ? "—" : formatTime(runningAo5)}
-                  </span>
-                </span>
-              </div>
-              <ol className="space-y-1 font-mono text-sm">
-                {Array.from({ length: SOLVES_PER_ROUND }).map((_, i) => (
-                  <li
-                    key={i}
-                    className={`flex justify-between rounded px-2 py-1 ${
-                      i === index ? "bg-zinc-800/60" : ""
-                    }`}
-                  >
-                    <span className="text-zinc-500">Solve {i + 1}</span>
-                    <span className={solves[i] ? "text-zinc-100" : "text-zinc-700"}>
-                      {solves[i] ? formatSolve(solves[i]!) : "—"}
+          {/* ══════ TOP: info panel ══════ */}
+          <div className="flex-shrink-0">
+            {/* Scramble text — locked, no select/copy */}
+            <div className="flex items-start gap-3 border-b border-zinc-800 px-6 py-4">
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  Scramble
+                </div>
+                <div
+                  className="mt-1 font-mono text-lg leading-relaxed text-zinc-200"
+                  style={{ userSelect: "none", WebkitUserSelect: "none" }}
+                  onCopy={(e) => e.preventDefault()}
+                  onCut={(e) => e.preventDefault()}
+                >
+                  {scrambleMoves.map((move, i) => (
+                    <span
+                      key={i}
+                      className={
+                        i < scrambleStep
+                          ? "text-zinc-200"
+                          : "text-zinc-600"
+                      }
+                    >
+                      {move}
+                      {i < scrambleMoves.length - 1 ? " " : ""}
                     </span>
-                  </li>
-                ))}
-              </ol>
+                  ))}
+                </div>
               </div>
-              <LeaderboardCard board={liveBoard} userId={userId} />
+              {/* Prev / Next step controls */}
+              <div className="flex flex-col gap-1 pt-5">
+                <button
+                  onClick={() => setScrambleStep((s) => Math.max(0, s - 1))}
+                  disabled={scrambleStep <= 0}
+                  className="rounded border border-zinc-700 px-4 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-30"
+                >
+                  prev
+                </button>
+                <button
+                  onClick={() => setScrambleStep((s) => Math.min(totalSteps, s + 1))}
+                  disabled={scrambleStep >= totalSteps}
+                  className="rounded border border-zinc-700 px-4 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-30"
+                >
+                  next
+                </button>
+              </div>
+            </div>
+
+            {/* 2D visualizer + solve status grid */}
+            <div className="grid grid-cols-1 gap-6 px-6 pb-4 pt-4 md:grid-cols-2">
+              {/* 2D scramble visualizer — shows state at current step */}
+              <div className="flex items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                <TwistyPlayer
+                  puzzle={event.puzzle}
+                  scramble={visibleScrambleAlg}
+                  className="h-64 w-full"
+                />
+              </div>
+
+              {/* Solve status for this round */}
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                {/* Progress bar — scoped to solves panel */}
+                <div className="mb-3">
+                  <ProgressBar current={solves.length} total={SOLVES_PER_ROUND} />
+                </div>
+                <div className="mb-3 flex items-center justify-between text-sm">
+                  <span className="text-zinc-400">This round</span>
+                  <span className="text-zinc-400">
+                    ao5:{" "}
+                    <span className="font-mono text-zinc-100">
+                      {runningAo5 === null ? "—" : formatTime(runningAo5)}
+                    </span>
+                  </span>
+                </div>
+                <ol className="space-y-1 font-mono text-sm">
+                  {Array.from({ length: SOLVES_PER_ROUND }).map((_, i) => (
+                    <li
+                      key={i}
+                      className={`flex justify-between rounded px-2 py-1 ${
+                        i === index ? "bg-zinc-800/60" : ""
+                      }`}
+                    >
+                      <span className="text-zinc-500">Solve {i + 1}</span>
+                      <span className={solves[i] ? "text-zinc-100" : "text-zinc-700"}>
+                        {solves[i] ? formatSolve(solves[i]!) : "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             </div>
           </div>
 
+          {/* ══════ DIVIDER ══════ */}
+          <div className="border-t border-zinc-800" />
+
+          {/* ══════ BOTTOM: timer area ══════ */}
           <div
-            className="flex flex-col items-center gap-4 border-t border-zinc-800 px-6 py-10"
+            className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-10"
             onPointerDown={onPointerDown}
             onPointerUp={onPointerUp}
           >
@@ -310,14 +366,33 @@ export function CompetitionTerminal({
   );
 }
 
+/* ── Progress bar ── */
+function ProgressBar({ current, total }: { current: number; total: number }) {
+  const pct = (current / total) * 100;
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-800">
+        <div
+          className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="font-mono text-xs text-zinc-500">
+        {current}/{total}
+      </span>
+    </div>
+  );
+}
+
+/* ── Instruction text ── */
 function instruction(phase: string): string {
   switch (phase) {
     case "idle":
-      return "Hold Space (or two fingers) to begin inspection";
+      return "Hold Space to begin inspection";
     case "inspection":
-      return "Hold Space to arm when ready — release to start";
+      return "Hold Space to arm — release to start";
     case "ready":
-      return "Release to start solving";
+      return "Release Space bar to start solving";
     case "solving":
       return "Press any key to stop";
     default:

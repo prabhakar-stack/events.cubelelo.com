@@ -131,6 +131,25 @@ export async function registerRoundRoutes(
     },
   );
 
+  // View scramble set for a round (admin only).
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/admin/rounds/:id/scrambles",
+    adminOnly,
+    async (req, reply) => {
+      const round = db.rounds.get(req.params.id);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+      const set = scrambleSetForRound(db, round.id);
+      if (!set) return { roundId: round.id, scrambles: [], locked: false };
+      return {
+        roundId: round.id,
+        scrambles: set.scrambles,
+        locked: Boolean(set.lockedAt),
+        generatedAt: set.generatedAt,
+        lockedAt: set.lockedAt,
+      };
+    },
+  );
+
   app.post<{ Params: { id: string } }>(
     "/api/v1/admin/rounds/:id/close",
     adminOnly,

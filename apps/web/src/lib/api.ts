@@ -87,6 +87,23 @@ export interface ResultDto {
   videoUrl?: string;
 }
 
+export interface FlaggedResultDto {
+  id: string;
+  roundId: string;
+  userId: string;
+  userName: string;
+  userClId: string;
+  eventType: string;
+  roundNumber: number | null;
+  ao5Ms: number | null;
+  bestSingleMs: number | null;
+  solves: Solve[];
+  videoUrl: string | null;
+  flagStatus: string;
+  suspicionReasons: string[];
+  submittedAt: string;
+}
+
 export interface RegistrationDto {
   id: string;
   competitionId: string;
@@ -94,6 +111,26 @@ export interface RegistrationDto {
   paymentStatus: string;
   events: { id: string; eventType: string }[];
   createdAt: string;
+}
+
+export interface ProfileRoundResult {
+  roundNumber: number;
+  rank: number | null;
+  bestSingleMs: number | null;
+  ao5Ms: number | null;
+  solves: Solve[];
+}
+
+export interface ProfileEventResult {
+  eventType: string;
+  rounds: ProfileRoundResult[];
+}
+
+export interface ProfileCompetitionEntry {
+  competitionId: string;
+  competitionTitle: string;
+  status: string;
+  events: ProfileEventResult[];
 }
 
 export interface UserProfile {
@@ -107,13 +144,14 @@ export interface UserProfile {
   wcaId?: string;
   wcaVerified?: boolean;
   createdAt?: string;
-  competitionHistory: Array<{
-    competitionId: string;
-    competitionTitle: string;
-    status: string;
-    events: string[];
-  }>;
   personalBests: Record<string, { bestSingle: number | null; bestAo5: number | null }>;
+  stats: {
+    totalCompetitions: number;
+    totalSolves: number;
+    eventStats: Record<string, { mean: number | null; stdDev: number | null; solveCount: number }>;
+    solveTimeline: Record<string, Array<{ timeMs: number; ao5Ms: number | null; date: string; compTitle: string }>>;
+  };
+  competitionHistory: ProfileCompetitionEntry[];
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -277,6 +315,19 @@ export function updateCompetition(
   return sendJson("PATCH", `/api/v1/admin/competitions/${id}`, body);
 }
 
+export function duplicateCompetition(
+  id: string,
+  body: { reuseScrambles?: boolean; type?: string },
+): Promise<{ id: string; title: string }> {
+  return sendJson("POST", `/api/v1/admin/competitions/${id}/duplicate`, body);
+}
+
+export function fetchAdminScrambles(
+  roundId: string,
+): Promise<{ roundId: string; scrambles: string[]; locked: boolean; generatedAt?: string; lockedAt?: string }> {
+  return getJson(`/api/v1/admin/rounds/${roundId}/scrambles`);
+}
+
 export function generateScrambles(
   roundId: string,
   count: number,
@@ -294,8 +345,8 @@ export function closeRound(roundId: string): Promise<{ id: string; status: strin
 
 export function fetchVerificationQueue(
   competitionId: string,
-): Promise<ResultDto[]> {
-  return getJson<ResultDto[]>(`/api/v1/admin/competitions/${competitionId}/queue`);
+): Promise<FlaggedResultDto[]> {
+  return getJson<FlaggedResultDto[]>(`/api/v1/admin/competitions/${competitionId}/queue`);
 }
 
 export function verifyResult(

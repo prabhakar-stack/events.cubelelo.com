@@ -11,7 +11,7 @@ export type CompType = "paid" | "free" | "practice";
 export type RoundStatus = "pending" | "open" | "closed" | "advanced";
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded" | "refund_pending";
 export type SolvePenalty = "none" | "plus2" | "dnf";
-export type FlagStatus = "clean" | "flagged" | "verified" | "disqualified";
+export type FlagStatus = "clean" | "flagged" | "verified" | "plus2" | "dnf" | "disqualified";
 
 // ─────────────────────────── Solves ───────────────────────────
 /** A single timed attempt. `time_ms` excludes penalty; penalty applied at compute time. */
