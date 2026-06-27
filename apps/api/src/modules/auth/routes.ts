@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SignJWT } from "jose";
 import type { FastifyInstance } from "fastify";
-import type { Db } from "../../db/store";
-import { nextClId, userByEmail } from "../../db/store";
+import type { Repository } from "../../db/repo";
 import type { User } from "../../db/types";
 import { env } from "../../config/env";
 import { requireAuth } from "../../auth/plugin";
@@ -10,19 +9,19 @@ import type { Verifier } from "../../auth/verifier";
 
 export async function registerAuthRoutes(
   app: FastifyInstance,
-  db: Db,
+  repo: Repository,
   verifier: Verifier,
 ): Promise<void> {
-  // Local dev sign-in — only exposed when Supabase is NOT configured. Mints an
-  // HS256 token the dev verifier accepts, reusing the existing sub for a known
-  // email (so the seeded admin keeps its role).
-  if (verifier.mode === "dev") {
+  // Local dev sign-in — never registered in production. In development, works
+  // alongside Supabase: the verifier accepts both HS256 dev tokens and real
+  // Supabase RS256 tokens so you can use dev-login without clearing .env.
+  if (process.env.NODE_ENV !== "production") {
     app.post<{ Body: { email?: string; name?: string } }>(
       "/api/v1/auth/dev-login",
       async (req, reply) => {
         const email = req.body?.email?.trim();
         if (!email) return reply.code(400).send({ error: "missing_email" });
-        const existing = userByEmail(db, email);
+        const existing = await repo.users.findByEmail(email);
         const sub = existing?.id ?? randomUUID();
         const name =
           existing?.name ?? req.body?.name?.trim() ?? email.split("@")[0] ?? email;
@@ -44,11 +43,11 @@ export async function registerAuthRoutes(
     { preHandler: requireAuth },
     async (req): Promise<User> => {
       const claims = req.authClaims!;
-      let user = db.users.get(claims.sub);
+      let user = await repo.users.findById(claims.sub);
       if (!user) {
         user = {
           id: claims.sub,
-          clId: nextClId(db),
+          clId: await repo.users.nextClId(),
           email: claims.email ?? "",
           name: claims.name ?? claims.email?.split("@")[0] ?? "Cuber",
           role: "user",
@@ -56,15 +55,63 @@ export async function registerAuthRoutes(
           accountStage: "active",
           createdAt: new Date().toISOString(),
         };
-        db.users.set(user.id, user);
+        await repo.users.create(user);
       }
       return user;
     },
   );
 
   app.get("/api/v1/users/me", { preHandler: requireAuth }, async (req, reply) => {
-    const user = db.users.get(req.authClaims!.sub);
+    const user = await repo.users.findById(req.authClaims!.sub);
     if (!user) return reply.code(404).send({ error: "not_synced" });
     return user;
   });
+
+  // Legacy account claim — links a migrated_stub profile to the current Google login.
+  // The stub was created by the ETL from the old cubelelo-event database.
+  // We copy the stub's CL ID + profile onto the current user, then deactivate the stub.
+  app.post<{ Body: { legacyClId?: string; legacyEmail?: string } }>(
+    "/api/v1/auth/migrate-claim",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const { legacyClId, legacyEmail } = req.body ?? {};
+      if (!legacyClId && !legacyEmail) {
+        return reply.code(400).send({ error: "provide_legacy_cl_id_or_email" });
+      }
+
+      const current = await repo.users.findById(req.authClaims!.sub);
+      if (!current) return reply.code(404).send({ error: "not_synced" });
+
+      // Find the stub by old CL ID or email
+      const stub = legacyClId
+        ? await repo.users.findByClId(legacyClId)
+        : await repo.users.findByEmail(legacyEmail!);
+
+      if (!stub) return reply.code(404).send({ error: "legacy_account_not_found" });
+      if (stub.accountStage !== "migrated_stub") {
+        return reply.code(409).send({ error: "account_already_claimed" });
+      }
+      if (stub.id === current.id) {
+        return reply.code(409).send({ error: "already_same_account" });
+      }
+
+      // Claim: copy the stub's CL ID and legacy profile fields onto the current user
+      const claimed = await repo.users.update(current.id, {
+        clId: stub.clId,
+        name: stub.name || current.name,
+        gender: stub.gender ?? current.gender,
+        dob: stub.dob ?? current.dob,
+        city: stub.city ?? current.city,
+        state: stub.state ?? current.state,
+        country: stub.country ?? current.country,
+        wcaId: stub.wcaId ?? current.wcaId,
+        wcaVerified: stub.wcaVerified || current.wcaVerified,
+      });
+
+      // Deactivate stub so it cannot be claimed again
+      await repo.users.update(stub.id, { accountStage: "banned" });
+
+      return claimed;
+    },
+  );
 }

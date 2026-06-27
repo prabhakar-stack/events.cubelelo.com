@@ -1,6 +1,6 @@
 import type { Solve } from "@cubers/types";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 // ── Auth token (set by the AuthProvider; attached to every request) ──
 let authToken: string | null = null;
@@ -31,6 +31,9 @@ export interface RoundRef {
   status: string;
   eventType: string;
   scrambleLocked?: boolean;
+  opensAt?: string | null;
+  closesAt?: string | null;
+  advancementCount?: number | null;
 }
 
 export interface CompetitionSummary {
@@ -66,7 +69,10 @@ export interface CompetitionDetail {
   rulesMd?: string;
   baseFee?: number;
   perEventFee?: number;
-  registrationDeadline?: string;
+  registrationOpensAt?: string | null;
+  registrationDeadline?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
   coverUrl?: string;
   bannerUrl?: string;
   createdBy?: string;
@@ -226,6 +232,13 @@ export function syncUser(): Promise<AuthUser> {
   return sendJson("POST", `/api/v1/auth/sync`);
 }
 
+export function migrateClaim(body: {
+  legacyClId?: string;
+  legacyEmail?: string;
+}): Promise<AuthUser> {
+  return sendJson("POST", `/api/v1/auth/migrate-claim`, body);
+}
+
 export function fetchMe(): Promise<AuthUser> {
   return getJson<AuthUser>(`/api/v1/users/me`);
 }
@@ -292,7 +305,10 @@ export function createCompetition(body: {
   rulesMd?: string;
   baseFee?: number;
   perEventFee?: number;
+  registrationOpensAt?: string;
   registrationDeadline?: string;
+  startsAt?: string;
+  endsAt?: string;
   eventType?: string;
   roundCount?: number;
   events?: Array<{ eventType: string; roundCount?: number; cutoffMs?: number; timeLimitMs?: number }>;
@@ -309,7 +325,10 @@ export function updateCompetition(
     rulesMd?: string;
     baseFee?: number;
     perEventFee?: number;
-    registrationDeadline?: string;
+    registrationOpensAt?: string | null;
+    registrationDeadline?: string | null;
+    startsAt?: string | null;
+    endsAt?: string | null;
   },
 ): Promise<{ id: string; title: string; status: string }> {
   return sendJson("PATCH", `/api/v1/admin/competitions/${id}`, body);
@@ -343,6 +362,13 @@ export function closeRound(roundId: string): Promise<{ id: string; status: strin
   return sendJson("POST", `/api/v1/admin/rounds/${roundId}/close`);
 }
 
+export function updateRound(
+  roundId: string,
+  body: { opensAt?: string | null; closesAt?: string | null; advancementCount?: number },
+): Promise<{ id: string; status: string; opensAt: string | null; closesAt: string | null }> {
+  return sendJson("PATCH", `/api/v1/admin/rounds/${roundId}`, body);
+}
+
 export function fetchVerificationQueue(
   competitionId: string,
 ): Promise<FlaggedResultDto[]> {
@@ -358,4 +384,106 @@ export function verifyResult(
     action,
     reason,
   });
+}
+
+// ── Admin: users ──────────────────────────────────────────────────────────────
+
+export interface AdminUserDto extends AuthUser {
+  dob?: string;
+  mobileNo?: string;
+  accountStage: string;
+  createdAt: string;
+}
+
+export function fetchAdminUsers(params?: {
+  search?: string;
+  role?: string;
+  stage?: string;
+}): Promise<AdminUserDto[]> {
+  const qs = new URLSearchParams(
+    Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
+  ).toString();
+  return getJson<AdminUserDto[]>(`/api/v1/admin/users${qs ? `?${qs}` : ""}`);
+}
+
+export function updateAdminUser(
+  id: string,
+  body: { role?: string; accountStage?: string },
+): Promise<AdminUserDto> {
+  return sendJson("PATCH", `/api/v1/admin/users/${id}`, body);
+}
+
+// ── Admin: payments ───────────────────────────────────────────────────────────
+
+export interface AdminPaymentDto {
+  id: string;
+  userId: string;
+  registrationId: string;
+  amount: number;
+  currency: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  status: string;
+  createdAt: string;
+  userName: string;
+  userClId: string;
+  userEmail: string;
+  competitionTitle: string;
+}
+
+export function fetchAdminPayments(status?: string): Promise<AdminPaymentDto[]> {
+  const qs = status ? `?status=${status}` : "";
+  return getJson<AdminPaymentDto[]>(`/api/v1/admin/payments${qs}`);
+}
+
+// ── Admin: announcements ──────────────────────────────────────────────────────
+
+export interface AnnouncementDto {
+  id: string;
+  title: string;
+  bodyMd: string;
+  pinned: boolean;
+  published: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function fetchAdminAnnouncements(): Promise<AnnouncementDto[]> {
+  return getJson<AnnouncementDto[]>(`/api/v1/admin/announcements`);
+}
+
+export function createAnnouncement(body: {
+  title: string;
+  bodyMd: string;
+  pinned?: boolean;
+  published?: boolean;
+}): Promise<AnnouncementDto> {
+  return sendJson("POST", `/api/v1/admin/announcements`, body);
+}
+
+export function updateAnnouncement(
+  id: string,
+  body: { title?: string; bodyMd?: string; pinned?: boolean; published?: boolean },
+): Promise<AnnouncementDto> {
+  return sendJson("PATCH", `/api/v1/admin/announcements/${id}`, body);
+}
+
+export async function deleteAnnouncement(id: string): Promise<void> {
+  await fetch(`${typeof window !== "undefined" ? "" : ""}${BASE_URL}/api/v1/admin/announcements/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+}
+
+// ── Admin: migration ──────────────────────────────────────────────────────────
+
+export interface MigrationStats {
+  totalUsers: number;
+  activeUsers: number;
+  unclaimedStubs: number;
+  stubs: Array<{ id: string; clId: string; name: string; email: string; createdAt: string }>;
+}
+
+export function fetchMigrationStats(): Promise<MigrationStats> {
+  return getJson<MigrationStats>(`/api/v1/admin/migration/stats`);
 }

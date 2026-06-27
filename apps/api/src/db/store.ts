@@ -102,6 +102,7 @@ export async function seed(db: Db): Promise<void> {
       "WCA regulations apply. 15s inspection (mandatory). ao5 format — best and worst trimmed. Penalties: +2 / DNF per the WCA guidelines.",
     baseFee: 0,
     perEventFee: 0,
+    featured: false,
     createdBy: admin.clId,
     createdAt: now,
   };

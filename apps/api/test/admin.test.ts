@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
-import { createDb, seed } from "../src/db/store";
+import { createMemRepo } from "../src/db/mem-repo";
+import { seed } from "../src/db/seed";
 import { adminToken, bearer, devToken } from "./helpers";
 
 let app: FastifyInstance;
 let admin: string;
 
 beforeAll(async () => {
-  const db = createDb();
-  await seed(db);
-  app = await buildApp(db);
+  const repo = createMemRepo();
+  await seed(repo);
+  app = await buildApp(repo);
   admin = await adminToken(app);
 });
 
@@ -22,8 +23,8 @@ async function patch(url: string, payload: object, token = admin) {
   const res = await app.inject({ method: "PATCH", url, payload, headers: bearer(token) });
   return { status: res.statusCode, body: res.json() };
 }
-async function get(url: string) {
-  const res = await app.inject({ method: "GET", url });
+async function get(url: string, token?: string) {
+  const res = await app.inject({ method: "GET", url, headers: token ? bearer(token) : {} });
   return { status: res.statusCode, body: res.json() };
 }
 
@@ -41,7 +42,7 @@ describe("admin competition lifecycle", () => {
     expect(res.status).toBe(201);
     compId = res.body.id;
 
-    const detail = await get(`/api/v1/competitions/${compId}`);
+    const detail = await get(`/api/v1/competitions/${compId}`, admin);
     expect(detail.body.status).toBe("draft");
     const event = detail.body.events[0];
     expect(event.eventType).toBe("333");
@@ -62,14 +63,14 @@ describe("admin competition lifecycle", () => {
   it("generates + locks scrambles, then opens the round", async () => {
     expect((await post(`/api/v1/admin/rounds/${round1}/scrambles`, { count: 5 })).status).toBe(201);
 
-    const detail = await get(`/api/v1/competitions/${compId}`);
+    const detail = await get(`/api/v1/competitions/${compId}`, admin);
     expect(detail.body.events[0].rounds[0].scrambleLocked).toBe(true);
 
     // not open yet → scramble blocked
-    expect((await get(`/api/v1/rounds/${round1}/scramble`)).status).toBe(409);
+    expect((await get(`/api/v1/rounds/${round1}/scramble`, admin)).status).toBe(409);
 
     expect((await post(`/api/v1/admin/rounds/${round1}/open`, {})).body.status).toBe("open");
-    const scramble = await get(`/api/v1/rounds/${round1}/scramble`);
+    const scramble = await get(`/api/v1/rounds/${round1}/scramble`, admin);
     expect(scramble.status).toBe(200);
     expect(scramble.body.scrambles).toHaveLength(5);
   });

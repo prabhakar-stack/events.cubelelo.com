@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import type { Db } from "../../db/store";
-import { eventsForRegistration } from "../../db/store";
-import type { Registration, RegistrationEvent } from "../../db/types";
+import type { Repository } from "../../db/repo";
+import type { Registration } from "../../db/types";
 import { requireAuth } from "../../auth/plugin";
+import { effectiveCompStatus } from "../../lib/statusUtils";
 
 export async function registerRegistrationRoutes(
   app: FastifyInstance,
-  db: Db,
+  repo: Repository,
 ): Promise<void> {
   app.post<{
     Params: { id: string };
@@ -16,16 +16,17 @@ export async function registerRegistrationRoutes(
     "/api/v1/competitions/:id/register",
     { preHandler: requireAuth },
     async (req, reply) => {
-      const comp = db.competitions.get(req.params.id);
+      const comp = await repo.competitions.findById(req.params.id);
       if (!comp) return reply.code(404).send({ error: "competition_not_found" });
 
-      const user = db.users.get(req.authClaims!.sub);
+      if (effectiveCompStatus(comp) !== "registration_open") {
+        return reply.code(409).send({ error: "registration_not_open" });
+      }
+
+      const user = await repo.users.findById(req.authClaims!.sub);
       if (!user) return reply.code(403).send({ error: "not_synced" });
 
-      // Check duplicate
-      const existing = [...db.registrations.values()].find(
-        (r) => r.userId === user.id && r.competitionId === comp.id,
-      );
+      const existing = await repo.registrations.findByUserAndComp(user.id, comp.id);
       if (existing) return reply.code(409).send({ error: "already_registered" });
 
       const eventIds = req.body?.eventIds;
@@ -34,9 +35,7 @@ export async function registerRegistrationRoutes(
       }
 
       // Validate event IDs belong to this competition
-      const compEvents = [...db.events.values()].filter(
-        (e) => e.competitionId === comp.id,
-      );
+      const compEvents = await repo.competitionEvents.findByCompetition(comp.id);
       const compEventIds = new Set(compEvents.map((e) => e.id));
       for (const eid of eventIds) {
         if (!compEventIds.has(eid)) {
@@ -54,14 +53,10 @@ export async function registerRegistrationRoutes(
         paymentStatus: isFree ? "paid" : "pending",
         createdAt: new Date().toISOString(),
       };
-      db.registrations.set(registration.id, registration);
+      await repo.registrations.create(registration);
 
       for (const eid of eventIds) {
-        const re: RegistrationEvent = {
-          registrationId: registration.id,
-          competitionEventId: eid,
-        };
-        db.registrationEvents.push(re);
+        await repo.registrations.addEvent(registration.id, eid);
       }
 
       return reply.code(201).send({
@@ -76,25 +71,27 @@ export async function registerRegistrationRoutes(
     "/api/v1/me/registrations",
     { preHandler: requireAuth },
     async (req, reply) => {
-      const user = db.users.get(req.authClaims!.sub);
+      const user = await repo.users.findById(req.authClaims!.sub);
       if (!user) return reply.code(403).send({ error: "not_synced" });
 
-      const regs = [...db.registrations.values()].filter(
-        (r) => r.userId === user.id,
-      );
+      const regs = await repo.registrations.findByUser(user.id);
 
-      return regs.map((r) => {
-        const comp = db.competitions.get(r.competitionId);
-        const events = eventsForRegistration(db, r.id);
-        return {
-          id: r.id,
-          competitionId: r.competitionId,
-          competitionTitle: comp?.title ?? "Unknown",
-          paymentStatus: r.paymentStatus,
-          events: events.map((e) => ({ id: e.id, eventType: e.eventType })),
-          createdAt: r.createdAt,
-        };
-      });
+      return Promise.all(
+        regs.map(async (r) => {
+          const [comp, events] = await Promise.all([
+            repo.competitions.findById(r.competitionId),
+            repo.registrations.findEvents(r.id),
+          ]);
+          return {
+            id: r.id,
+            competitionId: r.competitionId,
+            competitionTitle: comp?.title ?? "Unknown",
+            paymentStatus: r.paymentStatus,
+            events: events.map((e) => ({ id: e.id, eventType: e.eventType })),
+            createdAt: r.createdAt,
+          };
+        }),
+      );
     },
   );
 }

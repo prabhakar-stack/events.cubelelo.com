@@ -1,7 +1,8 @@
 import { Server } from "socket.io";
 import type { FastifyInstance } from "fastify";
 import type { RoundStatus } from "@cubers/types";
-import { type Db, rosterSnapshot } from "../db/store";
+import type { Repository } from "../db/repo";
+import { env } from "../config/env";
 
 /**
  * Real-time fan-out for live competition data. Routes depend only on this
@@ -23,7 +24,7 @@ export const noopRealtime: Realtime = {
 };
 
 export interface AttachableRealtime extends Realtime {
-  attach(app: FastifyInstance, db: Db): Server;
+  attach(app: FastifyInstance, repo: Repository): Server;
   close(): Promise<void>;
 }
 
@@ -40,13 +41,25 @@ export function createRealtime(): AttachableRealtime {
       io?.to(roomOf(roundId)).emit("round:status", { roundId, status, opensAt });
     },
 
-    attach(app, db) {
+    attach(app, repo) {
       io = new Server(app.server, { cors: { origin: true } });
+
+      // Use Redis pub/sub adapter for horizontal scaling when REDIS_URL is set
+      if (env.REDIS_URL) {
+        import("@socket.io/redis-adapter").then(({ createAdapter }) =>
+          import("ioredis").then(({ default: Redis }) => {
+            const pub = new Redis(env.REDIS_URL);
+            const sub = pub.duplicate();
+            io!.adapter(createAdapter(pub, sub));
+            console.log("🔴 Socket.io using Redis adapter");
+          }),
+        );
+      }
 
       const broadcastRoster = (roundId: string) => {
         io?.to(roomOf(roundId)).emit("lobby:roster", {
           roundId,
-          competitors: rosterSnapshot(db, roundId),
+          competitors: repo.roster.snapshot(roundId),
         });
       };
 
@@ -62,9 +75,7 @@ export function createRealtime(): AttachableRealtime {
             if (!roundId || !userId) return;
             socket.join(roomOf(roundId));
             socket.data.lobby = { roundId, userId };
-            const roster = db.roster.get(roundId) ?? new Map<string, string>();
-            roster.set(userId, payload.name?.trim() || userId.slice(0, 8));
-            db.roster.set(roundId, roster);
+            repo.roster.join(roundId, userId, payload.name?.trim() || userId.slice(0, 8));
             broadcastRoster(roundId);
           },
         );
@@ -74,7 +85,7 @@ export function createRealtime(): AttachableRealtime {
             | { roundId: string; userId: string }
             | undefined;
           if (!lobby) return;
-          db.roster.get(lobby.roundId)?.delete(lobby.userId);
+          repo.roster.leave(lobby.roundId, lobby.userId);
           broadcastRoster(lobby.roundId);
         });
       });

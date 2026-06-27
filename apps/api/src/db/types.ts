@@ -39,9 +39,15 @@ export interface Competition {
   rulesMd?: string;
   baseFee: number;
   perEventFee: number;
-  registrationDeadline?: string;
+  registrationOpensAt?: string;
+  registrationDeadline?: string;   // = registration closes at
+  startsAt?: string;
+  endsAt?: string;
   coverUrl?: string;
   bannerUrl?: string;
+  featured: boolean;
+  featuredOrder?: number;
+  coverCaption?: string;
   createdBy?: string;
   createdAt: string;
 }
@@ -124,4 +130,68 @@ export interface AuditLogEntry {
   target?: string;
   reason?: string;
   createdAt: string;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  bodyMd: string;
+  pinned: boolean;
+  published: boolean;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoundAdvancement {
+  roundId: string;
+  userId: string;
+  rank: number;
+}
+
+export interface PersonalBest {
+  id: string;
+  userId: string;
+  eventType: string;
+  bestSingleMs: number | null;
+  bestAo5Ms: number | null;
+  bestMeanMs: number | null;
+  bestMedianMs: number | null;
+  bestRank: number | null;
+  updatedAt: string;
+}
+
+export interface PracticeSession {
+  id: string;
+  userId: string;
+  eventType: string;
+  name?: string;
+  createdAt: string;
+  endedAt?: string;
+}
+
+export interface PracticeSolve {
+  id: string;
+  sessionId: string;
+  timeMs: number;
+  scramble: string;
+  penalty: "none" | "plus2" | "dnf";
+  note?: string;
+  createdAt: string;
+}
+
+export interface DailyChallenge {
+  id: string;
+  date: string;
+  eventType: string;
+  scramble: string;
+  createdAt: string;
+}
+
+export interface DailyChallengeResult {
+  id: string;
+  challengeId: string;
+  userId: string;
+  timeMs: number;
+  submittedAt: string;
 }

@@ -1,33 +1,40 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
-import { createDb, seed, type Db } from "../src/db/store";
+import { createMemRepo } from "../src/db/mem-repo";
+import { seed, SEED_DEMO_COMP_ID } from "../src/db/seed";
 import { adminToken, bearer, devToken } from "./helpers";
 
 let app: FastifyInstance;
-let db: Db;
 let userToken: string;
 let registrationId: string;
 
 beforeAll(async () => {
-  db = createDb();
-  await seed(db);
+  const repo = createMemRepo();
+  await seed(repo);
+  app = await buildApp(repo);
 
-  // Make the demo competition paid so we can test payment flow
-  const demo = db.competitions.get("demo")!;
-  demo.baseFee = 10000; // 100 INR
-  demo.perEventFee = 5000; // 50 INR
+  // Make the demo competition paid via admin PATCH
+  const admin = await adminToken(app);
+  await app.inject({
+    method: "PATCH",
+    url: `/api/v1/admin/competitions/${SEED_DEMO_COMP_ID}`,
+    payload: { baseFee: 10000, perEventFee: 5000 },
+    headers: bearer(admin),
+  });
 
-  app = await buildApp(db);
   userToken = await devToken(app, "payer@test.com", "Payer");
   await app.inject({ method: "POST", url: "/api/v1/auth/sync", headers: bearer(userToken) });
 
   // Register for the demo competition
-  const detail = await app.inject({ method: "GET", url: "/api/v1/competitions/demo" });
+  const detail = await app.inject({
+    method: "GET",
+    url: `/api/v1/competitions/${SEED_DEMO_COMP_ID}`,
+  });
   const eventId = detail.json().events[0].id;
   const reg = await app.inject({
     method: "POST",
-    url: "/api/v1/competitions/demo/register",
+    url: `/api/v1/competitions/${SEED_DEMO_COMP_ID}/register`,
     payload: { eventIds: [eventId] },
     headers: bearer(userToken),
   });
@@ -51,7 +58,7 @@ describe("payment flow", () => {
     orderId = body.orderId;
   });
 
-  it("confirms payment via webhook", async () => {
+  it("confirms payment via webhook and updates registration status", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/payments/webhook",
@@ -63,8 +70,13 @@ describe("payment flow", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe("confirmed");
 
-    // Registration should now be paid
-    const reg = db.registrations.get(registrationId)!;
-    expect(reg.paymentStatus).toBe("paid");
+    // Verify via the registrations API
+    const regs = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/registrations",
+      headers: bearer(userToken),
+    });
+    const reg = regs.json().find((r: { id: string }) => r.id === registrationId);
+    expect(reg?.paymentStatus).toBe("paid");
   });
 });

@@ -8,12 +8,11 @@ import {
   createPaymentOrder,
   type CompetitionDetail,
 } from "@/lib/api";
-import { useAuth } from "@/features/auth/AuthProvider";
+import { RouteGuard } from "@/features/auth/RouteGuard";
 
-export default function RegisterPage() {
+function RegisterContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
   const [comp, setComp] = useState<CompetitionDetail | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -21,14 +20,10 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/login");
-      return;
-    }
     if (params.id) {
       fetchCompetition(params.id).then(setComp).catch(() => {});
     }
-  }, [params.id, user, authLoading, router]);
+  }, [params.id]);
 
   if (!comp) {
     return (
@@ -179,5 +174,13 @@ export default function RegisterPage() {
             : `Pay ₹${(totalFee / 100).toFixed(0)}`}
       </button>
     </main>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <RouteGuard>
+      <RegisterContent />
+    </RouteGuard>
   );
 }

@@ -25,11 +25,11 @@ const ADMIN_TABS: Array<{
   active?: boolean;
   disabled?: boolean;
 }> = [
-  { label: "Dashboard", href: "/admin", disabled: true },
   { label: "Competitions", href: "/admin", active: true },
-  { label: "Users", href: "/admin/users", disabled: true },
-  { label: "Payments", href: "/admin/payments", disabled: true },
-  { label: "Migration", href: "/admin/migration", disabled: true },
+  { label: "Users", href: "/admin/users" },
+  { label: "Payments", href: "/admin/payments" },
+  { label: "Announcements", href: "/admin/announcements" },
+  { label: "Migration", href: "/admin/migration" },
 ];
 
 function AdminSubNav() {
@@ -123,7 +123,10 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
   const [type, setType] = useState<"free" | "paid">("free");
   const [baseFee, setBaseFee] = useState(0);
   const [perEventFee, setPerEventFee] = useState(0);
+  const [registrationOpensAt, setRegistrationOpensAt] = useState("");
   const [registrationDeadline, setRegistrationDeadline] = useState("");
+  const [startsAt, setStartsAt] = useState("");
+  const [endsAt, setEndsAt] = useState("");
   const [events, setEvents] = useState<EventSpec[]>([
     { eventType: "333", roundCount: 1 },
   ]);
@@ -142,6 +145,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
     setCreating(true);
     setError(null);
     try {
+      const toISO = (v: string) => v ? new Date(v).toISOString() : undefined;
       const body: Parameters<typeof createCompetition>[0] = {
         title: title.trim(),
         type,
@@ -149,7 +153,10 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
         rulesMd: rulesMd.trim() || undefined,
         baseFee: type === "paid" ? baseFee : 0,
         perEventFee: type === "paid" ? perEventFee : 0,
-        registrationDeadline: registrationDeadline || undefined,
+        registrationOpensAt: toISO(registrationOpensAt),
+        registrationDeadline: toISO(registrationDeadline),
+        startsAt: toISO(startsAt),
+        endsAt: toISO(endsAt),
         events,
       };
       const { id } = await createCompetition(body);
@@ -162,7 +169,10 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
       setType("free");
       setBaseFee(0);
       setPerEventFee(0);
+      setRegistrationOpensAt("");
       setRegistrationDeadline("");
+      setStartsAt("");
+      setEndsAt("");
       setEvents([{ eventType: "333", roundCount: 1 }]);
       onCreated();
     } catch (e) {
@@ -255,15 +265,34 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
               </div>
             </>
           )}
-          <div>
-            <label className="mb-1 block text-xs text-zinc-500">Registration deadline</label>
-            <input
-              type="datetime-local"
-              value={registrationDeadline}
-              onChange={(e) => setRegistrationDeadline(e.target.value)}
-              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
-            />
+        </div>
+
+        {/* Schedule */}
+        <div>
+          <label className="mb-2 block text-xs text-zinc-500 uppercase tracking-wide">Schedule</label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                { label: "Registration opens", value: registrationOpensAt, set: setRegistrationOpensAt },
+                { label: "Registration closes", value: registrationDeadline, set: setRegistrationDeadline },
+                { label: "Competition starts", value: startsAt, set: setStartsAt },
+                { label: "Competition ends", value: endsAt, set: setEndsAt },
+              ] as const
+            ).map(({ label, value, set }) => (
+              <div key={label}>
+                <label className="mb-1 block text-xs text-zinc-500">{label}</label>
+                <input
+                  type="datetime-local"
+                  value={value}
+                  onChange={(e) => set(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+                />
+              </div>
+            ))}
           </div>
+          <p className="mt-1.5 text-xs text-zinc-600">
+            Status updates automatically — no manual status change needed once times are set.
+          </p>
         </div>
 
         {/* Events */}

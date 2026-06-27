@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { RouteGuard } from "@/features/auth/RouteGuard";
 import { updateMyProfile } from "@/lib/api";
 
 const FIELDS = [
@@ -17,17 +17,12 @@ const FIELDS = [
   { key: "gender", label: "Gender", type: "text" },
 ] as const;
 
-export default function SettingsPage() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
+function SettingsContent() {
+  const { user } = useAuth();
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!loading && !user) router.push("/login");
-  }, [user, loading, router]);
 
   useEffect(() => {
     if (user) {
@@ -39,14 +34,6 @@ export default function SettingsPage() {
       setForm(initial);
     }
   }, [user]);
-
-  if (!user) {
-    return (
-      <main className="flex min-h-[60vh] items-center justify-center text-zinc-500">
-        Loading…
-      </main>
-    );
-  }
 
   const handleSave = async () => {
     setSaving(true);
@@ -70,9 +57,9 @@ export default function SettingsPage() {
     <main className="mx-auto max-w-lg px-6 py-10">
       <h1 className="mb-2 text-2xl font-bold text-zinc-100">Settings</h1>
       <p className="mb-6 text-sm text-zinc-400">
-        <span className="font-mono text-emerald-400">{user.clId}</span>
+        <span className="font-mono text-emerald-400">{user!.clId}</span>
         {" · "}
-        {user.email}
+        {user!.email}
       </p>
 
       <div className="space-y-4">
@@ -106,5 +93,13 @@ export default function SettingsPage() {
         {saving ? "Saving…" : "Save Changes"}
       </button>
     </main>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <RouteGuard>
+      <SettingsContent />
+    </RouteGuard>
   );
 }

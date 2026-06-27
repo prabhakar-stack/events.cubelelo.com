@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import type { Db } from "../../db/store";
-import { userByClId, registrationsForUser, eventsForRegistration } from "../../db/store";
+import type { Repository } from "../../db/repo";
 import { requireAuth } from "../../auth/plugin";
 import type { Solve } from "@cubers/types";
+import { env } from "../../config/env";
 
 const EDITABLE_FIELDS = [
   "name",
@@ -18,23 +18,20 @@ const EDITABLE_FIELDS = [
 
 export async function registerUserRoutes(
   app: FastifyInstance,
-  db: Db,
+  repo: Repository,
 ): Promise<void> {
   app.get<{ Params: { clid: string } }>(
     "/api/v1/users/:clid",
     async (req, reply) => {
-      const user = userByClId(db, req.params.clid);
+      const user = await repo.users.findByClId(req.params.clid);
       if (!user) return reply.code(404).send({ error: "user_not_found" });
 
-      const userResults = [...db.results.values()].filter(
-        (r) => r.userId === user.clId,
-      );
+      const userResults = await repo.results.findByUser(user.id);
 
       // ── Personal bests ──
       const pbs: Record<string, { bestSingle: number | null; bestAo5: number | null }> = {};
       for (const result of userResults) {
-        const round = db.rounds.get(result.roundId);
-        const event = round ? db.events.get(round.competitionEventId) : undefined;
+        const event = await repo.competitionEvents.findByRound(result.roundId);
         const eventType = event?.eventType ?? "unknown";
         if (!pbs[eventType]) pbs[eventType] = { bestSingle: null, bestAo5: null };
         const pb = pbs[eventType];
@@ -54,8 +51,7 @@ export async function registerUserRoutes(
       const eventAo5s: Record<string, number[]> = {};
       let totalSolves = 0;
       for (const result of userResults) {
-        const round = db.rounds.get(result.roundId);
-        const event = round ? db.events.get(round.competitionEventId) : undefined;
+        const event = await repo.competitionEvents.findByRound(result.roundId);
         const eventType = event?.eventType ?? "unknown";
         totalSolves += result.solves.length;
         if (result.ao5Ms !== null) {
@@ -64,36 +60,47 @@ export async function registerUserRoutes(
         }
       }
 
-      const eventStats: Record<string, { mean: number | null; stdDev: number | null; solveCount: number }> = {};
+      const eventStats: Record<
+        string,
+        { mean: number | null; stdDev: number | null; solveCount: number }
+      > = {};
       for (const [et, ao5s] of Object.entries(eventAo5s)) {
         const n = ao5s.length;
         const mean = ao5s.reduce((a, b) => a + b, 0) / n;
         const variance = ao5s.reduce((sum, v) => sum + (v - mean) ** 2, 0) / n;
-        const stdDev = Math.sqrt(variance);
+        const solveCount = userResults
+          .filter(async (r) => {
+            const ev = await repo.competitionEvents.findByRound(r.roundId);
+            return ev?.eventType === et;
+          })
+          .reduce((s, r) => s + r.solves.length, 0);
         eventStats[et] = {
           mean: Math.round(mean),
-          stdDev: Math.round(stdDev),
-          solveCount: userResults
-            .filter((r) => {
-              const rd = db.rounds.get(r.roundId);
-              const ev = rd ? db.events.get(rd.competitionEventId) : undefined;
-              return ev?.eventType === et;
-            })
-            .reduce((s, r) => s + r.solves.length, 0),
+          stdDev: Math.round(Math.sqrt(variance)),
+          solveCount,
         };
       }
 
-      // ── Solve timeline (chronological data points per event) ──
-      const timelineByEvent: Record<string, Array<{ timeMs: number; ao5Ms: number | null; date: string; compTitle: string }>> = {};
+      // ── Solve timeline ──
+      const timelineByEvent: Record<
+        string,
+        Array<{ timeMs: number; ao5Ms: number | null; date: string; compTitle: string }>
+      > = {};
       for (const result of userResults) {
-        const round = db.rounds.get(result.roundId);
-        const event = round ? db.events.get(round.competitionEventId) : undefined;
+        const event = await repo.competitionEvents.findByRound(result.roundId);
         const eventType = event?.eventType ?? "unknown";
         if (!timelineByEvent[eventType]) timelineByEvent[eventType] = [];
+        const comp = event
+          ? await repo.competitions.findById(event.competitionId)
+          : undefined;
         for (const solve of result.solves) {
-          const timeMs = solve.penalty === "dnf" ? null : solve.penalty === "plus2" ? solve.time_ms + 2000 : solve.time_ms;
+          const timeMs =
+            solve.penalty === "dnf"
+              ? null
+              : solve.penalty === "plus2"
+                ? solve.time_ms + 2000
+                : solve.time_ms;
           if (timeMs !== null) {
-            const comp = event ? db.competitions.get(event.competitionId) : undefined;
             timelineByEvent[eventType].push({
               timeMs,
               ao5Ms: result.ao5Ms,
@@ -104,57 +111,56 @@ export async function registerUserRoutes(
         }
       }
 
+      // ── Competition IDs from registrations + results ──
       const competitionIds = new Set<string>();
-      const regs = registrationsForUser(db, user.id);
+      const regs = await repo.registrations.findByUser(user.id);
       for (const r of regs) competitionIds.add(r.competitionId);
       for (const result of userResults) {
-        const round = db.rounds.get(result.roundId);
-        const event = round ? db.events.get(round.competitionEventId) : undefined;
+        const event = await repo.competitionEvents.findByRound(result.roundId);
         if (event) competitionIds.add(event.competitionId);
       }
 
       // ── Detailed competition history ──
-      const history = [...competitionIds].map((compId) => {
-        const comp = db.competitions.get(compId);
-        const compEvents = [...db.events.values()].filter(
-          (e) => e.competitionId === compId,
-        );
+      const history = await Promise.all(
+        [...competitionIds].map(async (compId) => {
+          const comp = await repo.competitions.findById(compId);
+          const compEvents = await repo.competitionEvents.findByCompetition(compId);
 
-        const events = compEvents
-          .map((ce) => {
-            const rounds = [...db.rounds.values()]
-              .filter((r) => r.competitionEventId === ce.id)
-              .sort((a, b) => a.roundNumber - b.roundNumber);
+          const events = (
+            await Promise.all(
+              compEvents.map(async (ce) => {
+                const rounds = (await repo.rounds.findByCompetition(compId))
+                  .filter((r) => r.competitionEventId === ce.id)
+                  .sort((a, b) => a.roundNumber - b.roundNumber);
 
-            const roundResults = rounds
-              .map((rd) => {
-                const result = userResults.find((r) => r.roundId === rd.id);
-                if (!result) return null;
-                return {
-                  roundNumber: rd.roundNumber,
-                  rank: result.rank,
-                  bestSingleMs: result.bestSingleMs,
-                  ao5Ms: result.ao5Ms,
-                  solves: result.solves as Solve[],
-                };
-              })
-              .filter(Boolean);
+                const roundResults = rounds
+                  .map((rd) => {
+                    const result = userResults.find((r) => r.roundId === rd.id);
+                    if (!result) return null;
+                    return {
+                      roundNumber: rd.roundNumber,
+                      rank: result.rank,
+                      bestSingleMs: result.bestSingleMs,
+                      ao5Ms: result.ao5Ms,
+                      solves: result.solves as Solve[],
+                    };
+                  })
+                  .filter(Boolean);
 
-            if (roundResults.length === 0) return null;
-            return {
-              eventType: ce.eventType,
-              rounds: roundResults,
-            };
-          })
-          .filter(Boolean);
+                if (roundResults.length === 0) return null;
+                return { eventType: ce.eventType, rounds: roundResults };
+              }),
+            )
+          ).filter(Boolean);
 
-        return {
-          competitionId: compId,
-          competitionTitle: comp?.title ?? "Unknown",
-          status: comp?.status ?? "unknown",
-          events,
-        };
-      });
+          return {
+            competitionId: compId,
+            competitionTitle: comp?.title ?? "Unknown",
+            status: comp?.status ?? "unknown",
+            events,
+          };
+        }),
+      );
 
       return {
         clId: user.clId,
@@ -179,22 +185,52 @@ export async function registerUserRoutes(
     },
   );
 
+  // WCA ID verification
+  app.post<{ Body: { wcaId?: string } }>(
+    "/api/v1/users/me/wca",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const { wcaId } = req.body ?? {};
+      if (!wcaId || typeof wcaId !== "string")
+        return reply.code(400).send({ error: "missing_wca_id" });
+
+      const formatted = wcaId.trim().toUpperCase();
+
+      // Call WCA API to verify the ID exists
+      try {
+        const res = await fetch(`${env.WCA_API_BASE}/persons/${formatted}`);
+        if (res.status === 404)
+          return reply.code(404).send({ error: "wca_id_not_found" });
+        if (!res.ok)
+          return reply.code(502).send({ error: "wca_api_unavailable" });
+      } catch {
+        return reply.code(502).send({ error: "wca_api_unavailable" });
+      }
+
+      const updated = await repo.users.update(req.authClaims!.sub, {
+        wcaId: formatted,
+        wcaVerified: true,
+      });
+      if (!updated) return reply.code(404).send({ error: "not_synced" });
+
+      return { wcaId: updated.wcaId, wcaVerified: updated.wcaVerified };
+    },
+  );
+
   app.patch<{ Body: Record<string, unknown> }>(
     "/api/v1/users/me",
     { preHandler: requireAuth },
     async (req, reply) => {
-      const user = db.users.get(req.authClaims!.sub);
-      if (!user) return reply.code(404).send({ error: "not_synced" });
-
       const body = req.body ?? {};
+      const fields: Record<string, string> = {};
       for (const field of EDITABLE_FIELDS) {
         if (field in body && typeof body[field] === "string") {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (user as any)[field] = body[field];
+          fields[field] = body[field] as string;
         }
       }
-
-      return user;
+      const updated = await repo.users.update(req.authClaims!.sub, fields);
+      if (!updated) return reply.code(404).send({ error: "not_synced" });
+      return updated;
     },
   );
 }

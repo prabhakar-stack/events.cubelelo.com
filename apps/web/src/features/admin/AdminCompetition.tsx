@@ -9,60 +9,48 @@ import {
   generateScrambles,
   openRound,
   updateCompetition,
+  updateRound,
   verifyResult,
   type CompetitionDetail,
   type FlaggedResultDto,
+  type RoundRef,
 } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
 import { StatusBadge } from "./StatusBadge";
 
-const COMP_STATUSES = [
-  "draft",
-  "published",
-  "registration_open",
-  "registration_closed",
-  "cancelled",
-  "live",
-  "results_pending",
-  "completed",
-];
+// Only statuses that are manually set — the others are auto-computed from schedule
+const MANUAL_STATUSES = ["draft", "published", "cancelled", "completed"];
 
-const ADMIN_TABS: Array<{
-  label: string;
-  href: string;
-  active?: boolean;
-  disabled?: boolean;
-}> = [
-  { label: "Dashboard", href: "/admin", disabled: true },
+const ADMIN_TABS = [
   { label: "Competitions", href: "/admin" },
-  { label: "Users", href: "/admin/users", disabled: true },
-  { label: "Payments", href: "/admin/payments", disabled: true },
-  { label: "Migration", href: "/admin/migration", disabled: true },
+  { label: "Users", href: "/admin/users" },
+  { label: "Payments", href: "/admin/payments" },
+  { label: "Announcements", href: "/admin/announcements" },
+  { label: "Migration", href: "/admin/migration" },
 ];
 
 function AdminSubNav() {
   return (
     <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
-      {ADMIN_TABS.map((tab) =>
-        tab.disabled ? (
-          <span
-            key={tab.label}
-            className="cursor-not-allowed rounded-md px-4 py-2 text-xs font-medium text-zinc-600"
-          >
-            {tab.label}
-          </span>
-        ) : (
-          <Link
-            key={tab.label}
-            href={tab.href}
-            className="rounded-md px-4 py-2 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800/50 hover:text-zinc-200"
-          >
-            {tab.label}
-          </Link>
-        ),
-      )}
+      {ADMIN_TABS.map((tab) => (
+        <Link
+          key={tab.label}
+          href={tab.href}
+          className="rounded-md px-4 py-2 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800/50 hover:text-zinc-200"
+        >
+          {tab.label}
+        </Link>
+      ))}
     </div>
   );
+}
+
+function toLocal(iso?: string | null): string {
+  if (!iso) return "";
+  return iso.slice(0, 16); // "2026-07-01T09:00:00Z" → "2026-07-01T09:00"
+}
+function toISO(val: string): string | null {
+  return val ? new Date(val).toISOString() : null;
 }
 
 export function AdminCompetition({ id }: { id: string }) {
@@ -70,6 +58,12 @@ export function AdminCompetition({ id }: { id: string }) {
   const [queue, setQueue] = useState<FlaggedResultDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Schedule editor local state — synced from detail on load
+  const [regOpens, setRegOpens] = useState("");
+  const [regCloses, setRegCloses] = useState("");
+  const [compStarts, setCompStarts] = useState("");
+  const [compEnds, setCompEnds] = useState("");
 
   const load = useCallback(() => {
     fetchCompetition(id)
@@ -83,6 +77,16 @@ export function AdminCompetition({ id }: { id: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Sync schedule inputs whenever detail refreshes
+  useEffect(() => {
+    if (detail) {
+      setRegOpens(toLocal(detail.registrationOpensAt));
+      setRegCloses(toLocal(detail.registrationDeadline));
+      setCompStarts(toLocal(detail.startsAt));
+      setCompEnds(toLocal(detail.endsAt));
+    }
+  }, [detail]);
 
   const run = useCallback(
     async (key: string, fn: () => Promise<unknown>) => {
@@ -136,18 +140,17 @@ export function AdminCompetition({ id }: { id: string }) {
           <div className="flex items-center gap-2">
             <StatusBadge status={detail.status} />
             <select
-              value={detail.status}
-              onChange={(e) =>
-                run("status", () =>
-                  updateCompetition(id, { status: e.target.value }),
-                )
-              }
+              value={MANUAL_STATUSES.includes(detail.status) ? detail.status : ""}
+              onChange={(e) => {
+                if (e.target.value)
+                  run("status", () => updateCompetition(id, { status: e.target.value }));
+              }}
               className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+              title="Manually override status (registration_open / live / etc. are auto-computed from schedule)"
             >
-              {COMP_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
+              <option value="">— auto —</option>
+              {MANUAL_STATUSES.map((s) => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </div>
@@ -174,6 +177,54 @@ export function AdminCompetition({ id }: { id: string }) {
 
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
+        {/* ── Schedule editor ── */}
+        <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Schedule
+            </h3>
+            <p className="text-xs text-zinc-600">
+              Status auto-transitions based on these times
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                { label: "Registration opens", value: regOpens, set: setRegOpens },
+                { label: "Registration closes", value: regCloses, set: setRegCloses },
+                { label: "Competition starts", value: compStarts, set: setCompStarts },
+                { label: "Competition ends", value: compEnds, set: setCompEnds },
+              ] as const
+            ).map(({ label, value, set }) => (
+              <div key={label}>
+                <label className="mb-1 block text-xs text-zinc-500">{label}</label>
+                <input
+                  type="datetime-local"
+                  value={value}
+                  onChange={(e) => set(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+                />
+              </div>
+            ))}
+          </div>
+          <button
+            disabled={busy === "schedule"}
+            onClick={() =>
+              run("schedule", () =>
+                updateCompetition(id, {
+                  registrationOpensAt: toISO(regOpens),
+                  registrationDeadline: toISO(regCloses),
+                  startsAt: toISO(compStarts),
+                  endsAt: toISO(compEnds),
+                }),
+              )
+            }
+            className="mt-3 rounded-lg bg-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-600 disabled:opacity-50"
+          >
+            {busy === "schedule" ? "Saving…" : "Save Schedule"}
+          </button>
+        </div>
+
         {/* Rounds management */}
         {detail.events.map((ev) => (
           <div key={ev.id} className="mt-5">
@@ -183,67 +234,13 @@ export function AdminCompetition({ id }: { id: string }) {
             </h3>
             <div className="space-y-2">
               {ev.rounds.map((r) => (
-                <div
+                <RoundRow
                   key={r.id}
-                  className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-2.5"
-                >
-                  <span className="font-mono text-sm text-zinc-300">
-                    R{r.roundNumber}
-                  </span>
-                  <StatusBadge status={r.status} />
-                  <span
-                    className={`text-xs ${
-                      r.scrambleLocked ? "text-emerald-400" : "text-zinc-600"
-                    }`}
-                  >
-                    {r.scrambleLocked ? "locked" : "no scrambles"}
-                  </span>
-
-                  <div className="ml-auto flex items-center gap-2">
-                    <button
-                      disabled={r.scrambleLocked || busy === `gen-${r.id}`}
-                      onClick={() =>
-                        run(`gen-${r.id}`, () => generateScrambles(r.id, 5))
-                      }
-                      className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
-                    >
-                      Generate & Lock
-                    </button>
-                    {r.status === "open" ? (
-                      <button
-                        disabled={busy === `close-${r.id}`}
-                        onClick={() =>
-                          run(`close-${r.id}`, () => closeRound(r.id))
-                        }
-                        className="rounded bg-zinc-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-600 disabled:opacity-40"
-                      >
-                        Close
-                      </button>
-                    ) : (
-                      <button
-                        disabled={!r.scrambleLocked || busy === `open-${r.id}`}
-                        onClick={() =>
-                          run(`open-${r.id}`, () => openRound(r.id))
-                        }
-                        className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
-                      >
-                        Open
-                      </button>
-                    )}
-                    <Link
-                      href={`/competitions/${id}/lobby`}
-                      className="text-xs text-zinc-500 hover:text-zinc-300"
-                    >
-                      Lobby
-                    </Link>
-                    <Link
-                      href={`/competitions/${id}/round/${r.roundNumber}`}
-                      className="text-xs text-zinc-500 hover:text-zinc-300"
-                    >
-                      Terminal
-                    </Link>
-                  </div>
-                </div>
+                  round={r}
+                  competitionId={id}
+                  busy={busy}
+                  onRun={run}
+                />
               ))}
             </div>
           </div>
@@ -283,6 +280,164 @@ export function AdminCompetition({ id }: { id: string }) {
           © {new Date().getFullYear()} Cubelelo Events. All rights reserved.
         </p>
       </footer>
+    </div>
+  );
+}
+
+/* ── Round row with inline schedule editor ── */
+
+function RoundRow({
+  round,
+  competitionId,
+  busy,
+  onRun,
+}: {
+  round: RoundRef;
+  competitionId: string;
+  busy: string | null;
+  onRun: (key: string, fn: () => Promise<unknown>) => void;
+}) {
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [opensAt, setOpensAt] = useState(toLocal(round.opensAt));
+  const [closesAt, setClosesAt] = useState(toLocal(round.closesAt));
+
+  // Keep local inputs in sync when parent refreshes
+  useEffect(() => {
+    setOpensAt(toLocal(round.opensAt));
+    setClosesAt(toLocal(round.closesAt));
+  }, [round.opensAt, round.closesAt]);
+
+  const saveSchedule = () =>
+    onRun(`sched-${round.id}`, () =>
+      updateRound(round.id, {
+        opensAt: toISO(opensAt),
+        closesAt: toISO(closesAt),
+      }),
+    );
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/60">
+      {/* Main row */}
+      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+        <span className="font-mono text-sm text-zinc-300">R{round.roundNumber}</span>
+        <StatusBadge status={round.status} />
+        <span className={`text-xs ${round.scrambleLocked ? "text-emerald-400" : "text-zinc-600"}`}>
+          {round.scrambleLocked ? "locked" : "no scrambles"}
+        </span>
+
+        {/* Show scheduled times if set */}
+        {(round.opensAt || round.closesAt) && (
+          <span className="text-xs text-zinc-500">
+            {round.opensAt ? `opens ${new Date(round.opensAt).toLocaleString()}` : ""}
+            {round.opensAt && round.closesAt ? " · " : ""}
+            {round.closesAt ? `closes ${new Date(round.closesAt).toLocaleString()}` : ""}
+          </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Schedule toggle */}
+          <button
+            onClick={() => setShowSchedule((v) => !v)}
+            className={`rounded border px-2.5 py-1.5 text-xs font-medium transition ${
+              showSchedule
+                ? "border-emerald-700 bg-emerald-900/40 text-emerald-300"
+                : round.opensAt || round.closesAt
+                  ? "border-emerald-800 text-emerald-500 hover:bg-emerald-900/30 hover:text-emerald-300"
+                  : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+            }`}
+            title="Set open / close times — round auto-transitions when the time is reached"
+          >
+            ⏱ {round.opensAt || round.closesAt ? "Edit Times" : "Set Times"}
+          </button>
+
+          {/* Generate scrambles */}
+          <button
+            disabled={round.scrambleLocked || busy === `gen-${round.id}`}
+            onClick={() => onRun(`gen-${round.id}`, () => generateScrambles(round.id, 5))}
+            className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
+          >
+            {busy === `gen-${round.id}` ? "Generating…" : "Generate & Lock"}
+          </button>
+
+          {/* Manual open / close */}
+          {round.status === "open" ? (
+            <button
+              disabled={busy === `close-${round.id}`}
+              onClick={() => onRun(`close-${round.id}`, () => closeRound(round.id))}
+              className="rounded bg-zinc-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-600 disabled:opacity-40"
+            >
+              Close
+            </button>
+          ) : (
+            <button
+              disabled={!round.scrambleLocked || busy === `open-${round.id}`}
+              onClick={() => onRun(`open-${round.id}`, () => openRound(round.id))}
+              className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
+            >
+              Open
+            </button>
+          )}
+
+          <Link href={`/competitions/${competitionId}/round/${round.roundNumber}`}
+            className="text-xs text-zinc-500 hover:text-zinc-300">
+            Terminal
+          </Link>
+        </div>
+      </div>
+
+      {/* Collapsible schedule editor */}
+      {showSchedule && (
+        <div className="border-t border-zinc-800 px-4 py-3">
+          <p className="mb-3 text-xs font-semibold text-zinc-400">
+            Round {round.roundNumber} — Open &amp; Close Times
+          </p>
+          <p className="mb-2 text-xs text-zinc-500">
+            The round status changes automatically when each time is reached.
+            The manual Open / Close buttons above override this at any time.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Opens at</label>
+              <input
+                type="datetime-local"
+                value={opensAt}
+                onChange={(e) => setOpensAt(e.target.value)}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Closes at</label>
+              <input
+                type="datetime-local"
+                value={closesAt}
+                onChange={(e) => setClosesAt(e.target.value)}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+              />
+            </div>
+            <button
+              disabled={busy === `sched-${round.id}`}
+              onClick={saveSchedule}
+              className="rounded-lg bg-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-600 disabled:opacity-50"
+            >
+              {busy === `sched-${round.id}` ? "Saving…" : "Save"}
+            </button>
+            {(opensAt || closesAt) && (
+              <button
+                onClick={() => {
+                  setOpensAt("");
+                  setClosesAt("");
+                  onRun(`sched-${round.id}`, () =>
+                    updateRound(round.id, { opensAt: null, closesAt: null }),
+                  );
+                }}
+                className="text-xs text-zinc-600 hover:text-red-400"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

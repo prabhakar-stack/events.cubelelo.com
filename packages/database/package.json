@@ -3,5 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Canonical PostgreSQL schema + (future) migrations and ETL for the platform"
+  "description": "PostgreSQL schema, migrations, and migration runner for the platform",
+  "scripts": {
+    "migrate": "tsx migrate.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
 }

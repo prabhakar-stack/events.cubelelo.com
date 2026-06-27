@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { SEED_ADMIN_EMAIL } from "../src/db/store";
+import { SEED_ADMIN_EMAIL } from "../src/db/seed";
 
 /** Dev-login via inject and return a bearer token. */
 export async function devToken(
@@ -37,17 +37,17 @@ export async function devTokenHttp(
   return ((await res.json()) as { token: string }).token;
 }
 
-/** Dev-login + sync over HTTP; returns the token and the synced user's CL ID. */
+/** Dev-login + sync over HTTP; returns the token, UUID, and CL ID. */
 export async function loginAndSync(
   baseUrl: string,
   email: string,
   name?: string,
-): Promise<{ token: string; clId: string }> {
+): Promise<{ token: string; id: string; clId: string }> {
   const token = await devTokenHttp(baseUrl, email, name);
   const res = await fetch(`${baseUrl}/api/v1/auth/sync`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}` },
   });
-  const user = (await res.json()) as { clId: string };
-  return { token, clId: user.clId };
+  const user = (await res.json()) as { id: string; clId: string };
+  return { token, id: user.id, clId: user.clId };
 }

@@ -28,13 +28,35 @@ function toClaims(payload: JWTPayload): AuthClaims {
 }
 
 /**
- * Production: verify Supabase's RS256 JWT against its remote JWKS (keys cached
- * in-process, no DB round-trip). Dev: verify an HS256 token minted by
- * /auth/dev-login so the full auth flow works without Supabase.
+ * Production: verify Supabase's RS256 JWT against its remote JWKS.
+ * Development: when Supabase is configured, accept both HS256 dev tokens AND
+ * real Supabase tokens so you can use dev-login without touching .env.
+ * No Supabase: HS256 dev tokens only.
  */
 export function createVerifier(): Verifier {
+  const devSecret = new TextEncoder().encode(env.DEV_AUTH_SECRET);
+  const isDev = process.env.NODE_ENV !== "production";
+
   if (env.authMode === "supabase") {
     const jwks = createRemoteJWKSet(new URL(env.SUPABASE_JWKS_URL));
+
+    if (isDev) {
+      // In development with Supabase configured: try HS256 dev token first,
+      // then fall back to Supabase RS256 so both paths work simultaneously.
+      return {
+        mode: "supabase",
+        async verify(token) {
+          try {
+            const { payload } = await jwtVerify(token, devSecret);
+            return toClaims(payload);
+          } catch {
+            const { payload } = await jwtVerify(token, jwks);
+            return toClaims(payload);
+          }
+        },
+      };
+    }
+
     return {
       mode: "supabase",
       async verify(token) {
@@ -44,11 +66,10 @@ export function createVerifier(): Verifier {
     };
   }
 
-  const secret = new TextEncoder().encode(env.DEV_AUTH_SECRET);
   return {
     mode: "dev",
     async verify(token) {
-      const { payload } = await jwtVerify(token, secret);
+      const { payload } = await jwtVerify(token, devSecret);
       return toClaims(payload);
     },
   };

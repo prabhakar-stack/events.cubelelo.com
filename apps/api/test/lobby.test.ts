@@ -3,10 +3,10 @@ import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { io as ioClient, type Socket } from "socket.io-client";
 import { buildApp } from "../src/app";
-import { createDb, seed } from "../src/db/store";
+import { createMemRepo } from "../src/db/mem-repo";
+import { seed, SEED_DEMO_COMP_ID, SEED_ADMIN_EMAIL } from "../src/db/seed";
 import { createRealtime, type AttachableRealtime } from "../src/sockets/realtime";
 import { devTokenHttp } from "./helpers";
-import { SEED_ADMIN_EMAIL } from "../src/db/store";
 
 let app: FastifyInstance;
 let realtime: AttachableRealtime;
@@ -15,19 +15,19 @@ let roundId: string;
 let adminAuth: { authorization: string };
 
 beforeAll(async () => {
-  const db = createDb();
-  await seed(db);
+  const repo = createMemRepo();
+  await seed(repo);
   realtime = createRealtime();
-  app = await buildApp(db, realtime);
+  app = await buildApp(repo, realtime);
   await app.ready();
-  realtime.attach(app, db);
+  realtime.attach(app, repo);
   await app.listen({ port: 0, host: "127.0.0.1" });
 
   const { port } = app.server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
 
   const detail = (await (
-    await fetch(`${baseUrl}/api/v1/competitions/demo`)
+    await fetch(`${baseUrl}/api/v1/competitions/${SEED_DEMO_COMP_ID}`)
   ).json()) as { events: { eventType: string; rounds: { id: string }[] }[] };
   roundId = detail.events.find((e) => e.eventType === "333")!.rounds[0]!.id;
 

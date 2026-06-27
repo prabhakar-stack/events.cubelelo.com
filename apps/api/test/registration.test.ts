@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
-import { createDb, seed } from "../src/db/store";
+import { createMemRepo } from "../src/db/mem-repo";
+import { seed, SEED_DEMO_COMP_ID } from "../src/db/seed";
 import { adminToken, bearer, devToken } from "./helpers";
 
 let app: FastifyInstance;
@@ -9,9 +10,9 @@ let admin: string;
 let userToken: string;
 
 beforeAll(async () => {
-  const db = createDb();
-  await seed(db);
-  app = await buildApp(db);
+  const repo = createMemRepo();
+  await seed(repo);
+  app = await buildApp(repo);
   admin = await adminToken(app);
   userToken = await devToken(app, "cuber@test.com", "Test Cuber");
   await app.inject({ method: "POST", url: "/api/v1/auth/sync", headers: bearer(userToken) });
@@ -21,14 +22,16 @@ describe("registration flow", () => {
   let eventId: string;
 
   it("registers for a competition", async () => {
-    // Get the demo competition events
-    const detail = await app.inject({ method: "GET", url: "/api/v1/competitions/demo" });
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/v1/competitions/${SEED_DEMO_COMP_ID}`,
+    });
     const comp = detail.json();
     eventId = comp.events[0].id;
 
     const res = await app.inject({
       method: "POST",
-      url: "/api/v1/competitions/demo/register",
+      url: `/api/v1/competitions/${SEED_DEMO_COMP_ID}/register`,
       payload: { eventIds: [eventId] },
       headers: bearer(userToken),
     });
@@ -41,7 +44,7 @@ describe("registration flow", () => {
   it("rejects duplicate registration", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/api/v1/competitions/demo/register",
+      url: `/api/v1/competitions/${SEED_DEMO_COMP_ID}/register`,
       payload: { eventIds: [eventId] },
       headers: bearer(userToken),
     });
@@ -53,7 +56,7 @@ describe("registration flow", () => {
     await app.inject({ method: "POST", url: "/api/v1/auth/sync", headers: bearer(tok2) });
     const res = await app.inject({
       method: "POST",
-      url: "/api/v1/competitions/demo/register",
+      url: `/api/v1/competitions/${SEED_DEMO_COMP_ID}/register`,
       payload: { eventIds: [] },
       headers: bearer(tok2),
     });

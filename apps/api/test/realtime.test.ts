@@ -3,7 +3,8 @@ import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { io as ioClient, type Socket } from "socket.io-client";
 import { buildApp } from "../src/app";
-import { createDb, seed } from "../src/db/store";
+import { createMemRepo } from "../src/db/mem-repo";
+import { seed, SEED_DEMO_COMP_ID } from "../src/db/seed";
 import { createRealtime, type AttachableRealtime } from "../src/sockets/realtime";
 import { loginAndSync } from "./helpers";
 
@@ -13,19 +14,19 @@ let baseUrl: string;
 let roundId: string;
 
 beforeAll(async () => {
-  const db = createDb();
-  await seed(db);
+  const repo = createMemRepo();
+  await seed(repo);
   realtime = createRealtime();
-  app = await buildApp(db, realtime);
+  app = await buildApp(repo, realtime);
   await app.ready();
-  realtime.attach(app, db);
+  realtime.attach(app, repo);
   await app.listen({ port: 0, host: "127.0.0.1" });
 
   const { port } = app.server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
 
   const detail = (await (
-    await fetch(`${baseUrl}/api/v1/competitions/demo`)
+    await fetch(`${baseUrl}/api/v1/competitions/${SEED_DEMO_COMP_ID}`)
   ).json()) as { events: { eventType: string; rounds: { id: string }[] }[] };
   roundId = detail.events.find((e) => e.eventType === "333")!.rounds[0]!.id;
 });
@@ -40,7 +41,6 @@ function connectAndJoin(): Promise<Socket> {
     const socket = ioClient(baseUrl, { transports: ["websocket"] });
     socket.on("connect", () => {
       socket.emit("join", { roundId });
-      // Give the server a tick to process the room join before resolving.
       setTimeout(() => resolve(socket), 50);
     });
   });
@@ -57,7 +57,7 @@ describe("live leaderboard over Socket.io", () => {
     const [a, b] = await Promise.all([connectAndJoin(), connectAndJoin()]);
     const updates = Promise.all([nextLeaderboard(a), nextLeaderboard(b)]);
 
-    const { token, clId } = await loginAndSync(baseUrl, "socket@x.com");
+    const { token, id: userId } = await loginAndSync(baseUrl, "socket@x.com");
     const res = await fetch(`${baseUrl}/api/v1/rounds/${roundId}/results`, {
       method: "POST",
       headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
@@ -73,8 +73,7 @@ describe("live leaderboard over Socket.io", () => {
     const [updateA, updateB] = await updates;
     expect(updateA.roundId).toBe(roundId);
     expect(updateA.board.length).toBe(1);
-    expect((updateA.board[0] as { userId: string }).userId).toBe(clId);
-    // both clients in the room received it
+    expect((updateA.board[0] as { userId: string }).userId).toBe(userId);
     expect(updateB.board.length).toBe(1);
 
     a.disconnect();

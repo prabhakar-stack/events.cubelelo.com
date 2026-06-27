@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { UserRole } from "@cubers/types";
-import type { Db } from "../db/store";
+import type { Repository } from "../db/repo";
 import type { AuthClaims, Verifier } from "./verifier";
 
 declare module "fastify" {
@@ -36,16 +36,25 @@ export async function requireAuth(
   }
 }
 
-/** Guard factory: require the authenticated user to have a given role. */
-export function requireRole(db: Db, role: UserRole) {
+/** Guard factory: require the authenticated user to have one of the given roles. */
+export function requireRole(repo: Repository, ...roles: UserRole[]) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (!req.authClaims) {
       await reply.code(401).send({ error: "unauthorized" });
       return;
     }
-    const user = db.users.get(req.authClaims.sub);
-    if (!user || user.role !== role) {
+    const user = await repo.users.findById(req.authClaims.sub);
+    if (!user || !roles.includes(user.role)) {
       await reply.code(403).send({ error: "forbidden" });
     }
   };
+}
+
+/** Attach the resolved user to the request (does not reject if not found). */
+export async function resolveUser(
+  repo: Repository,
+  req: FastifyRequest,
+): Promise<import("../db/types").User | null> {
+  if (!req.authClaims) return null;
+  return repo.users.findById(req.authClaims.sub);
 }

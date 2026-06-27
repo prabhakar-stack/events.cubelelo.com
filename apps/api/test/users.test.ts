@@ -1,18 +1,18 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
-import { createDb, seed, type Db } from "../src/db/store";
+import { createMemRepo } from "../src/db/mem-repo";
+import { seed } from "../src/db/seed";
 import { bearer, devToken } from "./helpers";
 
 let app: FastifyInstance;
-let db: Db;
 let userToken: string;
 let clId: string;
 
 beforeAll(async () => {
-  db = createDb();
-  await seed(db);
-  app = await buildApp(db);
+  const repo = createMemRepo();
+  await seed(repo);
+  app = await buildApp(repo);
   userToken = await devToken(app, "profile@test.com", "Profile User");
   const sync = await app.inject({
     method: "POST",
