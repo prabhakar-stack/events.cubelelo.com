@@ -2,24 +2,33 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { fetchAdminPayments, type AdminPaymentDto } from "@/lib/api";
+import { fetchAdminPayments, downloadInvoice, type AdminPaymentDto } from "@/lib/api";
 
 const TABS = [
   { label: "Competitions", href: "/admin" },
   { label: "Users", href: "/admin/users" },
   { label: "Payments", href: "/admin/payments" },
+  { label: "Promo Codes", href: "/admin/promo-codes" },
+  { label: "Appeals", href: "/admin/appeals" },
+  { label: "WCA Queue", href: "/admin/wca-queue" },
+  { label: "Rank Tiers", href: "/admin/rank-tiers" },
+  { label: "Merge", href: "/admin/merge" },
   { label: "Announcements", href: "/admin/announcements" },
   { label: "Migration", href: "/admin/migration" },
+  { label: "Content", href: "/admin/content" },
+  { label: "Details", href: "/admin/faq" },
+  { label: "Pages", href: "/admin/pages" },
+  { label: "Staff", href: "/admin/staff" },
 ];
 
 const STATUSES = ["pending", "paid", "failed", "refunded", "refund_pending"];
 
 const STATUS_COLOR: Record<string, string> = {
-  paid: "bg-emerald-900/40 text-emerald-400",
-  pending: "bg-amber-900/30 text-amber-400",
-  failed: "bg-red-900/30 text-red-400",
-  refunded: "bg-zinc-800 text-zinc-400",
-  refund_pending: "bg-orange-900/30 text-orange-400",
+  paid: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
+  pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  refunded: "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+  refund_pending: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
 };
 
 function fmt(paise: number) {
@@ -47,11 +56,11 @@ export default function AdminPaymentsPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       {/* Sub-nav */}
-      <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+      <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
         {TABS.map((tab) => (
           <Link key={tab.label} href={tab.href}
-            className={`rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-800/50 hover:text-zinc-200 ${
-              tab.href === "/admin/payments" ? "bg-zinc-800 text-zinc-100" : "text-zinc-400"
+            className={`rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200 ${
+              tab.href === "/admin/payments" ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
             }`}>
             {tab.label}
           </Link>
@@ -59,7 +68,7 @@ export default function AdminPaymentsPage() {
       </div>
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold text-zinc-100">Payments</h1>
+        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Payments</h1>
         {!statusFilter && (
           <span className="font-mono text-sm text-emerald-400">
             Total collected: {fmt(total)}
@@ -73,27 +82,27 @@ export default function AdminPaymentsPage() {
           <button key={s} onClick={() => setStatusFilter(s)}
             className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
               statusFilter === s
-                ? "border-zinc-500 bg-zinc-700 text-zinc-100"
-                : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
+                ? "border-zinc-400 bg-zinc-800 text-white dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                : "border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:hover:border-zinc-600 dark:hover:text-zinc-300"
             }`}>
             {s || "All"}
           </button>
         ))}
       </div>
 
-      {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+      {error && <div className="mb-4 rounded bg-red-100 px-4 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
 
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
       ) : payments.length === 0 ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-10 text-center text-zinc-500">
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-10 text-center text-zinc-500">
           No payments found.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-zinc-800">
+        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/60 text-left text-[11px] uppercase tracking-wider text-zinc-500">
+              <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60 text-left text-[11px] uppercase tracking-wider text-zinc-500">
                 <th className="px-4 py-3">User</th>
                 <th className="px-4 py-3">Competition</th>
                 <th className="px-4 py-3 text-right">Amount</th>
@@ -101,21 +110,22 @@ export default function AdminPaymentsPage() {
                 <th className="px-4 py-3">Razorpay Order</th>
                 <th className="px-4 py-3">Razorpay Payment</th>
                 <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Invoice</th>
               </tr>
             </thead>
             <tbody>
               {payments.map((p) => (
-                <tr key={p.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/40">
+                <tr key={p.id} className="border-b border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-900/40">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-zinc-200">{p.userName}</div>
+                    <div className="font-medium text-zinc-800 dark:text-zinc-200">{p.userName}</div>
                     <div className="font-mono text-xs text-zinc-500">{p.userClId}</div>
                   </td>
-                  <td className="px-4 py-3 text-zinc-400">{p.competitionTitle}</td>
-                  <td className="px-4 py-3 text-right font-mono font-semibold text-zinc-200">
+                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{p.competitionTitle}</td>
+                  <td className="px-4 py-3 text-right font-mono font-semibold text-zinc-800 dark:text-zinc-200">
                     {fmt(p.amount)}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_COLOR[p.status] ?? "bg-zinc-800 text-zinc-400"}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_COLOR[p.status] ?? "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"}`}>
                       {p.status}
                     </span>
                   </td>
@@ -127,6 +137,16 @@ export default function AdminPaymentsPage() {
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-500">
                     {new Date(p.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3">
+                    {p.status === "paid" && (
+                      <button
+                        onClick={() => downloadInvoice(p.id)}
+                        className="rounded bg-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                      >
+                        Download
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

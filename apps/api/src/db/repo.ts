@@ -15,6 +15,12 @@ import type {
   DailyChallengeResult,
   Announcement,
   RoundAdvancement,
+  PromoCode,
+  Appeal,
+  RankTier,
+  Banner,
+  FaqEntry,
+  ContentPage,
 } from "./types";
 
 export interface Repository {
@@ -107,6 +113,7 @@ export interface Repository {
   };
 
   personalBests: {
+    findAll(): Promise<PersonalBest[]>;
     findByUser(userId: string): Promise<PersonalBest[]>;
     upsert(pb: PersonalBest): Promise<void>;
   };
@@ -115,9 +122,12 @@ export interface Repository {
     createSession(session: PracticeSession): Promise<void>;
     findSession(id: string): Promise<PracticeSession | null>;
     findSessionsByUser(userId: string): Promise<PracticeSession[]>;
+    updateSession(id: string, fields: Partial<PracticeSession>): Promise<PracticeSession | null>;
+    deleteSession(id: string): Promise<void>;
     endSession(id: string): Promise<void>;
     addSolve(solve: PracticeSolve): Promise<void>;
     findSolvesBySession(sessionId: string): Promise<PracticeSolve[]>;
+    deleteSolve(id: string): Promise<void>;
   };
 
   dailyChallenge: {
@@ -126,6 +136,60 @@ export interface Repository {
     submitResult(result: DailyChallengeResult): Promise<void>;
     findResultByUserAndChallenge(userId: string, challengeId: string): Promise<DailyChallengeResult | null>;
     findResultsByChallenge(challengeId: string): Promise<DailyChallengeResult[]>;
+    findUserStreak(userId: string): Promise<number>;
+  };
+
+  appeals: {
+    findAll(): Promise<Appeal[]>;
+    findById(id: string): Promise<Appeal | null>;
+    findByResult(resultId: string): Promise<Appeal | null>;
+    findByUser(userId: string): Promise<Appeal[]>;
+    create(appeal: Appeal): Promise<void>;
+    update(id: string, fields: Partial<Appeal>): Promise<Appeal | null>;
+  };
+
+  rankTiers: {
+    findAll(): Promise<RankTier[]>;
+    findById(id: string): Promise<RankTier | null>;
+    findByEvent(eventType: string): Promise<RankTier[]>;
+    create(tier: RankTier): Promise<void>;
+    update(id: string, fields: Partial<RankTier>): Promise<RankTier | null>;
+    delete(id: string): Promise<void>;
+  };
+
+  promoCodes: {
+    findAll(): Promise<PromoCode[]>;
+    findById(id: string): Promise<PromoCode | null>;
+    findByCode(code: string): Promise<PromoCode | null>;
+    create(promo: PromoCode): Promise<void>;
+    update(id: string, fields: Partial<PromoCode>): Promise<PromoCode | null>;
+    delete(id: string): Promise<void>;
+    incrementUsed(id: string): Promise<void>;
+  };
+
+  banners: {
+    findAll(): Promise<Banner[]>;
+    findById(id: string): Promise<Banner | null>;
+    create(banner: Banner): Promise<void>;
+    update(id: string, fields: Partial<Banner>): Promise<Banner | null>;
+    delete(id: string): Promise<void>;
+  };
+
+  faq: {
+    findAll(publishedOnly?: boolean): Promise<FaqEntry[]>;
+    findById(id: string): Promise<FaqEntry | null>;
+    create(entry: FaqEntry): Promise<void>;
+    update(id: string, fields: Partial<FaqEntry>): Promise<FaqEntry | null>;
+    delete(id: string): Promise<void>;
+  };
+
+  contentPages: {
+    findAll(publishedOnly?: boolean): Promise<ContentPage[]>;
+    findBySlug(slug: string): Promise<ContentPage | null>;
+    findById(id: string): Promise<ContentPage | null>;
+    create(page: ContentPage): Promise<void>;
+    update(id: string, fields: Partial<ContentPage>): Promise<ContentPage | null>;
+    delete(id: string): Promise<void>;
   };
 
   /** Returns the DB backend name and latency, or null if in-memory. */

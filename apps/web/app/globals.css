@@ -7,8 +7,48 @@ body {
   height: 100%;
 }
 
+/* Light mode palette */
+:root {
+  --bg-page: #fafafa;
+  --bg-surface: #ffffff;
+  --bg-surface-dim: #f4f4f5;
+  --bg-surface-hover: #e4e4e7;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --border-default: #d4d4d8;
+  --border-dim: #e4e4e7;
+  --text-primary: #18181b;
+  --text-secondary: #3f3f46;
+  --text-tertiary: #71717a;
+  --text-muted: #a1a1aa;
+  --text-placeholder: #a1a1aa;
+  --accent: #059669;
+  --accent-hover: #10b981;
+}
+
+/* Dark mode palette */
+.dark {
+  --bg-page: #09090b;
+  --bg-surface: rgba(24, 24, 27, 0.4);
+  --bg-surface-dim: #18181b;
+  --bg-surface-hover: #27272a;
+  --bg-card: rgba(24, 24, 27, 0.3);
+  --bg-input: #18181b;
+  --border-default: #27272a;
+  --border-dim: rgba(39, 39, 42, 0.5);
+  --text-primary: #f4f4f5;
+  --text-secondary: #d4d4d8;
+  --text-tertiary: #a1a1aa;
+  --text-muted: #71717a;
+  --text-placeholder: #52525b;
+  --accent: #059669;
+  --accent-hover: #10b981;
+}
+
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  @apply antialiased;
 }
 
 .scrollbar-none {

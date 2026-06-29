@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { eventDisplayName } from "@/lib/eventNames";
 import {
   fetchCompetition,
   registerForCompetition,
   createPaymentOrder,
+  validatePromoCode,
   type CompetitionDetail,
 } from "@/lib/api";
 import { RouteGuard } from "@/features/auth/RouteGuard";
@@ -18,6 +20,14 @@ function RegisterContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [promoInput, setPromoInput] = useState("");
+  const [promoApplied, setPromoApplied] = useState<{
+    code: string;
+    discountType: string;
+    discountValue: number;
+  } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
 
   useEffect(() => {
     if (params.id) {
@@ -35,8 +45,29 @@ function RegisterContent() {
 
   const baseFee = comp.baseFee ?? 0;
   const perEventFee = comp.perEventFee ?? 0;
-  const totalFee = baseFee + perEventFee * selected.size;
+  const subtotal = baseFee + perEventFee * selected.size;
+  const discount = promoApplied
+    ? promoApplied.discountType === "percentage"
+      ? Math.round(subtotal * promoApplied.discountValue / 100)
+      : Math.min(promoApplied.discountValue, subtotal)
+    : 0;
+  const totalFee = Math.max(0, subtotal - discount);
   const isFree = comp.type === "free" || totalFee === 0;
+
+  const applyPromo = async () => {
+    if (!promoInput.trim()) return;
+    setPromoChecking(true);
+    setPromoError(null);
+    try {
+      const res = await validatePromoCode(promoInput.trim(), comp.id);
+      setPromoApplied(res);
+    } catch (e) {
+      setPromoError(e instanceof Error ? e.message : "Invalid code");
+      setPromoApplied(null);
+    } finally {
+      setPromoChecking(false);
+    }
+  };
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -117,7 +148,7 @@ function RegisterContent() {
                 className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 accent-emerald-600"
               />
               <span className="font-semibold text-zinc-200">
-                {ev.eventType}
+                {eventDisplayName(ev.eventType)}
               </span>
               <span className="text-xs text-zinc-500">
                 {ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}
@@ -150,6 +181,47 @@ function RegisterContent() {
             </span>
           </div>
         )}
+        {/* Promo code */}
+        {comp.type !== "free" && (
+          <div className="mt-3 border-t border-zinc-800 pt-3">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={promoInput}
+                onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                placeholder="Promo code"
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+              />
+              <button
+                onClick={applyPromo}
+                disabled={promoChecking || !promoInput.trim()}
+                className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
+              >
+                {promoChecking ? "…" : "Apply"}
+              </button>
+            </div>
+            {promoError && (
+              <p className="mt-1 text-xs text-red-400">{promoError}</p>
+            )}
+            {promoApplied && (
+              <div className="mt-2 flex items-center justify-between text-sm">
+                <span className="text-emerald-400">
+                  {promoApplied.code} applied
+                  {promoApplied.discountType === "percentage"
+                    ? ` (${promoApplied.discountValue}% off)`
+                    : ` (-₹${(promoApplied.discountValue / 100).toFixed(0)})`}
+                </span>
+                <button
+                  onClick={() => { setPromoApplied(null); setPromoInput(""); }}
+                  className="text-xs text-zinc-500 hover:text-zinc-300"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="mt-2 flex justify-between border-t border-zinc-800 pt-2 font-semibold">
           <span className="text-zinc-300">Total</span>
           <span className="text-zinc-100">

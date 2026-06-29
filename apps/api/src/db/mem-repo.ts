@@ -17,6 +17,12 @@ import type {
   DailyChallengeResult,
   Announcement,
   RoundAdvancement,
+  PromoCode,
+  Appeal,
+  RankTier,
+  Banner,
+  FaqEntry,
+  ContentPage,
 } from "./types";
 
 /**
@@ -42,6 +48,12 @@ export function createMemRepo(): Repository {
   const practiceSolves: PracticeSolve[] = [];
   const dailyChallenges = new Map<string, DailyChallenge>();
   const dailyChallengeResults: DailyChallengeResult[] = [];
+  const appeals = new Map<string, Appeal>();
+  const rankTiers = new Map<string, RankTier>();
+  const promoCodes = new Map<string, PromoCode>();
+  const bannerStore = new Map<string, Banner>();
+  const faqStore = new Map<string, FaqEntry>();
+  const contentPageStore = new Map<string, ContentPage>();
   const roster = new Map<string, Map<string, string>>();
   const clSeq = new Map<number, number>();
 
@@ -235,6 +247,9 @@ export function createMemRepo(): Repository {
     },
 
     personalBests: {
+      async findAll() {
+        return [...personalBests.values()];
+      },
       async findByUser(userId) {
         return [...personalBests.values()].filter((pb) => pb.userId === userId);
       },
@@ -248,7 +263,21 @@ export function createMemRepo(): Repository {
       async createSession(session) { practiceSessions.set(session.id, session); },
       async findSession(id) { return practiceSessions.get(id) ?? null; },
       async findSessionsByUser(userId) {
-        return [...practiceSessions.values()].filter((s) => s.userId === userId);
+        return [...practiceSessions.values()]
+          .filter((s) => s.userId === userId)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      },
+      async updateSession(id, fields) {
+        const s = practiceSessions.get(id);
+        if (!s) return null;
+        Object.assign(s, fields);
+        return s;
+      },
+      async deleteSession(id) {
+        practiceSessions.delete(id);
+        for (let i = practiceSolves.length - 1; i >= 0; i--) {
+          if (practiceSolves[i]!.sessionId === id) practiceSolves.splice(i, 1);
+        }
       },
       async endSession(id) {
         const s = practiceSessions.get(id);
@@ -257,6 +286,10 @@ export function createMemRepo(): Repository {
       async addSolve(solve) { practiceSolves.push(solve); },
       async findSolvesBySession(sessionId) {
         return practiceSolves.filter((s) => s.sessionId === sessionId);
+      },
+      async deleteSolve(id) {
+        const idx = practiceSolves.findIndex((s) => s.id === id);
+        if (idx >= 0) practiceSolves.splice(idx, 1);
       },
     },
 
@@ -274,6 +307,142 @@ export function createMemRepo(): Repository {
       async findResultsByChallenge(challengeId) {
         return dailyChallengeResults.filter((r) => r.challengeId === challengeId);
       },
+      async findUserStreak(userId) {
+        const userResults = dailyChallengeResults.filter((r) => r.userId === userId);
+        if (userResults.length === 0) return 0;
+        const dates = new Set<string>();
+        for (const r of userResults) {
+          const ch = [...dailyChallenges.values()].find((c) => c.id === r.challengeId);
+          if (ch) dates.add(ch.date);
+        }
+        let streak = 0;
+        const d = new Date();
+        while (true) {
+          const dateStr = d.toISOString().slice(0, 10);
+          if (dates.has(dateStr)) {
+            streak++;
+            d.setDate(d.getDate() - 1);
+          } else if (streak === 0) {
+            d.setDate(d.getDate() - 1);
+            if (!dates.has(d.toISOString().slice(0, 10))) break;
+          } else {
+            break;
+          }
+        }
+        return streak;
+      },
+    },
+
+    appeals: {
+      async findAll() { return [...appeals.values()]; },
+      async findById(id) { return appeals.get(id) ?? null; },
+      async findByResult(resultId) {
+        return [...appeals.values()].find((a) => a.resultId === resultId) ?? null;
+      },
+      async findByUser(userId) {
+        return [...appeals.values()].filter((a) => a.userId === userId);
+      },
+      async create(appeal) { appeals.set(appeal.id, appeal); },
+      async update(id, fields) {
+        const existing = appeals.get(id);
+        if (!existing) return null;
+        const updated = { ...existing, ...fields };
+        appeals.set(id, updated);
+        return updated;
+      },
+    },
+
+    rankTiers: {
+      async findAll() { return [...rankTiers.values()]; },
+      async findById(id) { return rankTiers.get(id) ?? null; },
+      async findByEvent(eventType) {
+        return [...rankTiers.values()]
+          .filter((t) => t.eventType === eventType)
+          .sort((a, b) => a.maxAo5Ms - b.maxAo5Ms);
+      },
+      async create(tier) { rankTiers.set(tier.id, tier); },
+      async update(id, fields) {
+        const existing = rankTiers.get(id);
+        if (!existing) return null;
+        const updated = { ...existing, ...fields };
+        rankTiers.set(id, updated);
+        return updated;
+      },
+      async delete(id) { rankTiers.delete(id); },
+    },
+
+    promoCodes: {
+      async findAll() { return [...promoCodes.values()]; },
+      async findById(id) { return promoCodes.get(id) ?? null; },
+      async findByCode(code) {
+        return [...promoCodes.values()].find((p) => p.code.toUpperCase() === code.toUpperCase()) ?? null;
+      },
+      async create(promo) { promoCodes.set(promo.id, promo); },
+      async update(id, fields) {
+        const existing = promoCodes.get(id);
+        if (!existing) return null;
+        const updated = { ...existing, ...fields };
+        promoCodes.set(id, updated);
+        return updated;
+      },
+      async delete(id) { promoCodes.delete(id); },
+      async incrementUsed(id) {
+        const existing = promoCodes.get(id);
+        if (existing) promoCodes.set(id, { ...existing, usedCount: existing.usedCount + 1 });
+      },
+    },
+
+    banners: {
+      async findAll() {
+        return [...bannerStore.values()].sort((a, b) => a.order - b.order);
+      },
+      async findById(id) { return bannerStore.get(id) ?? null; },
+      async create(banner) { bannerStore.set(banner.id, banner); },
+      async update(id, fields) {
+        const existing = bannerStore.get(id);
+        if (!existing) return null;
+        const updated = { ...existing, ...fields };
+        bannerStore.set(id, updated);
+        return updated;
+      },
+      async delete(id) { bannerStore.delete(id); },
+    },
+
+    faq: {
+      async findAll(publishedOnly) {
+        const all = [...faqStore.values()].sort((a, b) => a.order - b.order);
+        return publishedOnly ? all.filter((f) => f.published) : all;
+      },
+      async findById(id) { return faqStore.get(id) ?? null; },
+      async create(entry) { faqStore.set(entry.id, entry); },
+      async update(id, fields) {
+        const existing = faqStore.get(id);
+        if (!existing) return null;
+        const updated = { ...existing, ...fields };
+        faqStore.set(id, updated);
+        return updated;
+      },
+      async delete(id) { faqStore.delete(id); },
+    },
+
+    contentPages: {
+      async findAll(publishedOnly) {
+        const all = [...contentPageStore.values()].sort((a, b) => a.title.localeCompare(b.title));
+        return publishedOnly ? all.filter((p) => p.published) : all;
+      },
+      async findBySlug(slug) {
+        return [...contentPageStore.values()].find((p) => p.slug === slug) ?? null;
+      },
+      async findById(id) { return contentPageStore.get(id) ?? null; },
+      async create(page) { contentPageStore.set(page.id, page); },
+      async update(id, fields) {
+        const existing = contentPageStore.get(id);
+        if (!existing) return null;
+        const updated = { ...existing, ...fields, updatedAt: new Date().toISOString() };
+        contentPageStore.set(id, updated);
+        return updated;
+      },
+      async delete(id) { contentPageStore.delete(id); },
     },
 
     async ping() { return null; },

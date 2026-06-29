@@ -17,6 +17,12 @@ import type {
   DailyChallengeResult,
   Announcement,
   RoundAdvancement,
+  PromoCode,
+  Appeal,
+  RankTier,
+  Banner,
+  FaqEntry,
+  ContentPage,
 } from "./types";
 
 // ── row → domain type mappers ──────────────────────────────────────────────
@@ -44,6 +50,8 @@ function toUser(r: Row): User {
     instagram: (r.instagram as string) ?? undefined,
     wcaId: (r.wca_id as string) ?? undefined,
     wcaVerified: r.wca_verified as boolean,
+    emailVerified: (r.email_verified as boolean) ?? false,
+    profilePrivacy: (r.profile_privacy as User["profilePrivacy"]) ?? "public",
     role: r.role as User["role"],
     accountStage: r.account_stage as User["accountStage"],
     createdAt: ts(r.created_at),
@@ -94,6 +102,7 @@ function toRound(r: Row): Round {
     advancementCount: (r.advancement_count as number) ?? undefined,
     opensAt: r.opens_at ? ts(r.opens_at) : undefined,
     closesAt: r.closes_at ? ts(r.closes_at) : undefined,
+    durationMinutes: (r.duration_minutes as number) ?? undefined,
   };
 }
 
@@ -383,19 +392,20 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       async create(round) {
         await pool.query(
           `INSERT INTO rounds
-             (id, competition_event_id, round_number, advancement_count, status, opens_at, closes_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+             (id, competition_event_id, round_number, advancement_count, status, opens_at, closes_at, duration_minutes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
           [
             round.id, round.competitionEventId, round.roundNumber,
             round.advancementCount ?? null, round.status,
             round.opensAt ?? null, round.closesAt ?? null,
+            round.durationMinutes ?? null,
           ],
         );
       },
       async update(id, fields) {
         const COL: Record<string, string> = {
           status: "status", opensAt: "opens_at", closesAt: "closes_at",
-          advancementCount: "advancement_count",
+          advancementCount: "advancement_count", durationMinutes: "duration_minutes",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -642,6 +652,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
         return rows.map((r: Row): Announcement => ({
           id: r.id as string, title: r.title as string, bodyMd: r.body_md as string,
+          imageUrl: (r.image_url as string) ?? undefined,
+          redirectUrl: (r.redirect_url as string) ?? undefined,
           pinned: r.pinned as boolean, published: r.published as boolean,
           createdBy: (r.created_by as string) ?? undefined,
           createdAt: ts(r.created_at), updatedAt: ts(r.updated_at),
@@ -653,6 +665,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const r = rows[0] as Row;
         return {
           id: r.id as string, title: r.title as string, bodyMd: r.body_md as string,
+          imageUrl: (r.image_url as string) ?? undefined,
+          redirectUrl: (r.redirect_url as string) ?? undefined,
           pinned: r.pinned as boolean, published: r.published as boolean,
           createdBy: (r.created_by as string) ?? undefined,
           createdAt: ts(r.created_at), updatedAt: ts(r.updated_at),
@@ -660,14 +674,14 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
       async create(a) {
         await pool.query(
-          `INSERT INTO announcements (id, title, body_md, pinned, published, created_by, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`,
-          [a.id, a.title, a.bodyMd, a.pinned, a.published, a.createdBy ?? null, a.createdAt],
+          `INSERT INTO announcements (id, title, body_md, image_url, redirect_url, pinned, published, created_by, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+          [a.id, a.title, a.bodyMd, a.imageUrl ?? null, a.redirectUrl ?? null, a.pinned, a.published, a.createdBy ?? null, a.createdAt],
         );
       },
       async update(id, fields) {
         const COL: Record<string, string> = {
-          title: "title", bodyMd: "body_md", pinned: "pinned", published: "published",
+          title: "title", bodyMd: "body_md", imageUrl: "image_url", redirectUrl: "redirect_url", pinned: "pinned", published: "published",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -681,6 +695,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const r = rows[0] as Row;
         return {
           id: r.id as string, title: r.title as string, bodyMd: r.body_md as string,
+          imageUrl: (r.image_url as string) ?? undefined,
+          redirectUrl: (r.redirect_url as string) ?? undefined,
           pinned: r.pinned as boolean, published: r.published as boolean,
           createdBy: (r.created_by as string) ?? undefined,
           createdAt: ts(r.created_at), updatedAt: ts(r.updated_at),
@@ -725,6 +741,20 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
 
     // ── personalBests ──────────────────────────────────────────────────────
     personalBests: {
+      async findAll() {
+        const { rows } = await pool.query("SELECT * FROM personal_bests");
+        return rows.map((r: Row): PersonalBest => ({
+          id: r.id as string,
+          userId: r.user_id as string,
+          eventType: r.event_type as string,
+          bestSingleMs: (r.best_single_ms as number) ?? null,
+          bestAo5Ms: (r.best_ao5_ms as number) ?? null,
+          bestMeanMs: (r.best_mean_ms as number) ?? null,
+          bestMedianMs: (r.best_median_ms as number) ?? null,
+          bestRank: (r.best_rank as number) ?? null,
+          updatedAt: (r.updated_at as Date).toISOString(),
+        }));
+      },
       async findByUser(userId) {
         const { rows } = await pool.query(
           "SELECT * FROM personal_bests WHERE user_id = $1",
@@ -794,6 +824,21 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           createdAt: ts(r.created_at), endedAt: r.ended_at ? ts(r.ended_at) : undefined,
         }));
       },
+      async updateSession(id, fields) {
+        const sets: string[] = [];
+        const vals: unknown[] = [];
+        let i = 1;
+        if (fields.name !== undefined) { sets.push(`name = $${i++}`); vals.push(fields.name); }
+        if (fields.eventType !== undefined) { sets.push(`event_type = $${i++}`); vals.push(fields.eventType); }
+        if (sets.length === 0) return this.findSession(id);
+        vals.push(id);
+        await pool.query(`UPDATE practice_sessions SET ${sets.join(", ")} WHERE id = $${i}`, vals);
+        return this.findSession(id);
+      },
+      async deleteSession(id) {
+        await pool.query("DELETE FROM practice_solves WHERE session_id = $1", [id]);
+        await pool.query("DELETE FROM practice_sessions WHERE id = $1", [id]);
+      },
       async endSession(id) {
         await pool.query(
           "UPDATE practice_sessions SET ended_at = now() WHERE id = $1", [id],
@@ -820,6 +865,9 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           penalty: r.penalty as PracticeSolve["penalty"],
           note: (r.note as string) ?? undefined, createdAt: ts(r.created_at),
         }));
+      },
+      async deleteSolve(id) {
+        await pool.query("DELETE FROM practice_solves WHERE id = $1", [id]);
       },
     },
 
@@ -877,6 +925,336 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           submittedAt: ts(r.submitted_at),
           clId: r.cl_id as string, name: r.name as string,
         }));
+      },
+      async findUserStreak(userId) {
+        const { rows } = await pool.query(
+          `SELECT DISTINCT dc.date FROM daily_challenge_results dcr
+           JOIN daily_challenges dc ON dc.id = dcr.challenge_id
+           WHERE dcr.user_id = $1 ORDER BY dc.date DESC`,
+          [userId],
+        );
+        if (rows.length === 0) return 0;
+        const dates = (rows as Row[]).map((r) => (r.date as string).slice(0, 10));
+        let streak = 0;
+        const d = new Date();
+        while (true) {
+          const dateStr = d.toISOString().slice(0, 10);
+          if (dates.includes(dateStr)) {
+            streak++;
+            d.setDate(d.getDate() - 1);
+          } else if (streak === 0) {
+            d.setDate(d.getDate() - 1);
+            if (!dates.includes(d.toISOString().slice(0, 10))) break;
+          } else {
+            break;
+          }
+        }
+        return streak;
+      },
+    },
+
+    // ── appeals ────────────────────────────────────────────────────────────
+    appeals: {
+      async findAll() {
+        const { rows } = await pool.query("SELECT * FROM appeals ORDER BY created_at DESC");
+        return rows.map((r: Row): Appeal => ({
+          id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
+          reason: r.reason as string, status: r.status as Appeal["status"],
+          adminResponse: (r.admin_response as string) ?? undefined,
+          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined,
+        }));
+      },
+      async findById(id: string) {
+        const { rows } = await pool.query("SELECT * FROM appeals WHERE id = $1", [id]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
+          reason: r.reason as string, status: r.status as Appeal["status"],
+          adminResponse: (r.admin_response as string) ?? undefined,
+          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined };
+      },
+      async findByResult(resultId: string) {
+        const { rows } = await pool.query("SELECT * FROM appeals WHERE result_id = $1", [resultId]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
+          reason: r.reason as string, status: r.status as Appeal["status"],
+          adminResponse: (r.admin_response as string) ?? undefined,
+          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined };
+      },
+      async findByUser(userId: string) {
+        const { rows } = await pool.query("SELECT * FROM appeals WHERE user_id = $1 ORDER BY created_at DESC", [userId]);
+        return rows.map((r: Row): Appeal => ({
+          id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
+          reason: r.reason as string, status: r.status as Appeal["status"],
+          adminResponse: (r.admin_response as string) ?? undefined,
+          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined,
+        }));
+      },
+      async create(appeal: Appeal) {
+        await pool.query(
+          `INSERT INTO appeals (id, result_id, user_id, reason, status, admin_response, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [appeal.id, appeal.resultId, appeal.userId, appeal.reason, appeal.status, appeal.adminResponse ?? null, appeal.createdAt],
+        );
+      },
+      async update(id: string, fields: Partial<Appeal>) {
+        const COL: Record<string, string> = { status: "status", adminResponse: "admin_response" };
+        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        if (sets.length === 0) return this.findById(id);
+        sets.push(`updated_at = $${next}`);
+        vals.push(new Date().toISOString());
+        vals.push(id);
+        const { rows } = await pool.query(
+          `UPDATE appeals SET ${sets.join(", ")} WHERE id = $${next + 1} RETURNING *`, vals,
+        );
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
+          reason: r.reason as string, status: r.status as Appeal["status"],
+          adminResponse: (r.admin_response as string) ?? undefined,
+          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined };
+      },
+    },
+
+    // ── rank tiers ────────────────────────────────────────────────────────
+    rankTiers: {
+      async findAll() {
+        const { rows } = await pool.query("SELECT * FROM rank_tiers ORDER BY event_type, max_ao5_ms");
+        return rows.map((r: Row): RankTier => ({
+          id: r.id as string, name: r.name as string, eventType: r.event_type as string,
+          maxAo5Ms: r.max_ao5_ms as number, color: r.color as string, createdAt: ts(r.created_at),
+        }));
+      },
+      async findById(id: string) {
+        const { rows } = await pool.query("SELECT * FROM rank_tiers WHERE id = $1", [id]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, name: r.name as string, eventType: r.event_type as string,
+          maxAo5Ms: r.max_ao5_ms as number, color: r.color as string, createdAt: ts(r.created_at) };
+      },
+      async findByEvent(eventType: string) {
+        const { rows } = await pool.query("SELECT * FROM rank_tiers WHERE event_type = $1 ORDER BY max_ao5_ms", [eventType]);
+        return rows.map((r: Row): RankTier => ({
+          id: r.id as string, name: r.name as string, eventType: r.event_type as string,
+          maxAo5Ms: r.max_ao5_ms as number, color: r.color as string, createdAt: ts(r.created_at),
+        }));
+      },
+      async create(tier: RankTier) {
+        await pool.query(
+          "INSERT INTO rank_tiers (id, event_type, name, max_ao5_ms, color, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
+          [tier.id, tier.eventType, tier.name, tier.maxAo5Ms, tier.color, tier.createdAt],
+        );
+      },
+      async update(id: string, fields: Partial<RankTier>) {
+        const COL: Record<string, string> = { name: "name", eventType: "event_type", maxAo5Ms: "max_ao5_ms", color: "color" };
+        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        if (sets.length === 0) return this.findById(id);
+        vals.push(id);
+        const { rows } = await pool.query(`UPDATE rank_tiers SET ${sets.join(", ")} WHERE id = $${next} RETURNING *`, vals);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, name: r.name as string, eventType: r.event_type as string,
+          maxAo5Ms: r.max_ao5_ms as number, color: r.color as string, createdAt: ts(r.created_at) };
+      },
+      async delete(id: string) {
+        await pool.query("DELETE FROM rank_tiers WHERE id = $1", [id]);
+      },
+    },
+
+    // ── promo codes ──────────────────────────────────────────────────────
+    promoCodes: {
+      async findAll() {
+        const { rows } = await pool.query("SELECT * FROM promo_codes ORDER BY created_at DESC");
+        return rows.map((r: Row): PromoCode => ({
+          id: r.id as string, code: r.code as string,
+          discountType: r.discount_type as PromoCode["discountType"],
+          discountValue: r.discount_value as number,
+          maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
+          competitionId: (r.competition_id as string) ?? undefined,
+          validFrom: r.valid_from ? ts(r.valid_from) : undefined,
+          validTo: r.valid_until ? ts(r.valid_until) : undefined,
+          active: r.active as boolean, createdAt: ts(r.created_at),
+        }));
+      },
+      async findById(id: string) {
+        const { rows } = await pool.query("SELECT * FROM promo_codes WHERE id = $1", [id]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, code: r.code as string,
+          discountType: r.discount_type as PromoCode["discountType"],
+          discountValue: r.discount_value as number,
+          maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
+          competitionId: (r.competition_id as string) ?? undefined,
+          validFrom: r.valid_from ? ts(r.valid_from) : undefined,
+          validTo: r.valid_until ? ts(r.valid_until) : undefined,
+          active: r.active as boolean, createdAt: ts(r.created_at) };
+      },
+      async findByCode(code: string) {
+        const { rows } = await pool.query("SELECT * FROM promo_codes WHERE UPPER(code) = UPPER($1)", [code]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, code: r.code as string,
+          discountType: r.discount_type as PromoCode["discountType"],
+          discountValue: r.discount_value as number,
+          maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
+          competitionId: (r.competition_id as string) ?? undefined,
+          validFrom: r.valid_from ? ts(r.valid_from) : undefined,
+          validTo: r.valid_until ? ts(r.valid_until) : undefined,
+          active: r.active as boolean, createdAt: ts(r.created_at) };
+      },
+      async create(promo: PromoCode) {
+        await pool.query(
+          `INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, used_count, competition_id, valid_from, valid_until, active, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [promo.id, promo.code, promo.discountType, promo.discountValue, promo.maxUses, promo.usedCount,
+           promo.competitionId ?? null, promo.validFrom ?? null, promo.validTo ?? null, promo.active, promo.createdAt],
+        );
+      },
+      async update(id: string, fields: Partial<PromoCode>) {
+        const COL: Record<string, string> = {
+          code: "code", discountType: "discount_type", discountValue: "discount_value",
+          maxUses: "max_uses", active: "active", validFrom: "valid_from", validTo: "valid_until",
+        };
+        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        if (sets.length === 0) return this.findById(id);
+        vals.push(id);
+        await pool.query(`UPDATE promo_codes SET ${sets.join(", ")} WHERE id = $${next}`, vals);
+        return this.findById(id);
+      },
+      async delete(id: string) {
+        await pool.query("DELETE FROM promo_codes WHERE id = $1", [id]);
+      },
+      async incrementUsed(id: string) {
+        await pool.query("UPDATE promo_codes SET used_count = used_count + 1 WHERE id = $1", [id]);
+      },
+    },
+
+    // ── banners ──────────────────────────────────────────────────────────
+    banners: {
+      async findAll() {
+        const { rows } = await pool.query('SELECT * FROM banners ORDER BY "order"');
+        return rows.map((r: Row): Banner => ({
+          id: r.id as string, title: r.title as string,
+          imageUrl: (r.image_url as string) ?? undefined,
+          ctaLink: (r.link_url as string) ?? undefined,
+          active: r.active as boolean, order: r.order as number, createdAt: ts(r.created_at),
+        }));
+      },
+      async findById(id: string) {
+        const { rows } = await pool.query("SELECT * FROM banners WHERE id = $1", [id]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, title: r.title as string,
+          imageUrl: (r.image_url as string) ?? undefined,
+          ctaLink: (r.link_url as string) ?? undefined,
+          active: r.active as boolean, order: r.order as number, createdAt: ts(r.created_at) };
+      },
+      async create(banner: Banner) {
+        await pool.query(
+          'INSERT INTO banners (id, title, image_url, link_url, "order", active, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [banner.id, banner.title, banner.imageUrl ?? null, banner.ctaLink ?? null, banner.order, banner.active, banner.createdAt],
+        );
+      },
+      async update(id: string, fields: Partial<Banner>) {
+        const COL: Record<string, string> = { title: "title", imageUrl: "image_url", ctaLink: "link_url", active: "active", order: '"order"' };
+        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        if (sets.length === 0) return this.findById(id);
+        vals.push(id);
+        await pool.query(`UPDATE banners SET ${sets.join(", ")} WHERE id = $${next}`, vals);
+        return this.findById(id);
+      },
+      async delete(id: string) {
+        await pool.query("DELETE FROM banners WHERE id = $1", [id]);
+      },
+    },
+
+    // ── faq ──────────────────────────────────────────────────────────────
+    faq: {
+      async findAll(publishedOnly?: boolean) {
+        const { rows } = await pool.query(
+          publishedOnly
+            ? 'SELECT * FROM faq_entries WHERE published = true ORDER BY "order"'
+            : 'SELECT * FROM faq_entries ORDER BY "order"',
+        );
+        return rows.map((r: Row): FaqEntry => ({
+          id: r.id as string, question: r.question as string, answerMd: r.answer as string,
+          order: r.order as number, published: r.published as boolean, createdAt: ts(r.created_at),
+        }));
+      },
+      async findById(id: string) {
+        const { rows } = await pool.query("SELECT * FROM faq_entries WHERE id = $1", [id]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, question: r.question as string, answerMd: r.answer as string,
+          order: r.order as number, published: r.published as boolean, createdAt: ts(r.created_at) };
+      },
+      async create(entry: FaqEntry) {
+        await pool.query(
+          'INSERT INTO faq_entries (id, question, answer, "order", published, created_at) VALUES ($1,$2,$3,$4,$5,$6)',
+          [entry.id, entry.question, entry.answerMd, entry.order, entry.published, entry.createdAt],
+        );
+      },
+      async update(id: string, fields: Partial<FaqEntry>) {
+        const COL: Record<string, string> = { question: "question", answerMd: "answer", order: '"order"', published: "published" };
+        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        if (sets.length === 0) return this.findById(id);
+        sets.push(`updated_at = now()`);
+        vals.push(id);
+        await pool.query(`UPDATE faq_entries SET ${sets.join(", ")} WHERE id = $${next}`, vals);
+        return this.findById(id);
+      },
+      async delete(id: string) {
+        await pool.query("DELETE FROM faq_entries WHERE id = $1", [id]);
+      },
+    },
+
+    contentPages: {
+      async findAll(publishedOnly?: boolean) {
+        const { rows } = await pool.query(
+          publishedOnly
+            ? "SELECT * FROM content_pages WHERE published = true ORDER BY title"
+            : "SELECT * FROM content_pages ORDER BY title",
+        );
+        return rows.map((r: Row): ContentPage => ({
+          id: r.id as string, slug: r.slug as string, title: r.title as string,
+          bodyMd: r.body_md as string, published: r.published as boolean,
+          updatedAt: ts(r.updated_at), createdAt: ts(r.created_at),
+        }));
+      },
+      async findBySlug(slug: string) {
+        const { rows } = await pool.query("SELECT * FROM content_pages WHERE slug = $1", [slug]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, slug: r.slug as string, title: r.title as string,
+          bodyMd: r.body_md as string, published: r.published as boolean,
+          updatedAt: ts(r.updated_at), createdAt: ts(r.created_at) };
+      },
+      async findById(id: string) {
+        const { rows } = await pool.query("SELECT * FROM content_pages WHERE id = $1", [id]);
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, slug: r.slug as string, title: r.title as string,
+          bodyMd: r.body_md as string, published: r.published as boolean,
+          updatedAt: ts(r.updated_at), createdAt: ts(r.created_at) };
+      },
+      async create(page: ContentPage) {
+        await pool.query(
+          "INSERT INTO content_pages (id, slug, title, body_md, published, updated_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+          [page.id, page.slug, page.title, page.bodyMd, page.published, page.updatedAt, page.createdAt],
+        );
+      },
+      async update(id: string, fields: Partial<ContentPage>) {
+        const COL: Record<string, string> = { slug: "slug", title: "title", bodyMd: "body_md", published: "published" };
+        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        if (sets.length === 0) return this.findById(id);
+        sets.push("updated_at = now()");
+        vals.push(id);
+        await pool.query(`UPDATE content_pages SET ${sets.join(", ")} WHERE id = $${next}`, vals);
+        return this.findById(id);
+      },
+      async delete(id: string) {
+        await pool.query("DELETE FROM content_pages WHERE id = $1", [id]);
       },
     },
 

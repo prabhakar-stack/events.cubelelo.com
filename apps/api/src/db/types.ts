@@ -25,6 +25,9 @@ export interface User {
   instagram?: string;
   wcaId?: string;
   wcaVerified: boolean;
+  passwordHash?: string;
+  emailVerified: boolean;
+  profilePrivacy: "public" | "private";
   role: UserRole;
   accountStage: AccountStage;
   createdAt: string;
@@ -69,6 +72,7 @@ export interface Round {
   advancementCount?: number;
   opensAt?: string;
   closesAt?: string;
+  durationMinutes?: number;
 }
 
 export interface ScrambleSet {
@@ -136,6 +140,8 @@ export interface Announcement {
   id: string;
   title: string;
   bodyMd: string;
+  imageUrl?: string;
+  redirectUrl?: string;
   pinned: boolean;
   published: boolean;
   createdBy?: string;
@@ -194,4 +200,69 @@ export interface DailyChallengeResult {
   userId: string;
   timeMs: number;
   submittedAt: string;
+}
+
+export interface Appeal {
+  id: string;
+  resultId: string;
+  userId: string;
+  reason: string;
+  status: "pending" | "accepted" | "rejected";
+  adminResponse?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface RankTier {
+  id: string;
+  name: string;
+  eventType: string;
+  maxAo5Ms: number;
+  color: string;
+  createdAt: string;
+}
+
+export interface Banner {
+  id: string;
+  title: string;
+  imageUrl?: string;
+  ctaText?: string;
+  ctaLink?: string;
+  expiresAt?: string;
+  active: boolean;
+  order: number;
+  createdAt: string;
+}
+
+export interface FaqEntry {
+  id: string;
+  question: string;
+  answerMd: string;
+  order: number;
+  published: boolean;
+  createdAt: string;
+}
+
+export interface ContentPage {
+  id: string;
+  slug: string;
+  title: string;
+  bodyMd: string;
+  published: boolean;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  discountType: "percentage" | "flat";
+  discountValue: number;
+  maxUses: number;
+  usedCount: number;
+  competitionId?: string;
+  validFrom?: string;
+  validTo?: string;
+  active: boolean;
+  createdAt: string;
 }

@@ -21,6 +21,8 @@ export async function seed(repo: Repository): Promise<void> {
     name: "Demo Admin",
     role: "admin",
     wcaVerified: false,
+    emailVerified: true,
+    profilePrivacy: "public",
     accountStage: "active",
     createdAt: now,
   });

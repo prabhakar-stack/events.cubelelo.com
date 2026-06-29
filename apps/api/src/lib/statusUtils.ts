@@ -21,7 +21,8 @@ export function effectiveCompStatus(comp: Competition): string {
   if (comp.status === "draft" || comp.status === "cancelled" || comp.status === "completed") return comp.status;
 
   if (!comp.registrationOpensAt && !comp.startsAt && !comp.endsAt) {
-    return comp.status; // no schedule set — fall back to stored value
+    // "published" is internal; users see "upcoming"
+    return comp.status === "published" ? "upcoming" : comp.status;
   }
 
   const now = Date.now();
@@ -49,6 +50,7 @@ export function effectiveCompStatus(comp: Competition): string {
  */
 export function effectiveRoundStatus(round: Round): string {
   if (round.status === "advanced") return "advanced";
+  if (round.status === "cancelled") return "cancelled";
   if (!round.opensAt) return round.status;
 
   const now = Date.now();

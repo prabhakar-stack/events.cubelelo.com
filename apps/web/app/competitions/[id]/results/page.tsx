@@ -3,16 +3,23 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { fetchCompetition, fetchLeaderboard, type CompetitionDetail, type ResultDto } from "@/lib/api";
+import { fetchCompetition, fetchLeaderboard, submitAppeal, type CompetitionDetail, type ResultDto } from "@/lib/api";
+import { eventDisplayName } from "@/lib/eventNames";
+import { useAuth } from "@/features/auth/AuthProvider";
 import { formatTime } from "@cubers/timer-core";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 
 export default function ResultsPage() {
   const params = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [comp, setComp] = useState<CompetitionDetail | null>(null);
   const [boards, setBoards] = useState<Map<string, ResultDto[]>>(new Map());
   const [activeRound, setActiveRound] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [appealModal, setAppealModal] = useState<{ resultId: string; open: boolean }>({ resultId: "", open: false });
+  const [appealReason, setAppealReason] = useState("");
+  const [appealStatus, setAppealStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [appealError, setAppealError] = useState("");
 
   useEffect(() => {
     if (!params.id) return;
@@ -87,7 +94,7 @@ export default function ResultsPage() {
                     : "bg-zinc-900/40 text-zinc-600 cursor-not-allowed"
               }`}
             >
-              {r.eventType} R{r.roundNumber}
+              {eventDisplayName(r.eventType)} R{r.roundNumber}
             </button>
           );
         })}
@@ -105,6 +112,7 @@ export default function ResultsPage() {
                 <th className="px-4 py-3">Competitor</th>
                 <th className="px-4 py-3 text-right">Average (ao5)</th>
                 <th className="px-4 py-3 text-right">Best Single</th>
+                {user && <th className="px-4 py-3" />}
               </tr>
             </thead>
             <tbody>
@@ -134,10 +142,77 @@ export default function ResultsPage() {
                       ? formatTime(r.bestSingleMs)
                       : "DNF"}
                   </td>
+                  {user && (
+                    <td className="px-4 py-2.5">
+                      {r.userId === user.id && (
+                        <button
+                          onClick={() => {
+                            setAppealModal({ resultId: r.id, open: true });
+                            setAppealReason("");
+                            setAppealStatus("idle");
+                          }}
+                          className="rounded bg-amber-900/30 px-2 py-1 text-xs text-amber-400 hover:bg-amber-900/50"
+                        >
+                          Appeal
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Appeal modal */}
+      {appealModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+            <h2 className="mb-3 text-lg font-bold text-white">Submit Appeal</h2>
+            <p className="mb-4 text-sm text-zinc-400">
+              Explain why you believe this result should be reviewed.
+            </p>
+            <textarea
+              value={appealReason}
+              onChange={(e) => setAppealReason(e.target.value)}
+              placeholder="Reason for appeal..."
+              rows={4}
+              className="mb-3 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-500"
+            />
+            {appealStatus === "error" && (
+              <p className="mb-3 text-sm text-red-400">{appealError}</p>
+            )}
+            {appealStatus === "sent" && (
+              <p className="mb-3 text-sm text-emerald-400">Appeal submitted successfully!</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setAppealModal({ resultId: "", open: false })}
+                className="rounded bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
+              >
+                {appealStatus === "sent" ? "Close" : "Cancel"}
+              </button>
+              {appealStatus !== "sent" && (
+                <button
+                  disabled={!appealReason.trim() || appealStatus === "sending"}
+                  onClick={async () => {
+                    setAppealStatus("sending");
+                    try {
+                      await submitAppeal(appealModal.resultId, appealReason.trim());
+                      setAppealStatus("sent");
+                    } catch (e) {
+                      setAppealError(e instanceof Error ? e.message : String(e));
+                      setAppealStatus("error");
+                    }
+                  }}
+                  className="rounded bg-amber-600 px-4 py-2 text-sm text-white hover:bg-amber-500 disabled:opacity-50"
+                >
+                  {appealStatus === "sending" ? "Submitting..." : "Submit Appeal"}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </main>

@@ -14,11 +14,20 @@ const TABS = [
   { label: "Competitions", href: "/admin" },
   { label: "Users", href: "/admin/users" },
   { label: "Payments", href: "/admin/payments" },
+  { label: "Promo Codes", href: "/admin/promo-codes" },
+  { label: "Appeals", href: "/admin/appeals" },
+  { label: "WCA Queue", href: "/admin/wca-queue" },
+  { label: "Rank Tiers", href: "/admin/rank-tiers" },
+  { label: "Merge", href: "/admin/merge" },
   { label: "Announcements", href: "/admin/announcements" },
   { label: "Migration", href: "/admin/migration" },
+  { label: "Content", href: "/admin/content" },
+  { label: "Details", href: "/admin/faq" },
+  { label: "Pages", href: "/admin/pages" },
+  { label: "Staff", href: "/admin/staff" },
 ];
 
-const EMPTY = { title: "", bodyMd: "", pinned: false, published: false };
+const EMPTY = { title: "", bodyMd: "", imageUrl: "", redirectUrl: "", pinned: false, published: false };
 
 export default function AdminAnnouncementsPage() {
   const [list, setList] = useState<AnnouncementDto[]>([]);
@@ -39,7 +48,7 @@ export default function AdminAnnouncementsPage() {
   useEffect(() => { load(); }, [load]);
 
   const openCreate = () => { setForm(EMPTY); setEditing(null); setCreating(true); };
-  const openEdit = (a: AnnouncementDto) => { setForm({ title: a.title, bodyMd: a.bodyMd, pinned: a.pinned, published: a.published }); setEditing(a); setCreating(false); };
+  const openEdit = (a: AnnouncementDto) => { setForm({ title: a.title, bodyMd: a.bodyMd, imageUrl: a.imageUrl ?? "", redirectUrl: a.redirectUrl ?? "", pinned: a.pinned, published: a.published }); setEditing(a); setCreating(false); };
   const closeForm = () => { setCreating(false); setEditing(null); setError(null); };
 
   const save = async () => {
@@ -87,13 +96,13 @@ export default function AdminAnnouncementsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-6 py-8">
       {/* Sub-nav */}
-      <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+      <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
         {TABS.map((tab) => (
           <Link key={tab.label} href={tab.href}
-            className={`rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-800/50 hover:text-zinc-200 ${
-              tab.href === "/admin/announcements" ? "bg-zinc-800 text-zinc-100" : "text-zinc-400"
+            className={`rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200 ${
+              tab.href === "/admin/announcements" ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
             }`}>
             {tab.label}
           </Link>
@@ -101,7 +110,7 @@ export default function AdminAnnouncementsPage() {
       </div>
 
       <div className="mb-5 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-zinc-100">Announcements</h1>
+        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Announcements</h1>
         {!creating && !editing && (
           <button onClick={openCreate}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
@@ -110,12 +119,12 @@ export default function AdminAnnouncementsPage() {
         )}
       </div>
 
-      {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+      {error && <div className="mb-4 rounded bg-red-100 px-4 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
 
       {/* Create / Edit form */}
       {(creating || editing) && (
-        <div className="mb-6 rounded-xl border border-zinc-700 bg-zinc-900/50 p-5">
-          <h2 className="mb-4 text-sm font-semibold text-zinc-300">
+        <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/50 p-5">
+          <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
             {editing ? "Edit announcement" : "New announcement"}
           </h2>
           <div className="space-y-3">
@@ -125,7 +134,7 @@ export default function AdminAnnouncementsPage() {
                 value={form.title}
                 onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                 placeholder="Announcement title"
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
               />
             </div>
             <div>
@@ -135,17 +144,37 @@ export default function AdminAnnouncementsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, bodyMd: e.target.value }))}
                 rows={6}
                 placeholder="Write announcement content in Markdown…"
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
               />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-zinc-500">Image URL (optional)</label>
+                <input
+                  value={form.imageUrl}
+                  onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
+                  placeholder="https://..."
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-zinc-500">Redirect URL (optional)</label>
+                <input
+                  value={form.redirectUrl}
+                  onChange={(e) => setForm((f) => ({ ...f, redirectUrl: e.target.value }))}
+                  placeholder="https://..."
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+                />
+              </div>
+            </div>
             <div className="flex gap-6">
-              <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer">
                 <input type="checkbox" checked={form.pinned}
                   onChange={(e) => setForm((f) => ({ ...f, pinned: e.target.checked }))}
                   className="accent-emerald-500" />
                 Pin to top
               </label>
-              <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer">
                 <input type="checkbox" checked={form.published}
                   onChange={(e) => setForm((f) => ({ ...f, published: e.target.checked }))}
                   className="accent-emerald-500" />
@@ -158,7 +187,7 @@ export default function AdminAnnouncementsPage() {
                 {busy === "save" ? "Saving…" : editing ? "Save changes" : "Create"}
               </button>
               <button onClick={closeForm}
-                className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800">
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
                 Cancel
               </button>
             </div>
@@ -170,13 +199,13 @@ export default function AdminAnnouncementsPage() {
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
       ) : list.length === 0 ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-10 text-center text-zinc-500">
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-10 text-center text-zinc-500">
           No announcements yet.
         </div>
       ) : (
         <div className="space-y-3">
           {list.map((a) => (
-            <div key={a.id} className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-4">
+            <div key={a.id} className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-4">
               <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {a.pinned && (
@@ -193,22 +222,22 @@ export default function AdminAnnouncementsPage() {
                       Draft
                     </span>
                   )}
-                  <h3 className="font-semibold text-zinc-100">{a.title}</h3>
+                  <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{a.title}</h3>
                 </div>
                 <span className="text-xs text-zinc-600">{new Date(a.updatedAt).toLocaleDateString()}</span>
               </div>
-              <p className="mb-3 line-clamp-2 text-xs text-zinc-400">{a.bodyMd}</p>
+              <p className="mb-3 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{a.bodyMd}</p>
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => openEdit(a)}
-                  className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
+                  className="rounded border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200">
                   Edit
                 </button>
                 <button onClick={() => togglePublish(a)} disabled={busy === a.id}
-                  className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40">
+                  className="rounded border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 disabled:opacity-40">
                   {a.published ? "Unpublish" : "Publish"}
                 </button>
                 <button onClick={() => togglePin(a)} disabled={busy === `pin-${a.id}`}
-                  className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40">
+                  className="rounded border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 disabled:opacity-40">
                   {a.pinned ? "Unpin" : "Pin"}
                 </button>
                 <button onClick={() => del(a)} disabled={busy === `del-${a.id}`}

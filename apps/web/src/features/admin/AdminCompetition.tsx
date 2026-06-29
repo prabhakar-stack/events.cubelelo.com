@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   closeRound,
+  downloadCertificatesZip,
+  exportCompetitionCSV,
+  sendBulkEmail,
+  sendRoundNotification,
   fetchCompetition,
   fetchVerificationQueue,
   generateScrambles,
@@ -25,18 +29,27 @@ const ADMIN_TABS = [
   { label: "Competitions", href: "/admin" },
   { label: "Users", href: "/admin/users" },
   { label: "Payments", href: "/admin/payments" },
+  { label: "Promo Codes", href: "/admin/promo-codes" },
+  { label: "Appeals", href: "/admin/appeals" },
+  { label: "WCA Queue", href: "/admin/wca-queue" },
+  { label: "Rank Tiers", href: "/admin/rank-tiers" },
+  { label: "Merge", href: "/admin/merge" },
   { label: "Announcements", href: "/admin/announcements" },
   { label: "Migration", href: "/admin/migration" },
+  { label: "Content", href: "/admin/content" },
+  { label: "Details", href: "/admin/faq" },
+  { label: "Pages", href: "/admin/pages" },
+  { label: "Staff", href: "/admin/staff" },
 ];
 
 function AdminSubNav() {
   return (
-    <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+    <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
       {ADMIN_TABS.map((tab) => (
         <Link
           key={tab.label}
           href={tab.href}
-          className="rounded-md px-4 py-2 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800/50 hover:text-zinc-200"
+          className="rounded-md px-4 py-2 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
         >
           {tab.label}
         </Link>
@@ -64,6 +77,7 @@ export function AdminCompetition({ id }: { id: string }) {
   const [regCloses, setRegCloses] = useState("");
   const [compStarts, setCompStarts] = useState("");
   const [compEnds, setCompEnds] = useState("");
+  const [showEmailModal, setShowEmailModal] = useState(false);
 
   const load = useCallback(() => {
     fetchCompetition(id)
@@ -106,18 +120,18 @@ export function AdminCompetition({ id }: { id: string }) {
 
   if (error && !detail) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-8 text-zinc-400">
+      <div className="mx-auto max-w-6xl px-6 py-8">
         <AdminSubNav />
-        <Link href="/admin" className="text-emerald-400 hover:underline">
+        <Link href="/admin" className="text-emerald-500 hover:underline">
           ← Back
         </Link>
-        <p className="mt-4 text-red-400">{error}</p>
+        <div className="mt-4 rounded bg-red-100 px-4 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>
       </div>
     );
   }
   if (!detail) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-8">
+      <div className="mx-auto max-w-6xl px-6 py-8">
         <AdminSubNav />
         <p className="text-zinc-500">Loading…</p>
       </div>
@@ -125,11 +139,11 @@ export function AdminCompetition({ id }: { id: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-6 py-8">
       <AdminSubNav />
 
       {/* ── Competition details banner ── */}
-      <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
+      <section className="mb-6 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/30 p-6">
         <div className="mb-3 flex items-center justify-between">
           <Link
             href="/admin"
@@ -145,7 +159,7 @@ export function AdminCompetition({ id }: { id: string }) {
                 if (e.target.value)
                   run("status", () => updateCompetition(id, { status: e.target.value }));
               }}
-              className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+              className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               title="Manually override status (registration_open / live / etc. are auto-computed from schedule)"
             >
               <option value="">— auto —</option>
@@ -156,12 +170,12 @@ export function AdminCompetition({ id }: { id: string }) {
           </div>
         </div>
 
-        <h1 className="mb-1 text-2xl font-bold text-zinc-100">{detail.title}</h1>
+        <h1 className="mb-1 text-xl font-bold text-zinc-900 dark:text-zinc-100">{detail.title}</h1>
         {detail.description && (
           <p className="mb-2 text-sm text-zinc-400">{detail.description}</p>
         )}
 
-        <div className="flex flex-wrap gap-4 text-xs text-zinc-500">
+        <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500">
           <span>Type: {detail.type}</span>
           <span>
             Events: {detail.events.map((e) => e.eventType).join(", ")}
@@ -173,12 +187,34 @@ export function AdminCompetition({ id }: { id: string }) {
               {((detail.perEventFee ?? 0) / 100).toFixed(0)}/event
             </span>
           )}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setShowEmailModal(true)}
+              className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+            >
+              Send Email
+            </button>
+            <button
+              disabled={busy === "certs"}
+              onClick={() => run("certs", () => downloadCertificatesZip(id))}
+              className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
+            >
+              {busy === "certs" ? "Generating…" : "Certificates"}
+            </button>
+            <button
+              disabled={busy === "export"}
+              onClick={() => run("export", () => exportCompetitionCSV(id))}
+              className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
+            >
+              {busy === "export" ? "Exporting…" : "Export CSV"}
+            </button>
+          </div>
         </div>
 
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+        {error && <div className="mt-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
 
         {/* ── Schedule editor ── */}
-        <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+        <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               Schedule
@@ -202,7 +238,7 @@ export function AdminCompetition({ id }: { id: string }) {
                   type="datetime-local"
                   value={value}
                   onChange={(e) => set(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
             ))}
@@ -254,7 +290,7 @@ export function AdminCompetition({ id }: { id: string }) {
         </h2>
 
         {queue.length === 0 ? (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-8 text-center">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-8 text-center">
             <p className="text-zinc-500">No flagged results to review.</p>
           </div>
         ) : (
@@ -274,12 +310,119 @@ export function AdminCompetition({ id }: { id: string }) {
         )}
       </section>
 
-      {/* ── Footer ── */}
-      <footer className="border-t border-zinc-800 py-8 text-center text-xs text-zinc-600">
-        <p>
-          © {new Date().getFullYear()} Cubelelo Events. All rights reserved.
-        </p>
-      </footer>
+      {/* ── Bulk Email Modal ── */}
+      {showEmailModal && (
+        <BulkEmailModal
+          competitionId={id}
+          onClose={() => setShowEmailModal(false)}
+        />
+      )}
+
+    </div>
+  );
+}
+
+/* ── Bulk email modal ── */
+
+function BulkEmailModal({
+  competitionId,
+  onClose,
+}: {
+  competitionId: string;
+  onClose: () => void;
+}) {
+  const [subject, setSubject] = useState("");
+  const [bodyHtml, setBodyHtml] = useState("");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{
+    sent: boolean;
+    message: string;
+    recipientCount: number;
+    recipients: string[];
+  } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleSend = async () => {
+    setSending(true);
+    setErr(null);
+    try {
+      const res = await sendBulkEmail(competitionId, { subject, bodyHtml });
+      setResult(res);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-zinc-100">Send Bulk Email</h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+            ✕
+          </button>
+        </div>
+
+        {result ? (
+          <div className="space-y-3">
+            <div className="rounded-lg border border-emerald-800 bg-emerald-950/30 p-4">
+              <p className="text-sm text-emerald-300">{result.message}</p>
+              <p className="mt-1 text-xs text-zinc-400">
+                {result.recipientCount} recipient{result.recipientCount !== 1 ? "s" : ""}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full rounded-lg bg-zinc-700 py-2 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-600"
+            >
+              Close
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Subject</label>
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="e.g. Round 1 results are out!"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">
+                Body (HTML supported)
+              </label>
+              <textarea
+                value={bodyHtml}
+                onChange={(e) => setBodyHtml(e.target.value)}
+                rows={6}
+                placeholder="Write your email content here..."
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+              />
+            </div>
+            {err && <div className="rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{err}</div>}
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="flex-1 rounded-lg border border-zinc-700 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={sending || !subject.trim() || !bodyHtml.trim()}
+                onClick={handleSend}
+                className="flex-1 rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
+              >
+                {sending ? "Sending…" : "Send to All Registrants"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -316,7 +459,7 @@ function RoundRow({
     );
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/60">
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60">
       {/* Main row */}
       <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
         <span className="font-mono text-sm text-zinc-300">R{round.roundNumber}</span>
@@ -378,6 +521,14 @@ function RoundRow({
             </button>
           )}
 
+          <button
+            disabled={busy === `notify-${round.id}`}
+            onClick={() => onRun(`notify-${round.id}`, () => sendRoundNotification(round.id))}
+            className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
+          >
+            {busy === `notify-${round.id}` ? "Sending…" : "Notify"}
+          </button>
+
           <Link href={`/competitions/${competitionId}/round/${round.roundNumber}`}
             className="text-xs text-zinc-500 hover:text-zinc-300">
             Terminal
@@ -402,7 +553,7 @@ function RoundRow({
                 type="datetime-local"
                 value={opensAt}
                 onChange={(e) => setOpensAt(e.target.value)}
-                className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               />
             </div>
             <div>
@@ -411,7 +562,7 @@ function RoundRow({
                 type="datetime-local"
                 value={closesAt}
                 onChange={(e) => setClosesAt(e.target.value)}
-                className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               />
             </div>
             <button
@@ -471,7 +622,7 @@ function FlaggedResultCard({
   };
 
   return (
-    <div className="rounded-xl border border-amber-900/40 bg-zinc-900/40 p-5">
+    <div className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900/40 dark:bg-zinc-900/40 p-5">
       {/* Header: user info */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
@@ -559,7 +710,7 @@ function FlaggedResultCard({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder="Enter reason for your decision..."
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
         />
       </div>
 

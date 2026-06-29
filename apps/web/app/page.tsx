@@ -35,10 +35,8 @@ export default function Home() {
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      {/* ── Announcements slider ── */}
       <AnnouncementSlider />
 
-      {/* ── Featured competition ── */}
       {featured && (
         <section className="mt-8">
           <h2 className="mb-3 text-xs uppercase tracking-wider text-zinc-500">
@@ -46,7 +44,7 @@ export default function Home() {
           </h2>
           <Link
             href={`/competitions/${featured.id}`}
-            className="group block rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 transition hover:border-zinc-700 md:p-8"
+            className="group block rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-100 to-white p-6 transition hover:border-zinc-300 dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 dark:hover:border-zinc-700 md:p-8"
           >
             <div className="mb-3 flex items-center gap-3">
               <StatusBadge status={featured.status} />
@@ -56,11 +54,11 @@ export default function Home() {
                 </span>
               )}
             </div>
-            <h3 className="mb-1 text-2xl font-bold text-zinc-100 group-hover:text-white md:text-3xl">
+            <h3 className="mb-1 text-2xl font-bold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white md:text-3xl">
               {featured.title}
             </h3>
             {featured.description && (
-              <p className="mt-1 max-w-2xl text-sm text-zinc-400">
+              <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
                 {featured.description}
               </p>
             )}
@@ -80,7 +78,6 @@ export default function Home() {
         </section>
       )}
 
-      {/* ── Upcoming competitions — horizontal scroll ── */}
       {upcoming.length > 0 && (
         <HorizontalSection title="Upcoming Competitions" href="/competitions?status=upcoming">
           {upcoming.map((c) => (
@@ -89,7 +86,6 @@ export default function Home() {
         </HorizontalSection>
       )}
 
-      {/* ── Past competitions — horizontal scroll ── */}
       {past.length > 0 && (
         <HorizontalSection title="Past Competitions" href="/competitions?status=past">
           {past.map((c) => (
@@ -98,32 +94,18 @@ export default function Home() {
         </HorizontalSection>
       )}
 
-      {/* ── Blogs placeholder ── */}
       <section className="mt-10">
         <h2 className="mb-3 text-xs uppercase tracking-wider text-zinc-500">
           Blog
         </h2>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-10 text-center">
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-10 text-center dark:border-zinc-800 dark:bg-zinc-900/30">
           <p className="text-zinc-500">Blog posts coming soon.</p>
         </div>
       </section>
-
-      {/* ── Footer ── */}
-      <footer className="mt-12 border-t border-zinc-800 py-8 text-center text-xs text-zinc-600">
-        <p>© {new Date().getFullYear()} Cubelelo Events. All rights reserved.</p>
-        <div className="mt-2 flex justify-center gap-4">
-          <Link href="/competitions" className="transition hover:text-zinc-400">
-            Competitions
-          </Link>
-          <span className="cursor-not-allowed text-zinc-700">Rankings</span>
-          <span className="cursor-not-allowed text-zinc-700">Practice</span>
-        </div>
-      </footer>
     </main>
   );
 }
 
-/* ── Announcement slides ── */
 const ANNOUNCEMENTS = [
   "Welcome to Cubelelo Events — India's premier speedcubing platform!",
   "Register for upcoming competitions and compete with cubers across the country.",
@@ -139,34 +121,33 @@ function AnnouncementSlider() {
   }, []);
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40 px-6 py-4">
+    <div className="relative overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
       <div className="flex items-center justify-between">
         <button
           onClick={() => setIdx((i) => (i - 1 + ANNOUNCEMENTS.length) % ANNOUNCEMENTS.length)}
-          className="mr-3 rounded p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-300"
+          className="mr-3 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           aria-label="Previous"
         >
           <ChevronLeft />
         </button>
-        <p className="flex-1 text-center text-sm text-zinc-300">
+        <p className="flex-1 text-center text-sm text-zinc-700 dark:text-zinc-300">
           {ANNOUNCEMENTS[idx]}
         </p>
         <button
           onClick={() => setIdx((i) => (i + 1) % ANNOUNCEMENTS.length)}
-          className="ml-3 rounded p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-300"
+          className="ml-3 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           aria-label="Next"
         >
           <ChevronRight />
         </button>
       </div>
-      {/* dots */}
       <div className="mt-2 flex justify-center gap-1.5">
         {ANNOUNCEMENTS.map((_, i) => (
           <button
             key={i}
             onClick={() => setIdx(i)}
             className={`h-1.5 rounded-full transition-all ${
-              i === idx ? "w-4 bg-emerald-500" : "w-1.5 bg-zinc-700"
+              i === idx ? "w-4 bg-emerald-500" : "w-1.5 bg-zinc-300 dark:bg-zinc-700"
             }`}
           />
         ))}
@@ -175,7 +156,6 @@ function AnnouncementSlider() {
   );
 }
 
-/* ── Horizontal scroll section ── */
 function HorizontalSection({
   title,
   href,
@@ -203,21 +183,21 @@ function HorizontalSection({
         <div className="flex items-center gap-2">
           <button
             onClick={() => scroll("left")}
-            className="rounded p-1 text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-300"
+            className="rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
             aria-label="Scroll left"
           >
             <ChevronLeft />
           </button>
           <button
             onClick={() => scroll("right")}
-            className="rounded p-1 text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-300"
+            className="rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
             aria-label="Scroll right"
           >
             <ChevronRight />
           </button>
           <Link
             href={href}
-            className="ml-2 text-xs text-zinc-500 transition hover:text-zinc-300"
+            className="ml-2 text-xs text-zinc-500 transition hover:text-zinc-900 dark:hover:text-zinc-300"
           >
             View more →
           </Link>
@@ -234,7 +214,6 @@ function HorizontalSection({
   );
 }
 
-/* ── Horizontal scroll card ── */
 function ScrollCard({ comp }: { comp: CompetitionSummary }) {
   const feeLabel =
     comp.type === "free"
@@ -244,18 +223,18 @@ function ScrollCard({ comp }: { comp: CompetitionSummary }) {
   return (
     <Link
       href={`/competitions/${comp.id}`}
-      className="group flex w-72 flex-shrink-0 flex-col rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 transition hover:border-zinc-700 hover:bg-zinc-900/60"
+      className="group flex w-72 flex-shrink-0 flex-col rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/60"
       style={{ scrollSnapAlign: "start" }}
     >
       <div className="mb-3 flex items-center justify-between">
         <StatusBadge status={comp.status} />
         <span className="text-xs text-zinc-500">{feeLabel}</span>
       </div>
-      <h3 className="mb-1 text-base font-semibold text-zinc-100 group-hover:text-white">
+      <h3 className="mb-1 text-base font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
         {comp.title}
       </h3>
       {comp.description && (
-        <p className="mb-3 line-clamp-2 text-xs text-zinc-400">
+        <p className="mb-3 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">
           {comp.description}
         </p>
       )}
@@ -270,7 +249,6 @@ function ScrollCard({ comp }: { comp: CompetitionSummary }) {
   );
 }
 
-/* ── Icons ── */
 function ChevronLeft() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

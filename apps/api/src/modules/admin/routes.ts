@@ -3,9 +3,12 @@ import type { FastifyInstance } from "fastify";
 import { isEventId } from "@cubers/scramble-core";
 import type { CompStatus, CompType, FlagStatus } from "@cubers/types";
 import type { Repository } from "../../db/repo";
-import type { Competition, CompetitionEvent, Round, AuditLogEntry, Announcement } from "../../db/types";
+import type { Competition, CompetitionEvent, Round, AuditLogEntry, Announcement, PromoCode, Appeal, RankTier, Banner, FaqEntry, ContentPage } from "../../db/types";
 import { requireRole } from "../../auth/plugin";
 import { effectiveCompStatus, effectiveRoundStatus } from "../../lib/statusUtils";
+import { collectCertificateData, generateCertificatePDF } from "../../lib/certificate";
+import { emailService, roundNotificationEmail, bulkEmail, migrationEmail } from "../../lib/email";
+import { ZipArchive } from "archiver";
 
 const COMP_TYPES: CompType[] = ["paid", "free", "practice"];
 const COMP_STATUSES: CompStatus[] = [
@@ -164,6 +167,27 @@ export async function registerAdminRoutes(
     if (typeof coverUrl === "string") fields.coverUrl = coverUrl;
     if (typeof bannerUrl === "string") fields.bannerUrl = bannerUrl;
 
+    // Validate schedule before publishing
+    if (fields.status === "published") {
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+      const merged = { ...comp, ...fields };
+      const missing: string[] = [];
+      if (!merged.startsAt) missing.push("startsAt");
+      if (!merged.endsAt) missing.push("endsAt");
+      if (missing.length > 0) {
+        return reply.code(400).send({ error: "schedule_required_for_publish", missing });
+      }
+      const rounds = await repo.rounds.findByCompetition(req.params.id);
+      const unscheduled = rounds.filter((r) => !r.opensAt || !r.closesAt);
+      if (unscheduled.length > 0) {
+        return reply.code(400).send({
+          error: "rounds_schedule_required_for_publish",
+          unscheduledRounds: unscheduled.length,
+        });
+      }
+    }
+
     const updated = await repo.competitions.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "competition_not_found" });
     return {
@@ -259,11 +283,11 @@ export async function registerAdminRoutes(
     return repo.announcements.findAll(false);
   });
 
-  app.post<{ Body: { title?: string; bodyMd?: string; pinned?: boolean; published?: boolean } }>(
+  app.post<{ Body: { title?: string; bodyMd?: string; imageUrl?: string; redirectUrl?: string; pinned?: boolean; published?: boolean } }>(
     "/api/v1/admin/announcements",
     adminOnly,
     async (req, reply) => {
-      const { title, bodyMd, pinned, published } = req.body ?? {};
+      const { title, bodyMd, imageUrl, redirectUrl, pinned, published } = req.body ?? {};
       if (!title || !bodyMd) return reply.code(400).send({ error: "missing_fields" });
 
       const user = await repo.users.findById(req.authClaims!.sub);
@@ -272,6 +296,8 @@ export async function registerAdminRoutes(
         id: randomUUID(),
         title,
         bodyMd,
+        imageUrl: imageUrl?.trim() || undefined,
+        redirectUrl: redirectUrl?.trim() || undefined,
         pinned: pinned ?? false,
         published: published ?? false,
         createdBy: user?.id,
@@ -285,7 +311,7 @@ export async function registerAdminRoutes(
 
   app.patch<{
     Params: { id: string };
-    Body: { title?: string; bodyMd?: string; pinned?: boolean; published?: boolean };
+    Body: { title?: string; bodyMd?: string; imageUrl?: string; redirectUrl?: string; pinned?: boolean; published?: boolean };
   }>("/api/v1/admin/announcements/:id", adminOnly, async (req, reply) => {
     const updated = await repo.announcements.update(req.params.id, req.body ?? {});
     if (!updated) return reply.code(404).send({ error: "announcement_not_found" });
@@ -463,6 +489,278 @@ export async function registerAdminRoutes(
     },
   );
 
+  // ── CSV export ────────────────────────────────────────────────────────────
+
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/admin/competitions/:id/export",
+    adminOnly,
+    async (req, reply) => {
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const events = await repo.competitionEvents.findByCompetition(comp.id);
+      const rounds = await repo.rounds.findByCompetition(comp.id);
+
+      const rows: string[][] = [];
+      rows.push([
+        "Event", "Round", "Rank", "Name", "CL ID", "Best Single (s)",
+        "ao5 (s)", "Solve 1", "Solve 2", "Solve 3", "Solve 4", "Solve 5",
+        "Flag Status", "Video URL",
+      ]);
+
+      for (const ev of events) {
+        const evRounds = rounds
+          .filter((r) => r.competitionEventId === ev.id)
+          .sort((a, b) => a.roundNumber - b.roundNumber);
+
+        for (const round of evRounds) {
+          const results = await repo.results.findByRound(round.id);
+          const sorted = results.sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
+
+          for (const r of sorted) {
+            const user = await repo.users.findById(r.userId);
+            const fmtMs = (ms: number | null) =>
+              ms === null ? "DNF" : (ms / 1000).toFixed(2);
+            const fmtSolve = (s: { time_ms: number; penalty: string }) => {
+              if (s.penalty === "dnf") return "DNF";
+              const t = s.penalty === "plus2" ? s.time_ms + 2000 : s.time_ms;
+              return (t / 1000).toFixed(2) + (s.penalty === "plus2" ? "+" : "");
+            };
+
+            const solveStrs = Array.from({ length: 5 }, (_, i) =>
+              r.solves[i] ? fmtSolve(r.solves[i]) : "",
+            );
+
+            rows.push([
+              ev.eventType,
+              `R${round.roundNumber}`,
+              r.rank !== null ? String(r.rank) : "",
+              user?.name ?? "",
+              user?.clId ?? "",
+              fmtMs(r.bestSingleMs),
+              fmtMs(r.ao5Ms),
+              ...solveStrs,
+              r.flagStatus,
+              r.videoUrl ?? "",
+            ]);
+          }
+        }
+      }
+
+      const escapeCsv = (val: string) => {
+        if (val.includes(",") || val.includes('"') || val.includes("\n"))
+          return `"${val.replace(/"/g, '""')}"`;
+        return val;
+      };
+      const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+      const filename = `${comp.title.replace(/[^a-zA-Z0-9_-]/g, "_")}_results.csv`;
+
+      return reply
+        .header("Content-Type", "text/csv; charset=utf-8")
+        .header("Content-Disposition", `attachment; filename="${filename}"`)
+        .send(csv);
+    },
+  );
+
+  // ── Bulk email ────────────────────────────────────────────────────────────
+
+  app.post<{
+    Params: { id: string };
+    Body: { subject?: string; bodyHtml?: string };
+  }>(
+    "/api/v1/admin/competitions/:id/email",
+    adminOnly,
+    async (req, reply) => {
+      const { subject, bodyHtml } = req.body ?? {};
+      if (!subject?.trim() || !bodyHtml?.trim())
+        return reply.code(400).send({ error: "subject_and_body_required" });
+
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const regs = await repo.registrations.findByCompetition(comp.id);
+      const recipients: { email: string; name: string }[] = [];
+      for (const reg of regs) {
+        const user = await repo.users.findById(reg.userId);
+        if (user?.email) recipients.push({ email: user.email, name: user.name });
+      }
+
+      if (recipients.length === 0)
+        return reply.code(409).send({ error: "no_recipients" });
+
+      let sentCount = 0;
+      for (const r of recipients) {
+        const msg = bulkEmail(r.name, subject, bodyHtml);
+        const ok = await emailService.send({ to: r.email, subject: msg.subject, html: msg.html });
+        if (ok) sentCount++;
+      }
+
+      const admin = await repo.users.findById(req.authClaims!.sub);
+      await repo.auditLog.create({
+        id: randomUUID(),
+        adminId: admin?.id ?? req.authClaims!.sub,
+        action: "bulk_email",
+        target: comp.id,
+        reason: `subject="${subject}", recipients=${recipients.length}, sent=${sentCount}`,
+        createdAt: new Date().toISOString(),
+      });
+
+      return {
+        sent: sentCount > 0,
+        recipientCount: recipients.length,
+        sentCount,
+      };
+    },
+  );
+
+  // ── Certificates ──────────────────────────────────────────────────────────
+
+  app.get<{ Params: { id: string; userId: string } }>(
+    "/api/v1/admin/competitions/:id/certificate/:userId",
+    adminOnly,
+    async (req, reply) => {
+      const data = await collectCertificateData(repo, req.params.id, req.params.userId);
+      if (!data) return reply.code(404).send({ error: "not_found" });
+
+      const pdf = generateCertificatePDF(data);
+      const filename = `${data.participantName.replace(/[^a-zA-Z0-9_-]/g, "_")}_certificate.pdf`;
+
+      reply
+        .header("Content-Type", "application/pdf")
+        .header("Content-Disposition", `attachment; filename="${filename}"`);
+
+      return reply.send(pdf);
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/admin/competitions/:id/certificates",
+    adminOnly,
+    async (req, reply) => {
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const regs = await repo.registrations.findByCompetition(comp.id);
+      if (regs.length === 0)
+        return reply.code(409).send({ error: "no_registrations" });
+
+      const filename = `${comp.title.replace(/[^a-zA-Z0-9_-]/g, "_")}_certificates.zip`;
+      reply
+        .header("Content-Type", "application/zip")
+        .header("Content-Disposition", `attachment; filename="${filename}"`);
+
+      const archive = new ZipArchive({ zlib: { level: 5 } });
+      archive.on("error", (err: Error) => reply.log.error(err, "archive error"));
+
+      for (const reg of regs) {
+        const data = await collectCertificateData(repo, comp.id, reg.userId);
+        if (!data) continue;
+
+        const pdf = generateCertificatePDF(data);
+        const pdfName = `${data.participantName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${data.clId}.pdf`;
+        archive.append(pdf as never, { name: pdfName });
+      }
+
+      archive.finalize();
+      return reply.send(archive);
+    },
+  );
+
+  // ── Promo codes (admin CRUD) ──────────────────────────────────────────────
+
+  app.get("/api/v1/admin/promo-codes", adminOnly, async () => {
+    return repo.promoCodes.findAll();
+  });
+
+  app.post<{
+    Body: {
+      code?: string;
+      discountType?: "percentage" | "flat";
+      discountValue?: number;
+      maxUses?: number;
+      competitionId?: string;
+      validFrom?: string;
+      validTo?: string;
+    };
+  }>("/api/v1/admin/promo-codes", adminOnly, async (req, reply) => {
+    const { code, discountType, discountValue, maxUses, competitionId, validFrom, validTo } = req.body ?? {};
+    if (!code?.trim() || !discountType || discountValue == null || discountValue <= 0)
+      return reply.code(400).send({ error: "code_type_and_value_required" });
+    if (discountType === "percentage" && discountValue > 100)
+      return reply.code(400).send({ error: "percentage_max_100" });
+
+    const existing = await repo.promoCodes.findByCode(code);
+    if (existing) return reply.code(409).send({ error: "code_already_exists" });
+
+    const promo: PromoCode = {
+      id: randomUUID(),
+      code: code.toUpperCase().trim(),
+      discountType,
+      discountValue,
+      maxUses: maxUses ?? 0,
+      usedCount: 0,
+      competitionId,
+      validFrom,
+      validTo,
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+    await repo.promoCodes.create(promo);
+    return reply.code(201).send(promo);
+  });
+
+  app.patch<{
+    Params: { id: string };
+    Body: Partial<Pick<PromoCode, "code" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "validFrom" | "validTo" | "active">>;
+  }>("/api/v1/admin/promo-codes/:id", adminOnly, async (req, reply) => {
+    const updated = await repo.promoCodes.update(req.params.id, req.body ?? {});
+    if (!updated) return reply.code(404).send({ error: "promo_not_found" });
+    return updated;
+  });
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/promo-codes/:id",
+    adminOnly,
+    async (req, reply) => {
+      const promo = await repo.promoCodes.findById(req.params.id);
+      if (!promo) return reply.code(404).send({ error: "promo_not_found" });
+      await repo.promoCodes.delete(req.params.id);
+      return { ok: true };
+    },
+  );
+
+  // ── Promo code validation (public, auth required) ────────────────────────
+
+  app.post<{
+    Body: { code?: string; competitionId?: string };
+  }>("/api/v1/promo/validate", async (req, reply) => {
+    const { code, competitionId } = req.body ?? {};
+    if (!code?.trim()) return reply.code(400).send({ error: "code_required" });
+
+    const promo = await repo.promoCodes.findByCode(code.trim());
+    if (!promo || !promo.active)
+      return reply.code(404).send({ error: "invalid_code" });
+
+    if (promo.maxUses > 0 && promo.usedCount >= promo.maxUses)
+      return reply.code(409).send({ error: "code_exhausted" });
+
+    const now = new Date().toISOString();
+    if (promo.validFrom && now < promo.validFrom)
+      return reply.code(409).send({ error: "code_not_yet_valid" });
+    if (promo.validTo && now > promo.validTo)
+      return reply.code(409).send({ error: "code_expired" });
+
+    if (promo.competitionId && competitionId && promo.competitionId !== competitionId)
+      return reply.code(409).send({ error: "code_not_for_this_competition" });
+
+    return {
+      valid: true,
+      code: promo.code,
+      discountType: promo.discountType,
+      discountValue: promo.discountValue,
+    };
+  });
+
   // ── Migration stats (admin) ───────────────────────────────────────────────
 
   app.get("/api/v1/admin/migration/stats", adminOnly, async () => {
@@ -477,6 +775,30 @@ export async function registerAdminRoutes(
         id: u.id, clId: u.clId, name: u.name, email: u.email, createdAt: u.createdAt,
       })),
     };
+  });
+
+  // ── Migration email campaign ─────────────────────────────────────────────
+
+  app.post("/api/v1/admin/migration/send-emails", adminOnly, async (req) => {
+    const users = await repo.users.findAll();
+    const stubs = users.filter((u) => u.accountStage === "migrated_stub" && u.email);
+    let sentCount = 0;
+    for (const stub of stubs) {
+      const msg = migrationEmail(stub.name, stub.clId);
+      const ok = await emailService.send({ to: stub.email, subject: msg.subject, html: msg.html });
+      if (ok) sentCount++;
+    }
+
+    const admin = await repo.users.findById((req as { authClaims?: { sub: string } }).authClaims!.sub);
+    await repo.auditLog.create({
+      id: randomUUID(),
+      adminId: admin?.id ?? (req as { authClaims?: { sub: string } }).authClaims!.sub,
+      action: "migration_email_campaign",
+      reason: `Sent migration emails to ${sentCount}/${stubs.length} unclaimed stubs`,
+      createdAt: new Date().toISOString(),
+    });
+
+    return { totalStubs: stubs.length, sentCount };
   });
 
   // ── Round advancement (shortlisting) ─────────────────────────────────────
@@ -517,4 +839,487 @@ export async function registerAdminRoutes(
       );
     },
   );
+
+  // ── Appeals (user-facing) ───────────────────────────────────────────────
+
+  app.post<{
+    Body: { resultId?: string; reason?: string };
+  }>("/api/v1/appeals", { preHandler: requireRole(repo, "user", "admin", "moderator", "judge") }, async (req, reply) => {
+    const { resultId, reason } = req.body ?? {};
+    if (!resultId || !reason?.trim())
+      return reply.code(400).send({ error: "result_id_and_reason_required" });
+
+    const result = await repo.results.findById(resultId);
+    if (!result) return reply.code(404).send({ error: "result_not_found" });
+    if (result.userId !== req.authClaims!.sub)
+      return reply.code(403).send({ error: "can_only_appeal_own_results" });
+
+    const existing = await repo.appeals.findByResult(resultId);
+    if (existing) return reply.code(409).send({ error: "appeal_already_submitted" });
+
+    const appeal = {
+      id: randomUUID(),
+      resultId,
+      userId: req.authClaims!.sub,
+      reason: reason.trim(),
+      status: "pending" as const,
+      createdAt: new Date().toISOString(),
+    };
+    await repo.appeals.create(appeal);
+    return reply.code(201).send(appeal);
+  });
+
+  app.get("/api/v1/me/appeals", { preHandler: requireRole(repo, "user", "admin", "moderator", "judge") }, async (req) => {
+    return repo.appeals.findByUser(req.authClaims!.sub);
+  });
+
+  // Admin: list all appeals
+  app.get("/api/v1/admin/appeals", adminOrMod, async () => {
+    const all = await repo.appeals.findAll();
+    return Promise.all(
+      all.map(async (a) => {
+        const user = await repo.users.findById(a.userId);
+        const result = await repo.results.findById(a.resultId);
+        return { ...a, userName: user?.name, userClId: user?.clId, flagStatus: result?.flagStatus };
+      }),
+    );
+  });
+
+  // Admin: resolve appeal
+  app.post<{
+    Params: { id: string };
+    Body: { action?: "accepted" | "rejected"; adminResponse?: string };
+  }>("/api/v1/admin/appeals/:id/resolve", adminOrMod, async (req, reply) => {
+    const { action, adminResponse } = req.body ?? {};
+    if (!action || !["accepted", "rejected"].includes(action))
+      return reply.code(400).send({ error: "action_required" });
+
+    const updated = await repo.appeals.update(req.params.id, {
+      status: action,
+      adminResponse: adminResponse?.trim(),
+      resolvedAt: new Date().toISOString(),
+    });
+    if (!updated) return reply.code(404).send({ error: "appeal_not_found" });
+
+    const admin = await repo.users.findById(req.authClaims!.sub);
+    await repo.auditLog.create({
+      id: randomUUID(),
+      adminId: admin?.id ?? req.authClaims!.sub,
+      action: `appeal_${action}`,
+      target: updated.resultId,
+      reason: adminResponse?.trim(),
+      createdAt: new Date().toISOString(),
+    });
+
+    return updated;
+  });
+
+  // ── WCA verification queue (admin) ──────────────────────────────────────
+
+  app.get("/api/v1/admin/wca-queue", adminOnly, async () => {
+    const users = await repo.users.findAll();
+    return users
+      .filter((u) => u.wcaId && !u.wcaVerified)
+      .map((u) => ({
+        id: u.id,
+        clId: u.clId,
+        name: u.name,
+        email: u.email,
+        wcaId: u.wcaId,
+        wcaVerified: u.wcaVerified,
+      }));
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: { action?: "verify" | "reject" };
+  }>("/api/v1/admin/wca-queue/:id", adminOnly, async (req, reply) => {
+    const { action } = req.body ?? {};
+    if (!action) return reply.code(400).send({ error: "action_required" });
+
+    const fields = action === "verify"
+      ? { wcaVerified: true }
+      : { wcaId: undefined, wcaVerified: false };
+
+    const updated = await repo.users.update(req.params.id, fields as never);
+    if (!updated) return reply.code(404).send({ error: "user_not_found" });
+
+    const admin = await repo.users.findById(req.authClaims!.sub);
+    await repo.auditLog.create({
+      id: randomUUID(),
+      adminId: admin?.id ?? req.authClaims!.sub,
+      action: `wca_${action}`,
+      target: req.params.id,
+      reason: `WCA ID: ${updated.wcaId ?? "removed"}`,
+      createdAt: new Date().toISOString(),
+    });
+
+    return { id: updated.id, wcaId: updated.wcaId, wcaVerified: updated.wcaVerified };
+  });
+
+  // ── Rank tiers (admin CRUD) ─────────────────────────────────────────────
+
+  app.get("/api/v1/admin/rank-tiers", adminOnly, async () => {
+    return repo.rankTiers.findAll();
+  });
+
+  app.post<{
+    Body: { name?: string; eventType?: string; maxAo5Ms?: number; color?: string };
+  }>("/api/v1/admin/rank-tiers", adminOnly, async (req, reply) => {
+    const { name, eventType, maxAo5Ms, color } = req.body ?? {};
+    if (!name?.trim() || !eventType?.trim() || !maxAo5Ms || !color?.trim())
+      return reply.code(400).send({ error: "all_fields_required" });
+
+    const tier: RankTier = {
+      id: randomUUID(),
+      name: name.trim(),
+      eventType: eventType.trim(),
+      maxAo5Ms,
+      color: color.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    await repo.rankTiers.create(tier);
+    return reply.code(201).send(tier);
+  });
+
+  app.patch<{
+    Params: { id: string };
+    Body: Partial<Pick<RankTier, "name" | "maxAo5Ms" | "color">>;
+  }>("/api/v1/admin/rank-tiers/:id", adminOnly, async (req, reply) => {
+    const updated = await repo.rankTiers.update(req.params.id, req.body ?? {});
+    if (!updated) return reply.code(404).send({ error: "tier_not_found" });
+    return updated;
+  });
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/rank-tiers/:id",
+    adminOnly,
+    async (req, reply) => {
+      const tier = await repo.rankTiers.findById(req.params.id);
+      if (!tier) return reply.code(404).send({ error: "tier_not_found" });
+      await repo.rankTiers.delete(req.params.id);
+      return { ok: true };
+    },
+  );
+
+  // Public: get rank tiers for an event
+  app.get<{ Params: { eventType: string } }>(
+    "/api/v1/rank-tiers/:eventType",
+    async (req) => {
+      return repo.rankTiers.findByEvent(req.params.eventType);
+    },
+  );
+
+  // ── Account merge (admin) ──────────────────────────────────────────────
+
+  app.post<{
+    Body: { keepUserId?: string; mergeUserId?: string };
+  }>("/api/v1/admin/merge-accounts", adminOnly, async (req, reply) => {
+    const { keepUserId, mergeUserId } = req.body ?? {};
+    if (!keepUserId || !mergeUserId)
+      return reply.code(400).send({ error: "keep_and_merge_user_ids_required" });
+    if (keepUserId === mergeUserId)
+      return reply.code(400).send({ error: "cannot_merge_same_account" });
+
+    const keepUser = await repo.users.findById(keepUserId);
+    const mergeUser = await repo.users.findById(mergeUserId);
+    if (!keepUser) return reply.code(404).send({ error: "keep_user_not_found" });
+    if (!mergeUser) return reply.code(404).send({ error: "merge_user_not_found" });
+
+    // Move all registrations from mergeUser to keepUser
+    const mergeRegs = await repo.registrations.findByUser(mergeUserId);
+    for (const reg of mergeRegs) {
+      await repo.registrations.update(reg.id, { userId: keepUserId } as never);
+    }
+
+    // Move all results from mergeUser to keepUser
+    const mergeResults = await repo.results.findByUser(mergeUserId);
+    for (const result of mergeResults) {
+      await repo.results.update(result.id, { userId: keepUserId });
+    }
+
+    // Deactivate the merged account
+    await repo.users.update(mergeUserId, {
+      accountStage: "suspended" as never,
+      name: `[MERGED → ${keepUser.clId}] ${mergeUser.name}`,
+    } as never);
+
+    const admin = await repo.users.findById(req.authClaims!.sub);
+    await repo.auditLog.create({
+      id: randomUUID(),
+      adminId: admin?.id ?? req.authClaims!.sub,
+      action: "account_merge",
+      target: `${mergeUser.clId} → ${keepUser.clId}`,
+      reason: `Merged ${mergeRegs.length} registrations, ${mergeResults.length} results`,
+      createdAt: new Date().toISOString(),
+    });
+
+    return {
+      kept: { id: keepUser.id, clId: keepUser.clId, name: keepUser.name },
+      merged: { id: mergeUser.id, clId: mergeUser.clId, name: mergeUser.name },
+      movedRegistrations: mergeRegs.length,
+      movedResults: mergeResults.length,
+    };
+  });
+
+  // ── Round notification (log-based) ──────────────────────────────────────
+
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/rounds/:id/notify",
+    adminOnly,
+    async (req, reply) => {
+      const round = await repo.rounds.findById(req.params.id);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+
+      const event = await repo.competitionEvents.findById(round.competitionEventId);
+      if (!event) return reply.code(404).send({ error: "event_not_found" });
+
+      const comp = await repo.competitions.findById(event.competitionId);
+      const regs = await repo.registrations.findByCompetition(event.competitionId);
+      const recipients: { email: string; name: string }[] = [];
+
+      for (const reg of regs) {
+        const user = await repo.users.findById(reg.userId);
+        if (user?.email) recipients.push({ email: user.email, name: user.name });
+      }
+
+      const compTitle = comp?.title ?? "Competition";
+      let sentCount = 0;
+      for (const r of recipients) {
+        const msg = roundNotificationEmail(r.name, compTitle, round.roundNumber, "opened");
+        const ok = await emailService.send({ to: r.email, subject: msg.subject, html: msg.html });
+        if (ok) sentCount++;
+      }
+
+      return {
+        sent: sentCount > 0,
+        recipientCount: recipients.length,
+        sentCount,
+        roundNumber: round.roundNumber,
+        eventType: event.eventType,
+      };
+    },
+  );
+
+  // ── Banners (admin CRUD) ──────────────────────────────────────────────────
+
+  app.get("/api/v1/admin/banners", adminOnly, async () => {
+    return repo.banners.findAll();
+  });
+
+  app.post<{
+    Body: { title?: string; imageUrl?: string; ctaText?: string; ctaLink?: string; expiresAt?: string; active?: boolean; order?: number };
+  }>("/api/v1/admin/banners", adminOnly, async (req, reply) => {
+    const { title, imageUrl, ctaText, ctaLink, expiresAt, active, order } = req.body ?? {};
+    if (!title?.trim()) return reply.code(400).send({ error: "title_required" });
+
+    const banner: Banner = {
+      id: randomUUID(),
+      title: title.trim(),
+      imageUrl: imageUrl?.trim() || undefined,
+      ctaText: ctaText?.trim() || undefined,
+      ctaLink: ctaLink?.trim() || undefined,
+      expiresAt: expiresAt || undefined,
+      active: active ?? true,
+      order: order ?? 0,
+      createdAt: new Date().toISOString(),
+    };
+    await repo.banners.create(banner);
+    return reply.code(201).send(banner);
+  });
+
+  app.patch<{
+    Params: { id: string };
+    Body: Partial<Pick<Banner, "title" | "imageUrl" | "ctaText" | "ctaLink" | "expiresAt" | "active" | "order">>;
+  }>("/api/v1/admin/banners/:id", adminOnly, async (req, reply) => {
+    const updated = await repo.banners.update(req.params.id, req.body ?? {});
+    if (!updated) return reply.code(404).send({ error: "banner_not_found" });
+    return updated;
+  });
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/banners/:id",
+    adminOnly,
+    async (req, reply) => {
+      const banner = await repo.banners.findById(req.params.id);
+      if (!banner) return reply.code(404).send({ error: "banner_not_found" });
+      await repo.banners.delete(req.params.id);
+      return { ok: true };
+    },
+  );
+
+  // Public: active banners
+  app.get("/api/v1/banners", async () => {
+    const all = await repo.banners.findAll();
+    const now = new Date().toISOString();
+    return all.filter((b) => b.active && (!b.expiresAt || b.expiresAt > now));
+  });
+
+  // ── FAQ (admin CRUD) ──────────────────────────────────────────────────────
+
+  app.get("/api/v1/admin/faq", adminOnly, async () => {
+    return repo.faq.findAll(false);
+  });
+
+  app.post<{
+    Body: { question?: string; answerMd?: string; order?: number; published?: boolean };
+  }>("/api/v1/admin/faq", adminOnly, async (req, reply) => {
+    const { question, answerMd, order, published } = req.body ?? {};
+    if (!question?.trim() || !answerMd?.trim())
+      return reply.code(400).send({ error: "question_and_answer_required" });
+
+    const entry: FaqEntry = {
+      id: randomUUID(),
+      question: question.trim(),
+      answerMd: answerMd.trim(),
+      order: order ?? 0,
+      published: published ?? false,
+      createdAt: new Date().toISOString(),
+    };
+    await repo.faq.create(entry);
+    return reply.code(201).send(entry);
+  });
+
+  app.patch<{
+    Params: { id: string };
+    Body: Partial<Pick<FaqEntry, "question" | "answerMd" | "order" | "published">>;
+  }>("/api/v1/admin/faq/:id", adminOnly, async (req, reply) => {
+    const updated = await repo.faq.update(req.params.id, req.body ?? {});
+    if (!updated) return reply.code(404).send({ error: "faq_not_found" });
+    return updated;
+  });
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/faq/:id",
+    adminOnly,
+    async (req, reply) => {
+      const entry = await repo.faq.findById(req.params.id);
+      if (!entry) return reply.code(404).send({ error: "faq_not_found" });
+      await repo.faq.delete(req.params.id);
+      return { ok: true };
+    },
+  );
+
+  // Public: published FAQ entries
+  app.get("/api/v1/faq", async () => {
+    return repo.faq.findAll(true);
+  });
+
+  // ── Content Pages (admin CRUD) ─────────────────────────────────────────────
+
+  app.get("/api/v1/admin/content-pages", adminOnly, async () => {
+    return repo.contentPages.findAll(false);
+  });
+
+  app.post<{
+    Body: { slug?: string; title?: string; bodyMd?: string; published?: boolean };
+  }>("/api/v1/admin/content-pages", adminOnly, async (req, reply) => {
+    const { slug, title, bodyMd, published } = req.body ?? {};
+    if (!slug?.trim() || !title?.trim())
+      return reply.code(400).send({ error: "slug_and_title_required" });
+
+    const existing = await repo.contentPages.findBySlug(slug.trim());
+    if (existing) return reply.code(409).send({ error: "slug_already_exists" });
+
+    const now = new Date().toISOString();
+    const page: ContentPage = {
+      id: randomUUID(), slug: slug.trim(), title: title.trim(),
+      bodyMd: bodyMd?.trim() ?? "", published: published ?? false,
+      updatedAt: now, createdAt: now,
+    };
+    await repo.contentPages.create(page);
+    return reply.code(201).send(page);
+  });
+
+  app.patch<{
+    Params: { id: string };
+    Body: Partial<Pick<ContentPage, "slug" | "title" | "bodyMd" | "published">>;
+  }>("/api/v1/admin/content-pages/:id", adminOnly, async (req, reply) => {
+    const updated = await repo.contentPages.update(req.params.id, req.body ?? {});
+    if (!updated) return reply.code(404).send({ error: "content_page_not_found" });
+    return updated;
+  });
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/content-pages/:id",
+    adminOnly,
+    async (req, reply) => {
+      const page = await repo.contentPages.findById(req.params.id);
+      if (!page) return reply.code(404).send({ error: "content_page_not_found" });
+      await repo.contentPages.delete(req.params.id);
+      return { ok: true };
+    },
+  );
+
+  // Public: fetch a content page by slug
+  app.get<{ Params: { slug: string } }>("/api/v1/pages/:slug", async (req, reply) => {
+    const page = await repo.contentPages.findBySlug(req.params.slug);
+    if (!page || !page.published) return reply.code(404).send({ error: "page_not_found" });
+    return { slug: page.slug, title: page.title, bodyMd: page.bodyMd };
+  });
+
+  // ── Judge/Moderator creation (admin) ──────────────────────────────────────
+
+  app.post<{
+    Body: { email?: string; name?: string; role?: "judge" | "moderator" | "admin" };
+  }>("/api/v1/admin/create-staff", adminOnly, async (req, reply) => {
+    const { email, name, role } = req.body ?? {};
+    if (!email?.trim() || !name?.trim())
+      return reply.code(400).send({ error: "email_and_name_required" });
+    if (!role || !["judge", "moderator", "admin"].includes(role))
+      return reply.code(400).send({ error: "invalid_role" });
+
+    // Promoting to admin requires super_admin
+    if (role === "admin") {
+      const caller = await repo.users.findById(req.authClaims!.sub);
+      if (caller?.role !== "super_admin")
+        return reply.code(403).send({ error: "super_admin_required_for_admin_promotion" });
+    }
+
+    const existing = await repo.users.findByEmail(email.trim());
+    if (existing) {
+      if (existing.role === role)
+        return reply.code(409).send({ error: "user_already_has_role" });
+      await repo.users.update(existing.id, { role } as never);
+      const admin = await repo.users.findById(req.authClaims!.sub);
+      await repo.auditLog.create({
+        id: randomUUID(),
+        adminId: admin?.id ?? req.authClaims!.sub,
+        action: "role_assign",
+        target: existing.id,
+        reason: `Role changed to ${role}`,
+        createdAt: new Date().toISOString(),
+      });
+      return { id: existing.id, clId: existing.clId, name: existing.name, email: existing.email, role };
+    }
+
+    const clId = await repo.users.nextClId();
+    const now = new Date().toISOString();
+    const newUser = {
+      id: randomUUID(),
+      clId,
+      email: email.trim(),
+      name: name.trim(),
+      role: role as "judge" | "moderator" | "admin",
+      wcaVerified: false,
+      emailVerified: false,
+      profilePrivacy: "public" as const,
+      accountStage: "active" as const,
+      createdAt: now,
+    };
+    await repo.users.create(newUser);
+
+    const admin = await repo.users.findById(req.authClaims!.sub);
+    await repo.auditLog.create({
+      id: randomUUID(),
+      adminId: admin?.id ?? req.authClaims!.sub,
+      action: "staff_create",
+      target: newUser.id,
+      reason: `Created ${role} account for ${email}`,
+      createdAt: now,
+    });
+
+    return reply.code(201).send({ id: newUser.id, clId, name: newUser.name, email: newUser.email, role });
+  });
+
 }

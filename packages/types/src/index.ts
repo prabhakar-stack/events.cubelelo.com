@@ -4,11 +4,11 @@
  */
 
 // ─────────────────────────── Enums ───────────────────────────
-export type UserRole = "user" | "judge" | "moderator" | "admin";
+export type UserRole = "user" | "judge" | "moderator" | "admin" | "super_admin";
 export type AccountStage = "active" | "migrated_stub" | "suspended" | "banned";
 export type CompStatus = "draft" | "published" | "upcoming" | "registration_open" | "registration_closed" | "cancelled" | "live" | "results_pending" | "completed";
 export type CompType = "paid" | "free" | "practice";
-export type RoundStatus = "pending" | "open" | "closed" | "advanced";
+export type RoundStatus = "pending" | "open" | "closed" | "advanced" | "cancelled";
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded" | "refund_pending";
 export type SolvePenalty = "none" | "plus2" | "dnf";
 export type FlagStatus = "clean" | "flagged" | "verified" | "plus2" | "dnf" | "disqualified";

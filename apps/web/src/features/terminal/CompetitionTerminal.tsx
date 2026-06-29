@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getEvent, isEventId, type EventId } from "@cubers/scramble-core";
-import { ao5, formatSolve, formatTime } from "@cubers/timer-core";
+import { ao5, effectiveTime, formatSolve, formatTime } from "@cubers/timer-core";
 import type { Solve, SolvePenalty } from "@cubers/types";
 import Link from "next/link";
 import { useTimer } from "@/features/timer/useTimer";
@@ -27,7 +27,7 @@ interface CompetitionTerminalProps {
 type LoadState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; roundId: string; eventType: EventId; scrambles: string[] };
+  | { kind: "ready"; roundId: string; eventType: EventId; scrambles: string[]; cutoffMs?: number; timeLimitMs?: number };
 
 export function CompetitionTerminal({
   competitionId,
@@ -69,6 +69,8 @@ export function CompetitionTerminal({
           roundId: rnd.id,
           eventType: isEventId(ev.eventType) ? ev.eventType : "333",
           scrambles: sc.scrambles,
+          cutoffMs: ev.cutoffMs,
+          timeLimitMs: ev.timeLimitMs,
         });
       } catch (e) {
         if (active) {
@@ -84,13 +86,38 @@ export function CompetitionTerminal({
     };
   }, [competitionId, round, eventId]);
 
+  const [cutoffFailed, setCutoffFailed] = useState(false);
+  const [timeLimitHit, setTimeLimitHit] = useState(false);
+
   useEffect(() => {
     if (snapshot.phase === "stopped" && snapshot.result) {
       setPendingPenalty(snapshot.result.penalty);
+      setTimeLimitHit(false);
     }
   }, [snapshot.phase, snapshot.result]);
 
-  const roundComplete = solves.length >= SOLVES_PER_ROUND;
+  // WCA time limit enforcement: auto-DNF if solve exceeds time limit
+  useEffect(() => {
+    if (
+      snapshot.phase === "solving" &&
+      load.kind === "ready" &&
+      load.timeLimitMs &&
+      snapshot.timeMs >= load.timeLimitMs &&
+      !timeLimitHit
+    ) {
+      setTimeLimitHit(true);
+      down(); // stop the timer
+    }
+  }, [snapshot.phase, snapshot.timeMs, load, timeLimitHit, down]);
+
+  // Auto-set DNF penalty when time limit is hit
+  useEffect(() => {
+    if (timeLimitHit && snapshot.phase === "stopped" && snapshot.result) {
+      setPendingPenalty("dnf");
+    }
+  }, [timeLimitHit, snapshot.phase, snapshot.result]);
+
+  const roundComplete = cutoffFailed || solves.length >= SOLVES_PER_ROUND;
 
   const currentScramble = load.kind === "ready" ? (load.scrambles[index] ?? "") : "";
   const scrambleMoves = useMemo(() => currentScramble.trim().split(/\s+/).filter(Boolean), [currentScramble]);
@@ -137,13 +164,29 @@ export function CompetitionTerminal({
 
   const confirmSolve = useCallback(() => {
     if (!snapshot.result) return;
-    setSolves((prev) => [
-      ...prev,
-      { time_ms: snapshot.result!.time_ms, penalty: pendingPenalty },
-    ]);
+    const newSolve: Solve = { time_ms: snapshot.result!.time_ms, penalty: pendingPenalty };
+    const newSolves = [...solves, newSolve];
+    setSolves(newSolves);
+
+    // WCA cutoff enforcement: after solve 2, check if both solves exceed cutoff
+    if (
+      load.kind === "ready" &&
+      load.cutoffMs &&
+      newSolves.length === 2
+    ) {
+      const allAboveCutoff = newSolves.every(
+        (s) => effectiveTime(s) > load.cutoffMs!,
+      );
+      if (allAboveCutoff) {
+        setCutoffFailed(true);
+        reset();
+        return;
+      }
+    }
+
     setIndex((i) => Math.min(i + 1, SOLVES_PER_ROUND - 1));
     reset();
-  }, [snapshot.result, pendingPenalty, reset]);
+  }, [snapshot.result, pendingPenalty, reset, solves, load]);
 
   const handleSubmit = useCallback(async () => {
     if (load.kind !== "ready") return;
@@ -209,7 +252,17 @@ export function CompetitionTerminal({
           <span className="font-semibold">{event.name}</span>
           <span className="text-zinc-500">Round {round}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          {load.kind === "ready" && load.cutoffMs && (
+            <span className="text-xs text-amber-400">
+              Cutoff: {formatTime(load.cutoffMs)}
+            </span>
+          )}
+          {load.kind === "ready" && load.timeLimitMs && (
+            <span className="text-xs text-red-400">
+              Limit: {formatTime(load.timeLimitMs)}
+            </span>
+          )}
           <span className="text-zinc-500">Solve</span>
           <span className="font-mono font-semibold">
             {Math.min(index + 1, SOLVES_PER_ROUND)} / {SOLVES_PER_ROUND}
@@ -228,6 +281,7 @@ export function CompetitionTerminal({
           userId={userId}
           board={liveBoard}
           signedIn={Boolean(user)}
+          cutoffFailed={cutoffFailed}
         />
       ) : focusMode ? (
         /* ── Full-screen timer (inspection / ready / solving) ── */
@@ -418,6 +472,7 @@ function RoundComplete({
   userId,
   board,
   signedIn,
+  cutoffFailed,
 }: {
   finalAo5: number | null;
   solves: Solve[];
@@ -432,18 +487,32 @@ function RoundComplete({
   userId: string;
   board: ResultDto[];
   signedIn: boolean;
+  cutoffFailed?: boolean;
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10">
-      <div className="text-center">
-        <div className="text-sm uppercase tracking-wider text-zinc-500">Final ao5</div>
-        <div className="font-mono text-7xl font-bold text-emerald-400">
-          {finalAo5 === null ? "DNF" : formatTime(finalAo5)}
+      {cutoffFailed ? (
+        <div className="text-center">
+          <div className="text-sm uppercase tracking-wider text-red-400">Did not make cutoff</div>
+          <div className="mt-2 font-mono text-5xl font-bold text-red-500">DNF</div>
+          <div className="mt-2 font-mono text-sm text-zinc-500">
+            {solves.map((s) => formatSolve(s)).join("   ")}
+          </div>
+          <p className="mt-4 max-w-sm text-sm text-zinc-500">
+            Both solves exceeded the cutoff time. Your round has ended.
+          </p>
         </div>
-        <div className="mt-2 font-mono text-sm text-zinc-500">
-          {solves.map((s) => formatSolve(s)).join("   ")}
+      ) : (
+        <div className="text-center">
+          <div className="text-sm uppercase tracking-wider text-zinc-500">Final ao5</div>
+          <div className="font-mono text-7xl font-bold text-emerald-400">
+            {finalAo5 === null ? "DNF" : formatTime(finalAo5)}
+          </div>
+          <div className="mt-2 font-mono text-sm text-zinc-500">
+            {solves.map((s) => formatSolve(s)).join("   ")}
+          </div>
         </div>
-      </div>
+      )}
 
       {submit.kind === "done" ? (
         <div className="text-center text-sm text-zinc-400">
@@ -464,12 +533,15 @@ function RoundComplete({
           <input
             value={videoUrl}
             onChange={(e) => setVideoUrl(e.target.value)}
-            placeholder="Video link (YouTube / Drive) — optional"
+            placeholder="Video link (YouTube / Drive) — required"
             className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
           />
+          {!videoUrl.trim() && (
+            <p className="text-xs text-amber-400">A video link is required to submit results.</p>
+          )}
           <button
             onClick={onSubmit}
-            disabled={submit.kind === "submitting"}
+            disabled={submit.kind === "submitting" || !videoUrl.trim()}
             className="rounded-lg bg-emerald-600 px-6 py-2 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
             {submit.kind === "submitting" ? "Submitting…" : "Submit results"}

@@ -13,13 +13,13 @@ export function CompetitionCard({ comp }: { comp: CompetitionSummary }) {
   return (
     <Link
       href={`/competitions/${comp.id}`}
-      className="group flex flex-col rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 transition hover:border-zinc-700 hover:bg-zinc-900/60"
+      className="group flex flex-col rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/60"
     >
       <div className="mb-3 flex items-center justify-between">
         <StatusBadge status={comp.status} />
         <span className="text-xs text-zinc-500">{feeLabel}</span>
       </div>
-      <h3 className="mb-1 text-lg font-semibold text-zinc-100 group-hover:text-white">
+      <h3 className="mb-1 text-lg font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
         {comp.title}
       </h3>
       {comp.description && (

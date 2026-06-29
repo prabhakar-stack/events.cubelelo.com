@@ -7,6 +7,7 @@ import type { Result } from "../../db/types";
 import type { Realtime } from "../../sockets/realtime";
 import { requireAuth } from "../../auth/plugin";
 import { effectiveRoundStatus } from "../../lib/statusUtils";
+import { getScrambleFetchTime } from "../../lib/scrambleTiming";
 
 const PENALTIES: SolvePenalty[] = ["none", "plus2", "dnf"];
 
@@ -62,8 +63,40 @@ export async function registerResultRoutes(
         if (!advanced) return reply.code(403).send({ error: "not_shortlisted" });
       }
 
+      // Prevent duplicate submissions
+      const existingResults = await repo.results.findByRound(round.id);
+      if (existingResults.some((r) => r.userId === user.id)) {
+        return reply.code(409).send({ error: "already_submitted" });
+      }
+
       const solves = parseSolves(req.body?.solves);
       if (!solves) return reply.code(400).send({ error: "invalid_solves" });
+
+      const videoUrl = req.body?.videoUrl?.trim() ?? null;
+      if (!videoUrl) return reply.code(400).send({ error: "video_url_required" });
+
+      // Anti-cheat: validate submission falls within round open/close window
+      const now = Date.now();
+      if (round.opensAt && now < new Date(round.opensAt).getTime()) {
+        return reply.code(400).send({ error: "round_not_yet_open" });
+      }
+      if (round.closesAt && now > new Date(round.closesAt).getTime()) {
+        return reply.code(400).send({ error: "round_closed" });
+      }
+
+      // Anti-cheat: total claimed solve time must not exceed wall-clock time since scramble fetch
+      const fetchedAt = getScrambleFetchTime(round.id, user.id);
+      if (fetchedAt) {
+        const totalClaimedMs = solves.reduce((sum, s) => sum + s.time_ms, 0);
+        const wallClockMs = now - fetchedAt;
+        if (totalClaimedMs > wallClockMs) {
+          return reply.code(400).send({ error: "timing_mismatch" });
+        }
+        // If round has a close time, ensure scramble fetch happened after round opened
+        if (round.opensAt && fetchedAt < new Date(round.opensAt).getTime()) {
+          return reply.code(400).send({ error: "scramble_fetched_before_round_open" });
+        }
+      }
 
       const stats = computeStats(solves);
       const computedAo5 = ao5(solves);
@@ -93,7 +126,7 @@ export async function registerResultRoutes(
         medianMs: stats.median_ms,
         stdMs: stats.std_ms,
         rank: null,
-        videoUrl: req.body?.videoUrl ?? null,
+        videoUrl,
         flagStatus,
         submittedAt: new Date().toISOString(),
       };

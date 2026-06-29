@@ -3,6 +3,8 @@ import { buildApp } from "./app";
 import { seed } from "./db/seed";
 import { createRealtime } from "./sockets/realtime";
 import { env } from "./config/env";
+import { registerJobs } from "./lib/jobs";
+import { getQueue } from "./lib/jobQueue";
 
 // Choose storage backend: PostgreSQL when DATABASE_URL is set, in-memory otherwise.
 let repo;
@@ -18,6 +20,9 @@ if (env.DATABASE_URL) {
 }
 
 await seed(repo);
+
+registerJobs();
+if (env.REDIS_URL) await getQueue();
 
 const realtime = createRealtime();
 const app = await buildApp(repo, realtime);

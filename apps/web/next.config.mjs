@@ -11,12 +11,22 @@ const nextConfig = {
       { source: "/api/v1/:path*", destination: `${API_URL}/api/v1/:path*` },
     ];
   },
+  experimental: {
+    swcMinify: true,
+  },
   webpack: (config) => {
-    // Our TS sources use ESM-style ".js" import specifiers that actually point at
-    // ".ts" files. Teach webpack to resolve them.
     config.resolve.extensionAlias = {
       ".js": [".ts", ".tsx", ".js"],
     };
+    config.module.rules.push({
+      test: /[\\/]cubing[\\/]dist[\\/].*worker.*\.js$/,
+      type: "asset/resource",
+      generator: { filename: "static/chunks/[name].[hash][ext]" },
+    });
+    config.module.rules.push({
+      test: /[\\/]cubing[\\/]dist[\\/]lib[\\/]cubing[\\/]chunks[\\/]/,
+      type: "javascript/esm",
+    });
     return config;
   },
 };

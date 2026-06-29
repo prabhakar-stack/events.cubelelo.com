@@ -1,17 +1,23 @@
+"use client";
+
 import { CompetitionTerminal } from "@/features/terminal/CompetitionTerminal";
+import { OnboardingModal, useOnboardingGate } from "@/features/onboarding/OnboardingModal";
 
 export default function RoundPage({
   params,
 }: {
   params: { id: string; round: string };
 }) {
-  // Demo wiring: 3x3, scrambles generated client-side. Production fetches the
-  // server-locked scramble set for this round from the API at round-open.
+  const { needsOnboarding, markDone } = useOnboardingGate();
+
   return (
-    <CompetitionTerminal
-      competitionId={params.id}
-      round={params.round}
-      eventId="333"
-    />
+    <>
+      {needsOnboarding && <OnboardingModal onComplete={markDone} />}
+      <CompetitionTerminal
+        competitionId={params.id}
+        round={params.round}
+        eventId="333"
+      />
+    </>
   );
 }

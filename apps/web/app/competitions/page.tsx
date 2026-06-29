@@ -26,7 +26,7 @@ export default function CompetitionsPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
-      <h1 className="mb-6 text-2xl font-bold text-zinc-100">Competitions</h1>
+      <h1 className="mb-6 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Competitions</h1>
 
       <div className="mb-6 flex gap-2">
         {FILTERS.map((f) => (
@@ -36,7 +36,7 @@ export default function CompetitionsPage() {
             className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
               filter === f.value
                 ? "bg-emerald-600 text-white"
-                : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300 hover:text-zinc-900 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             }`}
           >
             {f.label}

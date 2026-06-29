@@ -21,6 +21,7 @@ out/
 .next/
 .turbo/
 *.tsbuildinfo
+.claude/
 
 # ──────────────────────────────────────────────
 # Environment & secrets

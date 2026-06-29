@@ -17,6 +17,7 @@ import {
   type CompetitionSummary,
 } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
+import { eventDisplayName } from "@/lib/eventNames";
 
 /* ── Admin sub-navigation tabs ── */
 const ADMIN_TABS: Array<{
@@ -28,13 +29,22 @@ const ADMIN_TABS: Array<{
   { label: "Competitions", href: "/admin", active: true },
   { label: "Users", href: "/admin/users" },
   { label: "Payments", href: "/admin/payments" },
+  { label: "Promo Codes", href: "/admin/promo-codes" },
+  { label: "Appeals", href: "/admin/appeals" },
+  { label: "WCA Queue", href: "/admin/wca-queue" },
+  { label: "Rank Tiers", href: "/admin/rank-tiers" },
+  { label: "Merge", href: "/admin/merge" },
   { label: "Announcements", href: "/admin/announcements" },
   { label: "Migration", href: "/admin/migration" },
+  { label: "Content", href: "/admin/content" },
+  { label: "Details", href: "/admin/faq" },
+  { label: "Pages", href: "/admin/pages" },
+  { label: "Staff", href: "/admin/staff" },
 ];
 
 function AdminSubNav() {
   return (
-    <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+    <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
       {ADMIN_TABS.map((tab) =>
         tab.disabled ? (
           <span
@@ -49,11 +59,11 @@ function AdminSubNav() {
             href={tab.href}
             className={`rounded-md px-4 py-2 text-xs font-medium transition ${
               tab.active
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
+                : "text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
             }`}
           >
-            {tab.active ? `» ${tab.label}` : tab.label}
+            {tab.label}
           </Link>
         ),
       )}
@@ -77,13 +87,13 @@ export function AdminDashboard() {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-6 py-8">
       <AdminSubNav />
 
       {error && (
-        <p className="mb-4 rounded border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+        <div className="mb-4 rounded bg-red-100 px-4 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-300">
           {error}
-        </p>
+        </div>
       )}
 
       {/* Section 1: Competition creation */}
@@ -95,12 +105,6 @@ export function AdminDashboard() {
       {/* Section 3: Old competitions */}
       <OldCompetitions comps={comps} onRefresh={load} />
 
-      {/* Footer */}
-      <footer className="mt-12 border-t border-zinc-800 py-8 text-center text-xs text-zinc-600">
-        <p>
-          © {new Date().getFullYear()} Cubelelo Events. All rights reserved.
-        </p>
-      </footer>
     </div>
   );
 }
@@ -183,13 +187,13 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
   };
 
   return (
-    <section className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
+    <section className="mb-8 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/30 p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-400">
         Create Competition
       </h2>
 
       {error && (
-        <p className="mb-3 text-sm text-red-400">{error}</p>
+        <div className="mb-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>
       )}
 
       <div className="space-y-4">
@@ -200,7 +204,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Midweek Madness"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
           />
         </div>
 
@@ -213,7 +217,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Short description for competitors..."
               rows={3}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
             />
           </div>
           <div>
@@ -223,7 +227,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
               onChange={(e) => setRulesMd(e.target.value)}
               placeholder="WCA regulations apply..."
               rows={3}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
             />
           </div>
         </div>
@@ -235,7 +239,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
             <select
               value={type}
               onChange={(e) => setType(e.target.value as "free" | "paid")}
-              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
             >
               <option value="free">Free</option>
               <option value="paid">Paid</option>
@@ -250,7 +254,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
                   min={0}
                   value={baseFee}
                   onChange={(e) => setBaseFee(Number(e.target.value))}
-                  className="w-28 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+                  className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
               <div>
@@ -260,7 +264,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
                   min={0}
                   value={perEventFee}
                   onChange={(e) => setPerEventFee(Number(e.target.value))}
-                  className="w-28 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+                  className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
             </>
@@ -285,7 +289,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
                   type="datetime-local"
                   value={value}
                   onChange={(e) => set(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
             ))}
@@ -301,7 +305,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
             <label className="text-xs text-zinc-500">Events</label>
             <button
               onClick={addEvent}
-              className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
+              className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               + Add event
             </button>
@@ -310,12 +314,12 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
             {events.map((ev, i) => (
               <div
                 key={i}
-                className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60 px-3 py-2"
               >
                 <select
                   value={ev.eventType}
                   onChange={(e) => updateEvent(i, { eventType: e.target.value })}
-                  className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100"
+                  className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 >
                   {EVENT_IDS.map((id) => (
                     <option key={id} value={id}>
@@ -333,7 +337,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
                     onChange={(e) =>
                       updateEvent(i, { roundCount: Number(e.target.value) })
                     }
-                    className="w-16 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+                    className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                   />
                 </label>
                 {events.length > 1 && (
@@ -354,7 +358,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
           <button
             onClick={() => onSubmit("draft")}
             disabled={creating || !title.trim()}
-            className="rounded-lg border border-zinc-700 px-5 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
+            className="rounded-lg border border-zinc-300 px-5 py-2 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             {creating ? "Saving…" : "Save as Draft"}
           </button>
@@ -432,12 +436,12 @@ function ScrambleManager({
   };
 
   return (
-    <section className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
+    <section className="mb-8 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/30 p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-400">
         Scramble Management
       </h2>
 
-      {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
+      {error && <div className="mb-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
 
       {/* Competition selector */}
       <div className="mb-4">
@@ -450,7 +454,7 @@ function ScrambleManager({
             setSelectedId(e.target.value);
             setScrambleView(null);
           }}
-          className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+          className="w-full max-w-md rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         >
           <option value="">— Select —</option>
           {published.map((c) => (
@@ -466,16 +470,16 @@ function ScrambleManager({
         <div className="space-y-4">
           {detail.events.map((ev) => (
             <div key={ev.id}>
-              <h3 className="mb-2 text-sm font-semibold text-zinc-300">
+              <h3 className="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-300">
                 {ev.eventType}
               </h3>
               <div className="space-y-2">
                 {ev.rounds.map((r) => (
                   <div
                     key={r.id}
-                    className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3"
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60 px-4 py-3"
                   >
-                    <span className="font-mono text-sm text-zinc-300">
+                    <span className="font-mono text-sm text-zinc-700 dark:text-zinc-300">
                       Round {r.roundNumber}
                     </span>
                     <StatusBadge status={r.status} />
@@ -494,7 +498,7 @@ function ScrambleManager({
                         onClick={() =>
                           run(`gen-${r.id}`, () => generateScrambles(r.id, 5))
                         }
-                        className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
+                        className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
                       >
                         {busy === `gen-${r.id}` ? "Generating…" : "Generate & Lock (5)"}
                       </button>
@@ -502,7 +506,7 @@ function ScrambleManager({
                       {/* View scrambles */}
                       <button
                         onClick={() => viewScrambles(r.id)}
-                        className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
+                        className="rounded border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                       >
                         View
                       </button>
@@ -541,7 +545,7 @@ function ScrambleManager({
 
           {/* Scramble preview panel */}
           {scrambleView && scrambleView.scrambles.length > 0 && (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
               <div className="mb-2 flex items-center justify-between">
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
                   Scrambles — Round{" "}
@@ -557,9 +561,9 @@ function ScrambleManager({
                   {scrambleView.locked ? "Locked" : "Unlocked"}
                 </span>
               </div>
-              <ol className="list-inside list-decimal space-y-1 font-mono text-xs text-zinc-300">
+              <ol className="list-inside list-decimal space-y-1 font-mono text-xs text-zinc-700 dark:text-zinc-300">
                 {scrambleView.scrambles.map((s, i) => (
-                  <li key={i} className="rounded px-2 py-1 hover:bg-zinc-900">
+                  <li key={i} className="rounded px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900">
                     {s}
                   </li>
                 ))}
@@ -619,12 +623,12 @@ function OldCompetitions({
   };
 
   return (
-    <section className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
+    <section className="mb-8 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/30 p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-400">
         Competition History
       </h2>
 
-      {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
+      {error && <div className="mb-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
 
       {/* Filters */}
       <div className="mb-4 flex items-center gap-2">
@@ -634,8 +638,8 @@ function OldCompetitions({
             onClick={() => setFilter(f)}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
               filter === f
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300"
+                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
+                : "text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300"
             }`}
           >
             {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -644,9 +648,9 @@ function OldCompetitions({
       </div>
 
       {/* Competition list */}
-      <div className="overflow-hidden rounded-lg border border-zinc-800">
+      <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
         <table className="w-full text-sm">
-          <thead className="bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500">
+          <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-500 dark:bg-zinc-900/60">
             <tr>
               <th className="px-4 py-2">Title</th>
               <th className="px-4 py-2">Type</th>
@@ -659,14 +663,14 @@ function OldCompetitions({
             {filtered.map((c) => (
               <tr
                 key={c.id}
-                className="border-t border-zinc-800 hover:bg-zinc-900/40"
+                className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/40"
               >
-                <td className="px-4 py-2.5 font-medium text-zinc-200">
+                <td className="px-4 py-2.5 font-medium text-zinc-800 dark:text-zinc-200">
                   {c.title}
                 </td>
                 <td className="px-4 py-2.5 text-zinc-400">{c.type}</td>
                 <td className="px-4 py-2.5 text-zinc-400">
-                  {c.eventTypes?.join(", ") ?? "—"}
+                  {c.eventTypes?.map(eventDisplayName).join(", ") ?? "—"}
                 </td>
                 <td className="px-4 py-2.5">
                   <StatusBadge status={c.status} />
@@ -682,7 +686,7 @@ function OldCompetitions({
                     <button
                       disabled={busy === c.id}
                       onClick={() => onDuplicate(c.id, true)}
-                      className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
+                      className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 disabled:opacity-40"
                       title="Duplicate with same scrambles"
                     >
                       {busy === c.id ? "…" : "Duplicate"}
@@ -690,7 +694,7 @@ function OldCompetitions({
                     <button
                       disabled={busy === c.id}
                       onClick={() => onDuplicate(c.id, false)}
-                      className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
+                      className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 disabled:opacity-40"
                       title="Duplicate with new scrambles"
                     >
                       New scrambles

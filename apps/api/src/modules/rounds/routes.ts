@@ -6,6 +6,7 @@ import type { Realtime } from "../../sockets/realtime";
 import { requireRole, requireAuth } from "../../auth/plugin";
 import type { RoundAdvancement } from "../../db/types";
 import { effectiveRoundStatus } from "../../lib/statusUtils";
+import { recordScrambleFetch } from "../../lib/scrambleTiming";
 
 export async function registerRoundRoutes(
   app: FastifyInstance,
@@ -84,6 +85,7 @@ export async function registerRoundRoutes(
         if (!advanced) return reply.code(403).send({ error: "not_shortlisted" });
       }
 
+      recordScrambleFetch(round.id, req.authClaims!.sub);
       return { roundId: round.id, scrambles: set.scrambles };
     },
   );
@@ -193,16 +195,47 @@ export async function registerRoundRoutes(
     },
   );
 
-  // Update round settings (advancementCount, schedule)
+  // Cancel a round (admin only).
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/rounds/:id/cancel",
+    adminOnly,
+    async (req, reply) => {
+      const round = await repo.rounds.findById(req.params.id);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+      const status = effectiveRoundStatus(round);
+      if (status === "advanced") return reply.code(409).send({ error: "round_already_advanced" });
+      if (status === "cancelled") return reply.code(409).send({ error: "round_already_cancelled" });
+
+      const updated = await repo.rounds.update(round.id, { status: "cancelled" });
+      if (!updated) return reply.code(404).send({ error: "round_not_found" });
+      realtime.emitRoundStatus(updated.id, "cancelled", updated.opensAt);
+      return { id: updated.id, status: "cancelled" };
+    },
+  );
+
+  // Update round settings (advancementCount, schedule, duration)
   app.patch<{
     Params: { id: string };
-    Body: { advancementCount?: number; opensAt?: string | null; closesAt?: string | null };
+    Body: { advancementCount?: number; opensAt?: string | null; closesAt?: string | null; durationMinutes?: number };
   }>("/api/v1/admin/rounds/:id", adminOnly, async (req, reply) => {
-    const { advancementCount, opensAt, closesAt } = req.body ?? {};
+    const { advancementCount, opensAt, closesAt, durationMinutes } = req.body ?? {};
     const fields: Parameters<typeof repo.rounds.update>[1] = {};
     if (typeof advancementCount === "number") fields.advancementCount = advancementCount;
     if (opensAt !== undefined) fields.opensAt = opensAt ?? undefined;
     if (closesAt !== undefined) fields.closesAt = closesAt ?? undefined;
+    if (typeof durationMinutes === "number") fields.durationMinutes = durationMinutes;
+
+    // Auto-compute closesAt from opensAt + durationMinutes when both are set
+    if (fields.opensAt && fields.durationMinutes) {
+      const open = new Date(fields.opensAt);
+      fields.closesAt = new Date(open.getTime() + fields.durationMinutes * 60_000).toISOString();
+    } else if (fields.durationMinutes && !fields.opensAt) {
+      const round = await repo.rounds.findById(req.params.id);
+      if (round?.opensAt) {
+        const open = new Date(round.opensAt);
+        fields.closesAt = new Date(open.getTime() + fields.durationMinutes * 60_000).toISOString();
+      }
+    }
 
     const updated = await repo.rounds.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "round_not_found" });
@@ -210,6 +243,7 @@ export async function registerRoundRoutes(
       id: updated.id, status: updated.status,
       advancementCount: updated.advancementCount,
       opensAt: updated.opensAt, closesAt: updated.closesAt,
+      durationMinutes: updated.durationMinutes,
     };
   });
 }

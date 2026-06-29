@@ -63,7 +63,7 @@ export default function MigratePage() {
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-2xl">
           ✓
         </div>
-        <h2 className="text-xl font-bold text-zinc-100">Account claimed!</h2>
+        <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Account claimed!</h2>
         <p className="text-sm text-zinc-400">
           Your legacy cubelelo-event profile has been linked. Your CL ID and history are now
           attached to this login.
@@ -80,7 +80,7 @@ export default function MigratePage() {
         <Link href="/register" className="text-xs text-zinc-500 hover:text-zinc-300">
           ← Back to register
         </Link>
-        <h1 className="mt-4 text-2xl font-bold text-zinc-100">Claim your legacy profile</h1>
+        <h1 className="mt-4 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Claim your legacy profile</h1>
         <p className="mt-2 text-sm text-zinc-400">
           If you competed in cubelelo-event before this platform launched, your history has been
           imported as a stub. Enter your old CL ID or email to link it to your current login.

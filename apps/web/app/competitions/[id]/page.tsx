@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { eventDisplayName } from "@/lib/eventNames";
 import {
   fetchCompetition,
   fetchMyRegistrations,
@@ -70,30 +71,30 @@ export default function CompetitionDetailPage() {
         <span className="text-xs text-zinc-500">{comp.type}</span>
       </div>
 
-      <h1 className="mb-2 text-3xl font-bold text-zinc-100">{comp.title}</h1>
+      <h1 className="mb-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{comp.title}</h1>
       {comp.description && (
         <p className="mb-6 text-zinc-400">{comp.description}</p>
       )}
 
       <div className="mb-8 grid gap-6 md:grid-cols-2">
         {/* Info card */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
+        <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40 p-5">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Details
           </h2>
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between">
               <dt className="text-zinc-400">Entry Fee</dt>
-              <dd className="text-zinc-200">{feeText}</dd>
+              <dd className="text-zinc-800 dark:text-zinc-200">{feeText}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-zinc-400">Registered</dt>
-              <dd className="text-zinc-200">{comp.registrationCount ?? 0}</dd>
+              <dd className="text-zinc-800 dark:text-zinc-200">{comp.registrationCount ?? 0}</dd>
             </div>
             {comp.registrationDeadline && (
               <div className="flex justify-between">
                 <dt className="text-zinc-400">Deadline</dt>
-                <dd className="text-zinc-200">
+                <dd className="text-zinc-800 dark:text-zinc-200">
                   {new Date(comp.registrationDeadline).toLocaleDateString()}
                 </dd>
               </div>
@@ -102,7 +103,7 @@ export default function CompetitionDetailPage() {
         </div>
 
         {/* Action card */}
-        <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40 p-5">
           {myReg ? (
             <div className="text-center">
               <div className="mb-2 text-sm text-emerald-400">Registered ✓</div>
@@ -149,11 +150,11 @@ export default function CompetitionDetailPage() {
 
       {/* Rules */}
       {comp.rulesMd && (
-        <div className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
+        <div className="mb-8 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40 p-5">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Rules
           </h2>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
             {comp.rulesMd}
           </p>
         </div>
@@ -168,11 +169,11 @@ export default function CompetitionDetailPage() {
           {comp.events.map((ev) => (
             <div
               key={ev.id}
-              className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3"
+              className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40 px-4 py-3"
             >
               <div>
-                <span className="font-semibold text-zinc-200">
-                  {ev.eventType}
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                  {eventDisplayName(ev.eventType)}
                 </span>
                 <span className="ml-3 text-xs text-zinc-500">
                   {ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}

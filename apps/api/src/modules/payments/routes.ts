@@ -4,6 +4,7 @@ import type { Repository } from "../../db/repo";
 import type { Payment } from "../../db/types";
 import { requireAuth } from "../../auth/plugin";
 import { env } from "../../config/env";
+import { generateInvoicePDF, type InvoiceData } from "../../lib/invoice";
 
 function getRazorpay() {
   if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) return null;
@@ -103,4 +104,56 @@ export async function registerPaymentRoutes(
 
     return { status: "confirmed" };
   });
+
+  // GST Invoice PDF download
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/payments/:id/invoice",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const payment = await repo.payments.findById(req.params.id);
+      if (!payment) return reply.code(404).send({ error: "payment_not_found" });
+
+      if (payment.status !== "paid")
+        return reply.code(409).send({ error: "payment_not_completed" });
+
+      const user = await repo.users.findById(payment.userId);
+      if (!user) return reply.code(404).send({ error: "user_not_found" });
+
+      // Only the payer or an admin can download
+      const requester = await repo.users.findById(req.authClaims!.sub);
+      if (!requester || (requester.id !== user.id && requester.role !== "admin"))
+        return reply.code(403).send({ error: "forbidden" });
+
+      const reg = await repo.registrations.findById(payment.registrationId);
+      const comp = reg ? await repo.competitions.findById(reg.competitionId) : null;
+      const regEvents = reg ? await repo.registrations.findEvents(reg.id) : [];
+
+      const data: InvoiceData = {
+        invoiceNumber: `INV-${payment.createdAt.slice(0, 10).replace(/-/g, "")}-${payment.id.slice(0, 8).toUpperCase()}`,
+        date: new Date(payment.createdAt).toLocaleDateString("en-IN", {
+          year: "numeric", month: "long", day: "numeric",
+        }),
+        buyerName: user.name,
+        buyerEmail: user.email,
+        buyerClId: user.clId,
+        competitionTitle: comp?.title ?? "Unknown",
+        events: regEvents.map((e) => e.eventType),
+        baseFee: comp?.baseFee ?? 0,
+        perEventFee: comp?.perEventFee ?? 0,
+        eventCount: regEvents.length,
+        totalAmount: payment.amount,
+        paymentId: payment.id,
+        razorpayPaymentId: payment.razorpayPaymentId,
+      };
+
+      const pdf = generateInvoicePDF(data);
+      const filename = `invoice_${data.invoiceNumber}.pdf`;
+
+      reply
+        .header("Content-Type", "application/pdf")
+        .header("Content-Disposition", `attachment; filename="${filename}"`);
+
+      return reply.send(pdf);
+    },
+  );
 }

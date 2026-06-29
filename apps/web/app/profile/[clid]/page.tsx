@@ -40,6 +40,7 @@ export default function ProfilePage() {
   }
 
   const isOwnProfile = me?.clId === profile.clId;
+  const isPrivate = profile.profilePrivacy === "private" && !isOwnProfile;
   const pbEntries = Object.entries(profile.personalBests);
   const eventStatEntries = Object.entries(profile.stats?.eventStats ?? {});
 
@@ -53,7 +54,7 @@ export default function ProfilePage() {
               {profile.name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-zinc-100">{profile.name}</h1>
+              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{profile.name}</h1>
               <p className="font-mono text-sm text-emerald-400">{profile.clId}</p>
               <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
                 {(profile.city || profile.state || profile.country) && (
@@ -86,6 +87,14 @@ export default function ProfilePage() {
         </div>
       </section>
 
+      {isPrivate && (
+        <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-center">
+          <div className="text-3xl mb-2">&#x1F512;</div>
+          <p className="text-sm text-zinc-400">This profile is private. Solve history and statistics are hidden.</p>
+        </section>
+      )}
+
+      {!isPrivate && <>
       {/* ═══ Section 2: Stats ═══ */}
       <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
         <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
@@ -186,6 +195,7 @@ export default function ProfilePage() {
           </div>
         )}
       </section>
+      </>}
 
       {/* ═══ Footer ═══ */}
       <footer className="mt-10 border-t border-zinc-800 py-6 text-center text-xs text-zinc-600">

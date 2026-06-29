@@ -44,7 +44,10 @@ export function requireRole(repo: Repository, ...roles: UserRole[]) {
       return;
     }
     const user = await repo.users.findById(req.authClaims.sub);
-    if (!user || !roles.includes(user.role)) {
+    if (!user) { await reply.code(403).send({ error: "forbidden" }); return; }
+    // super_admin inherits admin permissions
+    const effective = user.role === "super_admin" && roles.includes("admin") ? true : roles.includes(user.role);
+    if (!effective) {
       await reply.code(403).send({ error: "forbidden" });
     }
   };
