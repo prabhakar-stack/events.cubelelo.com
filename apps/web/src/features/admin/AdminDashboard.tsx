@@ -6,6 +6,7 @@ import { EVENT_IDS } from "@cubers/scramble-core";
 import {
   createCompetition,
   cancelRound,
+  deleteCompetition,
   duplicateCompetition,
   fetchAdminScrambles,
   fetchCompetition,
@@ -118,7 +119,7 @@ interface EventSpec {
   cutoffMs?: number;
   timeLimitMs?: number;
   durationMinutes?: number;
-  advancementCriteria?: AdvancementCriteria;
+  roundCriteria?: (AdvancementCriteria | undefined)[];
 }
 
 function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
@@ -380,48 +381,65 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
                   />
                 </label>
                 {ev.roundCount > 1 && (
-                  <>
-                    <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                      Shortlist
-                      <select
-                        value={ev.advancementCriteria?.method ?? "none"}
-                        onChange={(e) => {
-                          const m = e.target.value;
-                          if (m === "none") updateEvent(i, { advancementCriteria: undefined });
-                          else updateEvent(i, { advancementCriteria: { method: m as "rank" | "time" } });
-                        }}
-                        className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                      >
-                        <option value="none">None</option>
-                        <option value="rank">Top N</option>
-                        <option value="time">ao5 ≤ X</option>
-                      </select>
-                    </label>
-                    {ev.advancementCriteria?.method === "rank" && (
-                      <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                        N
-                        <input
-                          type="number" min={1}
-                          value={ev.advancementCriteria.rankLimit ?? ""}
-                          onChange={(e) => updateEvent(i, { advancementCriteria: { method: "rank", rankLimit: Number(e.target.value) } })}
-                          placeholder="10"
-                          className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                        />
-                      </label>
-                    )}
-                    {ev.advancementCriteria?.method === "time" && (
-                      <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                        Limit (s)
-                        <input
-                          type="number" min={1}
-                          value={ev.advancementCriteria.timeLimitMs ? ev.advancementCriteria.timeLimitMs / 1000 : ""}
-                          onChange={(e) => updateEvent(i, { advancementCriteria: { method: "time", timeLimitMs: Number(e.target.value) * 1000 } })}
-                          placeholder="30"
-                          className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                        />
-                      </label>
-                    )}
-                  </>
+                  <div className="mt-2 w-full space-y-2 border-t border-zinc-200 pt-2 dark:border-zinc-800">
+                    {Array.from({ length: ev.roundCount }, (_, ri) => {
+                      const isLast = ri === ev.roundCount - 1;
+                      const criteria = ev.roundCriteria?.[ri];
+                      const updateRoundCriteria = (c: AdvancementCriteria | undefined) => {
+                        const arr = [...(ev.roundCriteria ?? new Array(ev.roundCount).fill(undefined))];
+                        while (arr.length < ev.roundCount) arr.push(undefined);
+                        arr[ri] = c;
+                        updateEvent(i, { roundCriteria: arr });
+                      };
+                      return (
+                        <div key={ri} className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-medium text-zinc-400 w-20">
+                            Round {ri + 1}{isLast ? " (Final)" : ""}
+                          </span>
+                          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                            {isLast ? "Top Finishers" : "Shortlist"}
+                            <select
+                              value={criteria?.method ?? "none"}
+                              onChange={(e) => {
+                                const m = e.target.value;
+                                if (m === "none") updateRoundCriteria(undefined);
+                                else updateRoundCriteria({ method: m as "rank" | "time" });
+                              }}
+                              className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                            >
+                              <option value="none">None</option>
+                              <option value="rank">Top N</option>
+                              <option value="time">ao5 ≤ X</option>
+                            </select>
+                          </label>
+                          {criteria?.method === "rank" && (
+                            <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                              N
+                              <input
+                                type="number" min={1}
+                                value={criteria.rankLimit ?? ""}
+                                onChange={(e) => updateRoundCriteria({ method: "rank", rankLimit: Number(e.target.value) })}
+                                placeholder="10"
+                                className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                              />
+                            </label>
+                          )}
+                          {criteria?.method === "time" && (
+                            <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                              Limit (s)
+                              <input
+                                type="number" min={1}
+                                value={criteria.timeLimitMs ? criteria.timeLimitMs / 1000 : ""}
+                                onChange={(e) => updateRoundCriteria({ method: "time", timeLimitMs: Number(e.target.value) * 1000 })}
+                                placeholder="30"
+                                className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                              />
+                            </label>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
                 {events.length > 1 && (
                   <button
@@ -692,6 +710,20 @@ function OldCompetitions({
     }
   };
 
+  const onDelete = async (comp: CompetitionSummary) => {
+    if (!confirm(`Permanently delete "${comp.title}"? This cannot be undone.`)) return;
+    setBusy(comp.id);
+    setError(null);
+    try {
+      await deleteCompetition(comp.id);
+      onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <section className="mb-8 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/30 p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-400">
@@ -779,6 +811,14 @@ function OldCompetitions({
                         → Free
                       </button>
                     )}
+                    <button
+                      disabled={busy === c.id}
+                      onClick={() => onDelete(c)}
+                      className="rounded border border-red-800/50 px-2 py-1 text-xs text-red-400 transition hover:bg-red-900/30 disabled:opacity-40"
+                      title="Permanently delete"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </td>
               </tr>

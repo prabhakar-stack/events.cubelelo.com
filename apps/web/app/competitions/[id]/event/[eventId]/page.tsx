@@ -64,7 +64,7 @@ export default function EventPage() {
     );
   }
 
-  const { competition, event, rounds, userStatus } = data;
+  const { competition, event, rounds, userStatus, finalStandings } = data;
   const selectedRound = rounds[selectedRoundIdx] ?? null;
   const userRound = userStatus?.rounds.find(
     (r) => r.roundId === selectedRound?.id,
@@ -143,6 +143,8 @@ export default function EventPage() {
           userRound={userRound ?? null}
           userStatus={userStatus}
           nextRound={nextRound}
+          isLastRound={selectedRoundIdx === rounds.length - 1}
+          finalStandings={selectedRoundIdx === rounds.length - 1 ? finalStandings : null}
           competitionId={competition.id}
           eventType={event.eventType}
           roundTab={roundTab}
@@ -172,6 +174,8 @@ function SelectedRoundView({
   userRound,
   userStatus,
   nextRound,
+  isLastRound,
+  finalStandings,
   competitionId,
   eventType,
   roundTab,
@@ -181,6 +185,8 @@ function SelectedRoundView({
   userRound: EventUserRound | null;
   userStatus: EventPageData["userStatus"];
   nextRound: EventRoundInfo | null;
+  isLastRound: boolean;
+  finalStandings: { rank: number; userId: string; displayName: string }[] | null;
   competitionId: string;
   eventType: string;
   roundTab: RoundTab;
@@ -220,7 +226,9 @@ function SelectedRoundView({
           <span
             className={`ml-auto rounded-full px-2.5 py-1 text-xs font-medium ${
               userRound.userStatus === "qualified"
-                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                ? isLastRound
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                 : userRound.userStatus === "eliminated"
                   ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                   : userRound.userStatus === "submitted"
@@ -229,9 +237,9 @@ function SelectedRoundView({
             }`}
           >
             {userRound.userStatus === "qualified"
-              ? "Qualified"
+              ? isLastRound ? "Top Finisher" : "Qualified"
               : userRound.userStatus === "eliminated"
-                ? "Eliminated"
+                ? isLastRound ? "Participated" : "Eliminated"
                 : userRound.userStatus === "submitted"
                   ? "Submitted"
                   : userRound.userStatus === "active"
@@ -253,6 +261,7 @@ function SelectedRoundView({
         competitionId={competitionId}
         eventType={eventType}
         nextRound={nextRound}
+        isLastRound={isLastRound}
       />
 
       {/* Tabs */}
@@ -284,6 +293,30 @@ function SelectedRoundView({
           <ParticipantsPanel roundId={round.id} roundStatus={liveStatus} />
         )}
       </div>
+
+      {/* Final Standings for last round */}
+      {isLastRound && finalStandings && finalStandings.length > 0 && (
+        <div className="border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-500">
+            Final Standings
+          </h3>
+          <div className="space-y-1">
+            {finalStandings.map((entry) => (
+              <div
+                key={entry.userId}
+                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-300"
+              >
+                <span className={`w-8 text-center font-bold ${
+                  entry.rank === 1 ? "text-amber-400" : entry.rank === 2 ? "text-zinc-400" : entry.rank === 3 ? "text-amber-600" : "text-zinc-500"
+                }`}>
+                  #{entry.rank}
+                </span>
+                <span className="text-zinc-200">{entry.displayName}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -320,6 +353,7 @@ function RoundActions({
   competitionId,
   eventType,
   nextRound,
+  isLastRound,
 }: {
   round: EventRoundInfo;
   liveStatus: string;
@@ -329,6 +363,7 @@ function RoundActions({
   competitionId: string;
   eventType: string;
   nextRound: EventRoundInfo | null;
+  isLastRound: boolean;
 }) {
   const countdownTarget =
     liveStatus === "pending" && round.opensAt
@@ -356,11 +391,15 @@ function RoundActions({
       )}
 
       {liveStatus === "closed" && !nextRound && (
-        <span className="text-sm text-zinc-500">Round closed</span>
+        <span className="text-sm text-zinc-500">
+          {isLastRound ? "Final round closed — awaiting results" : "Round closed"}
+        </span>
       )}
 
       {liveStatus === "advanced" && (
-        <span className="text-sm text-zinc-500">Round complete — results finalized</span>
+        <span className="text-sm text-zinc-500">
+          {isLastRound ? "Event complete — final standings available" : "Round complete — results finalized"}
+        </span>
       )}
 
       {/* Enter Round button */}

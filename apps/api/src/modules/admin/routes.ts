@@ -52,6 +52,7 @@ export async function registerAdminRoutes(
         timeLimitMs?: number;
         advancementCount?: number;
         advancementCriteria?: { method: string; rankLimit?: number; timeLimitMs?: number };
+        roundCriteria?: Array<{ method: string; rankLimit?: number; timeLimitMs?: number } | null>;
         durationMinutes?: number;
       }>;
     };
@@ -109,16 +110,19 @@ export async function registerAdminRoutes(
       await repo.competitionEvents.create(event);
 
       for (let i = 1; i <= rounds; i++) {
+        const rc = spec.roundCriteria?.[i - 1];
+        const fallback = i < rounds && spec.advancementCriteria ? spec.advancementCriteria : undefined;
+        const criteria = rc ?? fallback;
         const round: Round = {
           id: randomUUID(),
           competitionEventId: event.id,
           roundNumber: i,
           status: "pending",
           advancementCount: i < rounds ? (spec.advancementCount ?? undefined) : undefined,
-          advancementCriteria: i < rounds && spec.advancementCriteria
-            ? { method: spec.advancementCriteria.method as "rank" | "time",
-                rankLimit: spec.advancementCriteria.rankLimit,
-                timeLimitMs: spec.advancementCriteria.timeLimitMs }
+          advancementCriteria: criteria
+            ? { method: criteria.method as "rank" | "time",
+                rankLimit: criteria.rankLimit,
+                timeLimitMs: criteria.timeLimitMs }
             : undefined,
           durationMinutes: spec.durationMinutes,
         };
@@ -353,6 +357,37 @@ export async function registerAdminRoutes(
     },
   );
 
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/announcements/:id/upload-image",
+    adminOnly,
+    async (req, reply) => {
+      const ann = await repo.announcements.findById(req.params.id);
+      if (!ann) return reply.code(404).send({ error: "announcement_not_found" });
+
+      const data = await req.file();
+      if (!data) return reply.code(400).send({ error: "no_file" });
+
+      const ext = data.filename.split(".").pop()?.toLowerCase() ?? "png";
+      if (!["jpg", "jpeg", "png", "gif", "webp"].includes(ext))
+        return reply.code(400).send({ error: "invalid_file_type" });
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of data.file) chunks.push(chunk as Buffer);
+      const buffer = Buffer.concat(chunks);
+
+      if (buffer.length > 2 * 1024 * 1024)
+        return reply.code(400).send({ error: "file_too_large_max_2mb" });
+
+      const { getStorage } = await import("../../lib/storage");
+      const filename = `announcements/${ann.id}_${randomUUID().slice(0, 8)}.${ext}`;
+      const storage = getStorage();
+      const imageUrl = await storage.upload(filename, buffer, `image/${ext === "jpg" ? "jpeg" : ext}`);
+
+      const updated = await repo.announcements.update(ann.id, { imageUrl });
+      return updated;
+    },
+  );
+
   // ── Verification queue (admin + moderator) ────────────────────────────────
 
   app.get<{ Params: { id: string } }>(
@@ -498,6 +533,58 @@ export async function registerAdminRoutes(
 
     return updated;
   });
+
+  // Delete a user (admin)
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/users/:id",
+    adminOnly,
+    async (req, reply) => {
+      const target = await repo.users.findById(req.params.id);
+      if (!target) return reply.code(404).send({ error: "user_not_found" });
+
+      if (target.id === req.authClaims!.sub) {
+        return reply.code(400).send({ error: "cannot_delete_self" });
+      }
+
+      await repo.users.delete(req.params.id);
+
+      const admin = await repo.users.findById(req.authClaims!.sub);
+      await repo.auditLog.create({
+        id: randomUUID(),
+        adminId: admin?.id ?? req.authClaims!.sub,
+        action: "user_delete",
+        target: req.params.id,
+        reason: `Permanently deleted user ${target.email} (${target.clId})`,
+        createdAt: new Date().toISOString(),
+      });
+
+      return reply.code(204).send();
+    },
+  );
+
+  // Delete a competition (admin)
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/competitions/:id",
+    adminOnly,
+    async (req, reply) => {
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      await repo.competitions.delete(req.params.id);
+
+      const admin = await repo.users.findById(req.authClaims!.sub);
+      await repo.auditLog.create({
+        id: randomUUID(),
+        adminId: admin?.id ?? req.authClaims!.sub,
+        action: "competition_delete",
+        target: req.params.id,
+        reason: `Permanently deleted competition "${comp.title}"`,
+        createdAt: new Date().toISOString(),
+      });
+
+      return reply.code(204).send();
+    },
+  );
 
   // ── Payments (admin) ──────────────────────────────────────────────────────
 

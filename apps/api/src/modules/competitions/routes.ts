@@ -394,6 +394,22 @@ export async function registerCompetitionRoutes(
         }
       }
 
+      // Final standings for the last round (top finishers / winners)
+      let finalStandings: { rank: number; userId: string; displayName: string }[] | null = null;
+      const lastRound = eventRounds[eventRounds.length - 1];
+      if (lastRound && effectiveRoundStatus(lastRound) === "advanced") {
+        const adv = await repo.advancements.findByRound(lastRound.id);
+        if (adv.length > 0) {
+          const entries = await Promise.all(
+            adv.map(async (a) => {
+              const u = await repo.users.findById(a.userId);
+              return { rank: a.rank, userId: a.userId, displayName: u?.name ?? u?.wcaId ?? "Unknown" };
+            }),
+          );
+          finalStandings = entries.sort((a, b) => a.rank - b.rank);
+        }
+      }
+
       return {
         competition: {
           id: competition.id,
@@ -414,6 +430,7 @@ export async function registerCompetitionRoutes(
         },
         rounds,
         userStatus,
+        finalStandings,
       };
     },
   );

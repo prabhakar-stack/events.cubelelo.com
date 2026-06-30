@@ -252,6 +252,9 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
         return rows[0] ? toUser(rows[0]) : null;
       },
+      async delete(id) {
+        await pool.query("DELETE FROM users WHERE id = $1", [id]);
+      },
       async nextClId() {
         const year = new Date().getFullYear();
         const client = await pool.connect();

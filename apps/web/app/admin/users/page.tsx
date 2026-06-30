@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   fetchAdminUsers,
   updateAdminUser,
+  deleteAdminUser,
   type AdminUserDto,
 } from "@/lib/api";
 
@@ -64,6 +65,20 @@ export default function AdminUsersPage() {
     setError(null);
     try {
       await updateAdminUser(id, body);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onDeleteUser = async (u: AdminUserDto) => {
+    if (!confirm(`Permanently delete user "${u.name}" (${u.email})? This cannot be undone.`)) return;
+    setBusy(u.id);
+    setError(null);
+    try {
+      await deleteAdminUser(u.id);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -171,10 +186,19 @@ export default function AdminUsersPage() {
                     {new Date(u.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3">
-                    <Link href={`/profile/${u.clId}`}
-                      className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
-                      View →
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/profile/${u.clId}`}
+                        className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
+                        View →
+                      </Link>
+                      <button
+                        disabled={busy === u.id}
+                        onClick={() => onDeleteUser(u)}
+                        className="text-xs text-red-400 hover:text-red-300 disabled:opacity-40"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

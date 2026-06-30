@@ -304,6 +304,7 @@ export interface EventPageData {
   };
   rounds: EventRoundInfo[];
   userStatus: { registered: boolean; rounds: EventUserRound[] } | null;
+  finalStandings: { rank: number; userId: string; displayName: string }[] | null;
 }
 
 export function fetchEventPage(compId: string, eventId: string): Promise<EventPageData> {
@@ -495,6 +496,7 @@ export function createCompetition(body: {
     timeLimitMs?: number;
     durationMinutes?: number;
     advancementCriteria?: AdvancementCriteria;
+    roundCriteria?: (AdvancementCriteria | undefined)[];
   }>;
 }): Promise<{ id: string }> {
   return sendJson("POST", `/api/v1/admin/competitions`, body);
@@ -600,6 +602,30 @@ export function updateAdminUser(
   return sendJson("PATCH", `/api/v1/admin/users/${id}`, body);
 }
 
+export async function deleteAdminUser(id: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/v1/admin/users/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+}
+
+export async function deleteCompetition(id: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/v1/admin/competitions/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+}
+
+export async function deleteMyAccount(): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/v1/me`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+}
+
 // ── Admin: payments ───────────────────────────────────────────────────────────
 
 export interface AdminPaymentDto {
@@ -668,6 +694,18 @@ export async function deleteAnnouncement(id: string): Promise<void> {
     method: "DELETE",
     headers: authHeaders(),
   });
+}
+
+export async function uploadAnnouncementImage(id: string, file: File): Promise<AnnouncementDto> {
+  const form = new FormData();
+  form.append("image", file);
+  const res = await fetch(`${BASE_URL}/api/v1/admin/announcements/${id}/upload-image`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json();
 }
 
 // ── Admin: promo codes ───────────────────────────────────────────────────

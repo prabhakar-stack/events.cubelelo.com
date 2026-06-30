@@ -398,4 +398,18 @@ export async function registerUserRoutes(
       return results.slice(0, 25);
     },
   );
+
+  // Delete own account
+  app.delete(
+    "/api/v1/me",
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const userId = req.authClaims!.sub;
+      const user = await repo.users.findById(userId);
+      if (!user) return reply.code(404).send({ error: "user_not_found" });
+
+      await repo.users.delete(userId);
+      return reply.code(204).send();
+    },
+  );
 }

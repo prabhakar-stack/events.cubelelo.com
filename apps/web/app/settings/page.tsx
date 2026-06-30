@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/features/auth/AuthProvider";
 import Link from "next/link";
 import { RouteGuard } from "@/features/auth/RouteGuard";
-import { updateMyProfile, uploadAvatar, changePassword } from "@/lib/api";
+import { updateMyProfile, uploadAvatar, changePassword, deleteMyAccount } from "@/lib/api";
 import { useTheme } from "@/features/theme/ThemeProvider";
 
 const FIELDS = [
@@ -250,6 +250,29 @@ function SettingsContent() {
           className="mt-4 w-full rounded-lg bg-zinc-800 px-6 py-3 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-700 dark:hover:bg-zinc-600"
         >
           {pwSaving ? "Updating…" : "Update Password"}
+        </button>
+      </div>
+
+      {/* Delete Account */}
+      <div className="mt-10 border-t border-red-200 pt-8 dark:border-red-900/50">
+        <h2 className="mb-2 text-lg font-bold text-red-500">Delete Account</h2>
+        <p className="mb-4 text-sm text-zinc-500">
+          Permanently delete your account and all associated data. This action cannot be undone.
+        </p>
+        <button
+          onClick={async () => {
+            if (!confirm("Are you sure you want to delete your account? This cannot be undone.")) return;
+            if (!confirm("This will permanently remove all your data including competition results, registrations, and practice sessions. Continue?")) return;
+            try {
+              await deleteMyAccount();
+              window.location.href = "/";
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+          }}
+          className="rounded-lg bg-red-600 px-6 py-3 font-semibold text-white transition hover:bg-red-500"
+        >
+          Delete My Account
         </button>
       </div>
     </main>

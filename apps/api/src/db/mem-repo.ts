@@ -88,6 +88,7 @@ export function createMemRepo(): Repository {
         Object.assign(user, fields);
         return user;
       },
+      async delete(id) { users.delete(id); },
       async nextClId() { return nextClIdSync(); },
     },
 

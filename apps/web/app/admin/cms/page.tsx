@@ -7,6 +7,7 @@ import {
   createAnnouncement,
   updateAnnouncement,
   deleteAnnouncement,
+  uploadAnnouncementImage,
   fetchAdminContentPages,
   createContentPage,
   updateContentPage,
@@ -83,7 +84,7 @@ export default function AdminCmsPage() {
 
 /* ── Announcements Section ─────────────────────────────────────────────── */
 
-const ANN_EMPTY = { title: "", bodyMd: "", imageUrl: "", redirectUrl: "", pinned: false, published: false };
+const ANN_EMPTY = { title: "", bodyMd: "", redirectUrl: "", pinned: false, published: false };
 
 function AnnouncementsSection() {
   const [list, setList] = useState<AnnouncementDto[]>([]);
@@ -91,6 +92,7 @@ function AnnouncementsSection() {
   const [editing, setEditing] = useState<AnnouncementDto | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(ANN_EMPTY);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,13 +105,14 @@ function AnnouncementsSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openCreate = () => { setForm(ANN_EMPTY); setEditing(null); setCreating(true); };
+  const openCreate = () => { setForm(ANN_EMPTY); setEditing(null); setCreating(true); setImageFile(null); };
   const openEdit = (a: AnnouncementDto) => {
-    setForm({ title: a.title, bodyMd: a.bodyMd, imageUrl: a.imageUrl ?? "", redirectUrl: a.redirectUrl ?? "", pinned: a.pinned, published: a.published });
+    setForm({ title: a.title, bodyMd: a.bodyMd, redirectUrl: a.redirectUrl ?? "", pinned: a.pinned, published: a.published });
     setEditing(a);
     setCreating(false);
+    setImageFile(null);
   };
-  const closeForm = () => { setCreating(false); setEditing(null); setError(null); };
+  const closeForm = () => { setCreating(false); setEditing(null); setError(null); setImageFile(null); };
 
   const save = async () => {
     if (!form.title.trim() || !form.bodyMd.trim()) {
@@ -119,10 +122,16 @@ function AnnouncementsSection() {
     setBusy("save");
     setError(null);
     try {
+      let id: string;
       if (editing) {
         await updateAnnouncement(editing.id, form);
+        id = editing.id;
       } else {
-        await createAnnouncement(form);
+        const created = await createAnnouncement(form);
+        id = created.id;
+      }
+      if (imageFile) {
+        await uploadAnnouncementImage(id, imageFile);
       }
       closeForm();
       load();
@@ -192,11 +201,18 @@ function AnnouncementsSection() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs text-zinc-500">Image URL (optional)</label>
-                <input value={form.imageUrl}
-                  onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-                  placeholder="https://..."
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
+                <label className="mb-1 block text-xs text-zinc-500">Image (optional, max 2 MB)</label>
+                {editing?.imageUrl && !imageFile && (
+                  <p className="mb-1 truncate text-xs text-zinc-400">Current: {editing.imageUrl}</p>
+                )}
+                {imageFile && (
+                  <p className="mb-1 text-xs text-emerald-400">{imageFile.name}</p>
+                )}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+                  className="w-full text-sm text-zinc-500 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-200 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-zinc-700 hover:file:bg-zinc-300 dark:file:bg-zinc-800 dark:file:text-zinc-300 dark:hover:file:bg-zinc-700" />
               </div>
               <div>
                 <label className="mb-1 block text-xs text-zinc-500">Redirect URL (optional)</label>
@@ -264,6 +280,9 @@ function AnnouncementsSection() {
                 </div>
                 <span className="text-xs text-zinc-600">{new Date(a.updatedAt).toLocaleDateString()}</span>
               </div>
+              {a.imageUrl && (
+                <img src={a.imageUrl} alt="" className="mb-2 h-12 rounded object-contain" />
+              )}
               <p className="mb-3 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{a.bodyMd}</p>
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => openEdit(a)}

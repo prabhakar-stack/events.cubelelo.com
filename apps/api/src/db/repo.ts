@@ -31,6 +31,7 @@ export interface Repository {
     findByClId(clId: string): Promise<User | null>;
     create(user: User): Promise<void>;
     update(id: string, fields: Partial<User>): Promise<User | null>;
+    delete(id: string): Promise<void>;
     nextClId(): Promise<string>;
   };
 
