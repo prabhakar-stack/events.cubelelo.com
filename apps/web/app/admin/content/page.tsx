@@ -19,11 +19,10 @@ const TABS = [
   { label: "WCA Queue", href: "/admin/wca-queue" },
   { label: "Rank Tiers", href: "/admin/rank-tiers" },
   { label: "Merge", href: "/admin/merge" },
-  { label: "Announcements", href: "/admin/announcements" },
+  { label: "CMS", href: "/admin/cms" },
   { label: "Migration", href: "/admin/migration" },
   { label: "Content", href: "/admin/content" },
   { label: "Details", href: "/admin/faq" },
-  { label: "Pages", href: "/admin/pages" },
   { label: "Staff", href: "/admin/staff" },
 ];
 

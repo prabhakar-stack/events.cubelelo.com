@@ -266,6 +266,54 @@ export function fetchParticipants(compId: string): Promise<{
   return getJson(`/api/v1/competitions/${compId}/participants`);
 }
 
+export interface EventRoundInfo {
+  id: string;
+  roundNumber: number;
+  status: string;
+  opensAt: string | null;
+  closesAt: string | null;
+  advancementCriteria: AdvancementCriteria | null;
+  resultCount: number;
+  participantCount: number;
+}
+
+export interface EventUserRound {
+  roundId: string;
+  roundNumber: number;
+  userStatus: string;
+  result: { rank: number | null; ao5Ms: number | null; bestSingleMs: number | null } | null;
+}
+
+export interface EventPageData {
+  competition: {
+    id: string;
+    title: string;
+    status: string;
+    rulesMd: string | null;
+    startsAt: string | null;
+    endsAt: string | null;
+    type: string;
+    cancellationReason: string | null;
+  };
+  event: {
+    id: string;
+    eventType: string;
+    roundCount: number;
+    cutoffMs: number | null;
+    timeLimitMs: number | null;
+  };
+  rounds: EventRoundInfo[];
+  userStatus: { registered: boolean; rounds: EventUserRound[] } | null;
+}
+
+export function fetchEventPage(compId: string, eventId: string): Promise<EventPageData> {
+  return getJson(`/api/v1/competitions/${compId}/event/${eventId}`);
+}
+
+export function fetchVerifiedResults(roundId: string): Promise<ResultDto[]> {
+  return getJson<ResultDto[]>(`/api/v1/rounds/${roundId}/verified-results`);
+}
+
 export function fetchScramble(
   roundId: string,
 ): Promise<{ roundId: string; scrambles: string[] }> {
@@ -587,6 +635,10 @@ export interface AnnouncementDto {
   published: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export function fetchPublicAnnouncements(): Promise<AnnouncementDto[]> {
+  return getJson<AnnouncementDto[]>(`/api/v1/announcements`);
 }
 
 export function fetchAdminAnnouncements(): Promise<AnnouncementDto[]> {

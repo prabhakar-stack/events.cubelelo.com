@@ -292,6 +292,132 @@ export async function registerCompetitionRoutes(
     },
   );
 
+  // Event detail page — combines competition, event, rounds, and user progress
+  app.get<{ Params: { id: string; eventId: string } }>(
+    "/api/v1/competitions/:id/event/:eventId",
+    async (req, reply) => {
+      const competition = await repo.competitions.findById(req.params.id);
+      if (!competition) return reply.code(404).send({ error: "competition_not_found" });
+
+      const effComp = effectiveCompStatus(competition);
+      if (effComp === "draft") return reply.code(404).send({ error: "competition_not_found" });
+
+      const events = await repo.competitionEvents.findByCompetition(competition.id);
+      const event = events.find((e) => e.id === req.params.eventId);
+      if (!event) return reply.code(404).send({ error: "event_not_found" });
+
+      const allRounds = await repo.rounds.findByCompetition(competition.id);
+      const eventRounds = allRounds
+        .filter((r) => r.competitionEventId === event.id)
+        .sort((a, b) => a.roundNumber - b.roundNumber);
+
+      // Count participants for R1 = registrations for this event
+      const regs = await repo.registrations.findByCompetition(competition.id);
+      const eventRegChecks = await Promise.all(
+        regs
+          .filter((r) => r.paymentStatus === "paid" || competition.type === "free" || competition.type === "practice")
+          .map(async (r) => {
+            const evts = await repo.registrations.findEvents(r.id);
+            return evts.some((e) => e.id === event.id);
+          }),
+      );
+      const r1Participants = eventRegChecks.filter(Boolean).length;
+
+      const rounds = await Promise.all(
+        eventRounds.map(async (r) => {
+          const results = await repo.results.findByRound(r.id);
+          const advancements = r.roundNumber > 1
+            ? await repo.advancements.findByRound(r.id)
+            : [];
+          return {
+            id: r.id,
+            roundNumber: r.roundNumber,
+            status: effectiveRoundStatus(r),
+            opensAt: r.opensAt ?? null,
+            closesAt: r.closesAt ?? null,
+            advancementCriteria: r.advancementCriteria ?? null,
+            resultCount: results.length,
+            participantCount: r.roundNumber === 1 ? r1Participants : advancements.length,
+          };
+        }),
+      );
+
+      // User progress (if authenticated)
+      let userStatus: { registered: boolean; rounds: unknown[] } | null = null;
+      if (req.authClaims?.sub) {
+        const user = await repo.users.findById(req.authClaims.sub);
+        if (user) {
+          const reg = await repo.registrations.findByUserAndComp(user.id, competition.id);
+          if (reg) {
+            const userResults = await repo.results.findByUser(user.id);
+            const roundProgress = await Promise.all(
+              eventRounds.map(async (r) => {
+                const status = effectiveRoundStatus(r);
+                const result = userResults.find((res) => res.roundId === r.id);
+                const advanced = r.roundNumber > 1
+                  ? await repo.advancements.isAdvanced(r.id, user.id)
+                  : true;
+
+                let userRoundStatus: string;
+                if (result) {
+                  if (status === "closed" || status === "advanced") {
+                    const adv = await repo.advancements.findByRound(r.id);
+                    const qualified = adv.some((a) => a.userId === user.id);
+                    userRoundStatus = qualified ? "qualified" : (adv.length > 0 ? "eliminated" : "result_pending");
+                  } else {
+                    userRoundStatus = "submitted";
+                  }
+                } else if (status === "cancelled") {
+                  userRoundStatus = "cancelled";
+                } else if (status === "open" && advanced) {
+                  userRoundStatus = "active";
+                } else if (status === "pending") {
+                  userRoundStatus = advanced ? "upcoming" : "locked";
+                } else {
+                  userRoundStatus = advanced ? "not_submitted" : "locked";
+                }
+
+                return {
+                  roundId: r.id,
+                  roundNumber: r.roundNumber,
+                  userStatus: userRoundStatus,
+                  result: result
+                    ? { rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs }
+                    : null,
+                };
+              }),
+            );
+            userStatus = { registered: true, rounds: roundProgress };
+          } else {
+            userStatus = { registered: false, rounds: [] };
+          }
+        }
+      }
+
+      return {
+        competition: {
+          id: competition.id,
+          title: competition.title,
+          status: effComp,
+          rulesMd: competition.rulesMd ?? null,
+          startsAt: competition.startsAt ?? null,
+          endsAt: competition.endsAt ?? null,
+          type: competition.type,
+          cancellationReason: competition.cancellationReason ?? null,
+        },
+        event: {
+          id: event.id,
+          eventType: event.eventType,
+          roundCount: event.roundCount,
+          cutoffMs: event.cutoffMs ?? null,
+          timeLimitMs: event.timeLimitMs ?? null,
+        },
+        rounds,
+        userStatus,
+      };
+    },
+  );
+
   // Participant list for a competition
   app.get<{ Params: { id: string } }>(
     "/api/v1/competitions/:id/participants",

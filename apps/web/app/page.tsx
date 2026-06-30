@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { fetchCompetitions, type CompetitionSummary } from "@/lib/api";
+import { fetchCompetitions, fetchPublicAnnouncements, type CompetitionSummary, type AnnouncementDto } from "@/lib/api";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 
 export default function Home() {
@@ -106,52 +106,69 @@ export default function Home() {
   );
 }
 
-const ANNOUNCEMENTS = [
-  "Welcome to Cubelelo Events — India's premier speedcubing platform!",
-  "Register for upcoming competitions and compete with cubers across the country.",
-  "New features: anti-cheat flagging, live leaderboards, and more.",
-];
-
 function AnnouncementSlider() {
+  const [announcements, setAnnouncements] = useState<AnnouncementDto[]>([]);
   const [idx, setIdx] = useState(0);
 
   useEffect(() => {
-    const t = setInterval(() => setIdx((i) => (i + 1) % ANNOUNCEMENTS.length), 5000);
-    return () => clearInterval(t);
+    fetchPublicAnnouncements().then(setAnnouncements).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (announcements.length <= 1) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % announcements.length), 5000);
+    return () => clearInterval(t);
+  }, [announcements.length]);
+
+  if (announcements.length === 0) return null;
+
+  const current = announcements[idx];
+
+  const content = (
+    <div className="flex items-center justify-between">
+      <button
+        onClick={() => setIdx((i) => (i - 1 + announcements.length) % announcements.length)}
+        className="mr-3 shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+        aria-label="Previous"
+      >
+        <ChevronLeft />
+      </button>
+      <div className="flex flex-1 flex-col items-center gap-2">
+        {current.imageUrl && (
+          <img src={current.imageUrl} alt={current.title} className="max-h-16 rounded object-contain" />
+        )}
+        <p className="text-center text-sm text-zinc-700 dark:text-zinc-300">{current.title}</p>
+      </div>
+      <button
+        onClick={() => setIdx((i) => (i + 1) % announcements.length)}
+        className="ml-3 shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+        aria-label="Next"
+      >
+        <ChevronRight />
+      </button>
+    </div>
+  );
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => setIdx((i) => (i - 1 + ANNOUNCEMENTS.length) % ANNOUNCEMENTS.length)}
-          className="mr-3 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          aria-label="Previous"
-        >
-          <ChevronLeft />
-        </button>
-        <p className="flex-1 text-center text-sm text-zinc-700 dark:text-zinc-300">
-          {ANNOUNCEMENTS[idx]}
-        </p>
-        <button
-          onClick={() => setIdx((i) => (i + 1) % ANNOUNCEMENTS.length)}
-          className="ml-3 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          aria-label="Next"
-        >
-          <ChevronRight />
-        </button>
-      </div>
-      <div className="mt-2 flex justify-center gap-1.5">
-        {ANNOUNCEMENTS.map((_, i) => (
-          <button
-            key={i}
-            onClick={() => setIdx(i)}
-            className={`h-1.5 rounded-full transition-all ${
-              i === idx ? "w-4 bg-emerald-500" : "w-1.5 bg-zinc-300 dark:bg-zinc-700"
-            }`}
-          />
-        ))}
-      </div>
+      {current.redirectUrl ? (
+        <Link href={current.redirectUrl} className="block">{content}</Link>
+      ) : (
+        content
+      )}
+      {announcements.length > 1 && (
+        <div className="mt-2 flex justify-center gap-1.5">
+          {announcements.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setIdx(i)}
+              className={`h-1.5 rounded-full transition-all ${
+                i === idx ? "w-4 bg-emerald-500" : "w-1.5 bg-zinc-300 dark:bg-zinc-700"
+              }`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -179,4 +179,18 @@ export async function registerResultRoutes(
       );
     },
   );
+
+  // Verified results only (official leaderboard).
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/rounds/:id/verified-results",
+    async (req) => {
+      const board = await repo.results.findByRound(req.params.id);
+      return board
+        .filter((r) => r.flagStatus === "clean" || r.flagStatus === "verified")
+        .sort(
+          (a, b) =>
+            (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),
+        );
+    },
+  );
 }
