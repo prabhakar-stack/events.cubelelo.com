@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  closeRound,
+  cancelRound,
   downloadCertificatesZip,
   exportCompetitionCSV,
   sendBulkEmail,
@@ -11,10 +11,10 @@ import {
   fetchCompetition,
   fetchVerificationQueue,
   generateScrambles,
-  openRound,
   updateCompetition,
   updateRound,
   verifyResult,
+  type AdvancementCriteria,
   type CompetitionDetail,
   type FlaggedResultDto,
   type RoundRef,
@@ -70,6 +70,7 @@ export function AdminCompetition({ id }: { id: string }) {
   const [detail, setDetail] = useState<CompetitionDetail | null>(null);
   const [queue, setQueue] = useState<FlaggedResultDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
 
   // Schedule editor local state — synced from detail on load
@@ -106,11 +107,28 @@ export function AdminCompetition({ id }: { id: string }) {
     async (key: string, fn: () => Promise<unknown>) => {
       setBusy(key);
       setError(null);
+      setValidationErrors([]);
       try {
         await fn();
         load();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        const msg = e instanceof Error ? e.message : String(e);
+        const jsonMatch = msg.match(/\{.*\}/s);
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.errors && Array.isArray(parsed.errors)) {
+              setValidationErrors(parsed.errors);
+              setError(parsed.error ?? "Validation failed");
+            } else {
+              setError(parsed.error ?? msg);
+            }
+          } catch {
+            setError(msg);
+          }
+        } else {
+          setError(msg);
+        }
       } finally {
         setBusy(null);
       }
@@ -156,8 +174,17 @@ export function AdminCompetition({ id }: { id: string }) {
             <select
               value={MANUAL_STATUSES.includes(detail.status) ? detail.status : ""}
               onChange={(e) => {
-                if (e.target.value)
-                  run("status", () => updateCompetition(id, { status: e.target.value }));
+                const newStatus = e.target.value;
+                if (!newStatus) return;
+                if (newStatus === "cancelled") {
+                  const reason = prompt("Enter cancellation reason (required):");
+                  if (!reason?.trim()) return;
+                  run("status", () =>
+                    updateCompetition(id, { status: newStatus, cancellationReason: reason.trim() }),
+                  );
+                } else {
+                  run("status", () => updateCompetition(id, { status: newStatus }));
+                }
               }}
               className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               title="Manually override status (registration_open / live / etc. are auto-computed from schedule)"
@@ -211,7 +238,16 @@ export function AdminCompetition({ id }: { id: string }) {
           </div>
         </div>
 
-        {error && <div className="mt-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
+        {error && (
+          <div className="mt-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            <p>{error}</p>
+            {validationErrors.length > 0 && (
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
 
         {/* ── Schedule editor ── */}
         <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 p-4">
@@ -443,6 +479,17 @@ function RoundRow({
   const [showSchedule, setShowSchedule] = useState(false);
   const [opensAt, setOpensAt] = useState(toLocal(round.opensAt));
   const [closesAt, setClosesAt] = useState(toLocal(round.closesAt));
+  const [duration, setDuration] = useState<string>("");
+  const [criteriaMethod, setCriteriaMethod] = useState<"none" | "rank" | "time">(
+    round.advancementCriteria?.method ?? "none",
+  );
+  const [criteriaLimit, setCriteriaLimit] = useState<string>(
+    round.advancementCriteria?.method === "rank"
+      ? String(round.advancementCriteria.rankLimit ?? "")
+      : round.advancementCriteria?.method === "time"
+        ? String((round.advancementCriteria.timeLimitMs ?? 0) / 1000)
+        : "",
+  );
 
   // Keep local inputs in sync when parent refreshes
   useEffect(() => {
@@ -450,11 +497,30 @@ function RoundRow({
     setClosesAt(toLocal(round.closesAt));
   }, [round.opensAt, round.closesAt]);
 
+  // Auto-compute closesAt when opensAt + duration are set
+  useEffect(() => {
+    if (opensAt && duration && Number(duration) > 0) {
+      const open = new Date(opensAt);
+      const close = new Date(open.getTime() + Number(duration) * 60_000);
+      setClosesAt(toLocal(close.toISOString()));
+    }
+  }, [opensAt, duration]);
+
+  const buildCriteria = (): AdvancementCriteria | null => {
+    if (criteriaMethod === "rank" && Number(criteriaLimit) > 0)
+      return { method: "rank", rankLimit: Number(criteriaLimit) };
+    if (criteriaMethod === "time" && Number(criteriaLimit) > 0)
+      return { method: "time", timeLimitMs: Number(criteriaLimit) * 1000 };
+    return null;
+  };
+
   const saveSchedule = () =>
     onRun(`sched-${round.id}`, () =>
       updateRound(round.id, {
         opensAt: toISO(opensAt),
         closesAt: toISO(closesAt),
+        advancementCriteria: buildCriteria(),
+        ...(duration ? { durationMinutes: Number(duration) } : {}),
       }),
     );
 
@@ -502,22 +568,14 @@ function RoundRow({
             {busy === `gen-${round.id}` ? "Generating…" : "Generate & Lock"}
           </button>
 
-          {/* Manual open / close */}
-          {round.status === "open" ? (
+          {/* Cancel round */}
+          {round.status !== "cancelled" && round.status !== "advanced" && round.status !== "closed" && (
             <button
-              disabled={busy === `close-${round.id}`}
-              onClick={() => onRun(`close-${round.id}`, () => closeRound(round.id))}
-              className="rounded bg-zinc-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-600 disabled:opacity-40"
+              disabled={busy === `cancel-${round.id}`}
+              onClick={() => onRun(`cancel-${round.id}`, () => cancelRound(round.id))}
+              className="rounded border border-red-800 px-3 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-900/30 disabled:opacity-40"
             >
-              Close
-            </button>
-          ) : (
-            <button
-              disabled={!round.scrambleLocked || busy === `open-${round.id}`}
-              onClick={() => onRun(`open-${round.id}`, () => openRound(round.id))}
-              className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
-            >
-              Open
+              {busy === `cancel-${round.id}` ? "Cancelling…" : "Cancel"}
             </button>
           )}
 
@@ -557,14 +615,53 @@ function RoundRow({
               />
             </div>
             <div>
+              <label className="mb-1 block text-xs text-zinc-500">Duration (min)</label>
+              <input
+                type="number"
+                min={1}
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+                placeholder="—"
+                className="w-24 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </div>
+            <div>
               <label className="mb-1 block text-xs text-zinc-500">Closes at</label>
               <input
                 type="datetime-local"
                 value={closesAt}
-                onChange={(e) => setClosesAt(e.target.value)}
+                onChange={(e) => { setClosesAt(e.target.value); setDuration(""); }}
                 className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               />
             </div>
+            <div className="w-full" />
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Shortlist Method</label>
+              <select
+                value={criteriaMethod}
+                onChange={(e) => { setCriteriaMethod(e.target.value as "none" | "rank" | "time"); setCriteriaLimit(""); }}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              >
+                <option value="none">None</option>
+                <option value="rank">Rank Based (Top N)</option>
+                <option value="time">Time Based (ao5 ≤ X)</option>
+              </select>
+            </div>
+            {criteriaMethod !== "none" && (
+              <div>
+                <label className="mb-1 block text-xs text-zinc-500">
+                  {criteriaMethod === "rank" ? "Top N" : "Time limit (seconds)"}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={criteriaLimit}
+                  onChange={(e) => setCriteriaLimit(e.target.value)}
+                  placeholder={criteriaMethod === "rank" ? "e.g. 10" : "e.g. 30"}
+                  className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </div>
+            )}
             <button
               disabled={busy === `sched-${round.id}`}
               onClick={saveSchedule}

@@ -43,11 +43,11 @@ export async function registerCompetitionRoutes(
 
       let comps = await repo.competitions.findAll();
 
-      // Non-admins cannot see drafts or cancelled competitions
+      // Non-admins cannot see drafts
       if (!isAdmin) {
         comps = comps.filter((c) => {
           const s = effectiveCompStatus(c);
-          return s !== "draft" && s !== "cancelled";
+          return s !== "draft";
         });
       }
 
@@ -87,6 +87,7 @@ export async function registerCompetitionRoutes(
             createdAt: c.createdAt,
             eventTypes: events.map((e) => e.eventType),
             registrationCount: regCount,
+            cancellationReason: c.cancellationReason ?? null,
           };
         }),
       );
@@ -104,8 +105,8 @@ export async function registerCompetitionRoutes(
       const isAdmin = caller?.role === "admin" || caller?.role === "super_admin" || caller?.role === "moderator";
       const effStatus = effectiveCompStatus(competition);
 
-      // Non-admins cannot see draft/cancelled competitions
-      if (!isAdmin && (effStatus === "draft" || effStatus === "cancelled")) {
+      // Non-admins cannot see draft competitions
+      if (!isAdmin && effStatus === "draft") {
         return reply.code(404).send({ error: "competition_not_found" });
       }
 
@@ -134,6 +135,7 @@ export async function registerCompetitionRoutes(
         createdBy: competition.createdBy,
         createdAt: competition.createdAt,
         registrationCount: regCount,
+        cancellationReason: competition.cancellationReason ?? null,
         events: await Promise.all(
           events.map(async (e) => {
             const eventRounds = rounds
@@ -151,6 +153,7 @@ export async function registerCompetitionRoutes(
                   opensAt: r.opensAt ?? null,
                   closesAt: r.closesAt ?? null,
                   advancementCount: r.advancementCount ?? null,
+                  advancementCriteria: r.advancementCriteria ?? null,
                   scrambleLocked: Boolean(set?.lockedAt),
                 };
               }),

@@ -122,6 +122,7 @@ export function createMemRepo(): Repository {
 
     rounds: {
       async findById(id) { return rounds.get(id) ?? null; },
+      async findAll() { return [...rounds.values()]; },
       async findByCompetition(compId) {
         const eventIds = new Set(
           [...competitionEvents.values()]

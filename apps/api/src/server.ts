@@ -5,6 +5,7 @@ import { createRealtime } from "./sockets/realtime";
 import { env } from "./config/env";
 import { registerJobs } from "./lib/jobs";
 import { getQueue } from "./lib/jobQueue";
+import { startRoundTicker } from "./lib/roundTicker";
 
 // Choose storage backend: PostgreSQL when DATABASE_URL is set, in-memory otherwise.
 let repo;
@@ -28,6 +29,7 @@ const realtime = createRealtime();
 const app = await buildApp(repo, realtime);
 await app.ready();
 realtime.attach(app, repo);
+startRoundTicker(repo, realtime);
 
 try {
   await app.listen({ port: env.PORT, host: env.HOST });

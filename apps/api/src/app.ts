@@ -51,7 +51,7 @@ export async function buildApp(
   await registerCompetitionRoutes(app, repo);
   await registerRoundRoutes(app, repo, realtime);
   await registerResultRoutes(app, repo, realtime);
-  await registerAdminRoutes(app, repo);
+  await registerAdminRoutes(app, repo, realtime);
   await registerRegistrationRoutes(app, repo);
   await registerPaymentRoutes(app, repo);
   await registerUserRoutes(app, repo);

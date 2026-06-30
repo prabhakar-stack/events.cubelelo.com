@@ -16,11 +16,13 @@ import { env } from "../config/env";
 export interface Realtime {
   emitLeaderboard(roundId: string, board: unknown): void;
   emitRoundStatus(roundId: string, status: RoundStatus, opensAt?: string): void;
+  emitCompStatus(compId: string, status: string): void;
 }
 
 export const noopRealtime: Realtime = {
   emitLeaderboard() {},
   emitRoundStatus() {},
+  emitCompStatus() {},
 };
 
 export interface AttachableRealtime extends Realtime {
@@ -39,6 +41,10 @@ export function createRealtime(): AttachableRealtime {
 
     emitRoundStatus(roundId, status, opensAt) {
       io?.to(roomOf(roundId)).emit("round:status", { roundId, status, opensAt });
+    },
+
+    emitCompStatus(compId, status) {
+      io?.to(`comp:${compId}`).emit("comp:status", { compId, status });
     },
 
     attach(app, repo) {
@@ -64,8 +70,9 @@ export function createRealtime(): AttachableRealtime {
       };
 
       io.on("connection", (socket) => {
-        socket.on("join", (payload: { roundId?: string }) => {
+        socket.on("join", (payload: { roundId?: string; compId?: string }) => {
           if (payload?.roundId) socket.join(roomOf(payload.roundId));
+          if (payload?.compId) socket.join(`comp:${payload.compId}`);
         });
 
         socket.on(

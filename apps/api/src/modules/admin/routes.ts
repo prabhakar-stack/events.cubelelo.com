@@ -4,8 +4,11 @@ import { isEventId } from "@cubers/scramble-core";
 import type { CompStatus, CompType, FlagStatus } from "@cubers/types";
 import type { Repository } from "../../db/repo";
 import type { Competition, CompetitionEvent, Round, AuditLogEntry, Announcement, PromoCode, Appeal, RankTier, Banner, FaqEntry, ContentPage } from "../../db/types";
+import type { Realtime } from "../../sockets/realtime";
 import { requireRole } from "../../auth/plugin";
 import { effectiveCompStatus, effectiveRoundStatus } from "../../lib/statusUtils";
+import { shortlistRound } from "../../lib/roundLifecycle";
+import { validateCompetitionSchedule, validateScheduleFields } from "../../lib/scheduleValidation";
 import { collectCertificateData, generateCertificatePDF } from "../../lib/certificate";
 import { emailService, roundNotificationEmail, bulkEmail, migrationEmail } from "../../lib/email";
 import { ZipArchive } from "archiver";
@@ -20,6 +23,7 @@ const FLAG_ACTIONS: FlagStatus[] = ["verified", "plus2", "dnf", "disqualified"];
 export async function registerAdminRoutes(
   app: FastifyInstance,
   repo: Repository,
+  realtime: Realtime,
 ): Promise<void> {
   const adminOnly = { preHandler: requireRole(repo, "admin") };
   const adminOrMod = { preHandler: requireRole(repo, "admin", "moderator") };
@@ -47,6 +51,8 @@ export async function registerAdminRoutes(
         cutoffMs?: number;
         timeLimitMs?: number;
         advancementCount?: number;
+        advancementCriteria?: { method: string; rankLimit?: number; timeLimitMs?: number };
+        durationMinutes?: number;
       }>;
     };
   }>("/api/v1/admin/competitions", adminOnly, async (req, reply) => {
@@ -108,8 +114,13 @@ export async function registerAdminRoutes(
           competitionEventId: event.id,
           roundNumber: i,
           status: "pending",
-          // Only the first round is open to all; later rounds require advancement
           advancementCount: i < rounds ? (spec.advancementCount ?? undefined) : undefined,
+          advancementCriteria: i < rounds && spec.advancementCriteria
+            ? { method: spec.advancementCriteria.method as "rank" | "time",
+                rankLimit: spec.advancementCriteria.rankLimit,
+                timeLimitMs: spec.advancementCriteria.timeLimitMs }
+            : undefined,
+          durationMinutes: spec.durationMinutes,
         };
         await repo.rounds.create(round);
       }
@@ -142,12 +153,14 @@ export async function registerAdminRoutes(
       coverCaption?: string;
       coverUrl?: string;
       bannerUrl?: string;
+      cancellationReason?: string;
     };
   }>("/api/v1/admin/competitions/:id", adminOnly, async (req, reply) => {
     const {
       title, status, description, rulesMd, baseFee, perEventFee,
       registrationOpensAt, registrationDeadline, startsAt, endsAt,
       featured, featuredOrder, coverCaption, coverUrl, bannerUrl,
+      cancellationReason,
     } = req.body ?? {};
 
     const fields: Partial<Competition> = {};
@@ -166,25 +179,36 @@ export async function registerAdminRoutes(
     if (typeof coverCaption === "string") fields.coverCaption = coverCaption;
     if (typeof coverUrl === "string") fields.coverUrl = coverUrl;
     if (typeof bannerUrl === "string") fields.bannerUrl = bannerUrl;
+    if (typeof cancellationReason === "string") fields.cancellationReason = cancellationReason;
 
-    // Validate schedule before publishing
-    if (fields.status === "published") {
+    if (status === "cancelled" && !cancellationReason?.trim()) {
+      return reply.code(400).send({ error: "cancellation_reason_required" });
+    }
+
+    // Soft-validate schedule ordering on any schedule field update
+    const hasScheduleChange = fields.registrationOpensAt !== undefined
+      || fields.registrationDeadline !== undefined
+      || fields.startsAt !== undefined
+      || fields.endsAt !== undefined;
+
+    if (hasScheduleChange || fields.status === "published") {
       const comp = await repo.competitions.findById(req.params.id);
       if (!comp) return reply.code(404).send({ error: "competition_not_found" });
       const merged = { ...comp, ...fields };
-      const missing: string[] = [];
-      if (!merged.startsAt) missing.push("startsAt");
-      if (!merged.endsAt) missing.push("endsAt");
-      if (missing.length > 0) {
-        return reply.code(400).send({ error: "schedule_required_for_publish", missing });
+
+      if (hasScheduleChange && fields.status !== "published") {
+        const soft = validateScheduleFields(merged);
+        if (!soft.valid) {
+          return reply.code(400).send({ error: "schedule_validation_failed", errors: soft.errors });
+        }
       }
-      const rounds = await repo.rounds.findByCompetition(req.params.id);
-      const unscheduled = rounds.filter((r) => !r.opensAt || !r.closesAt);
-      if (unscheduled.length > 0) {
-        return reply.code(400).send({
-          error: "rounds_schedule_required_for_publish",
-          unscheduledRounds: unscheduled.length,
-        });
+
+      if (fields.status === "published") {
+        const rounds = await repo.rounds.findByCompetition(req.params.id);
+        const result = validateCompetitionSchedule(merged, rounds);
+        if (!result.valid) {
+          return reply.code(400).send({ error: "schedule_validation_failed", errors: result.errors });
+        }
       }
     }
 
@@ -198,6 +222,7 @@ export async function registerAdminRoutes(
       startsAt: updated.startsAt ?? null,
       endsAt: updated.endsAt ?? null,
       featured: updated.featured,
+      cancellationReason: updated.cancellationReason ?? null,
     };
   });
 
@@ -255,6 +280,7 @@ export async function registerAdminRoutes(
           roundNumber: srcRound.roundNumber,
           status: "pending",
           advancementCount: srcRound.advancementCount,
+          advancementCriteria: srcRound.advancementCriteria,
         };
         await repo.rounds.create(round);
 
@@ -416,6 +442,16 @@ export async function registerAdminRoutes(
       createdAt: now,
     };
     await repo.auditLog.create(entry);
+
+    // Check if shortlisting should trigger (no more flagged results in this round)
+    const round = await repo.rounds.findById(result.roundId);
+    if (round && round.status === "closed" && (round.advancementCriteria || round.advancementCount)) {
+      const allResults = await repo.results.findByRound(round.id);
+      const hasFlagged = allResults.some((r) => r.flagStatus === "flagged");
+      if (!hasFlagged) {
+        await shortlistRound(repo, realtime, round);
+      }
+    }
 
     return { id: result.id, flagStatus: action };
   });

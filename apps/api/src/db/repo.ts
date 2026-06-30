@@ -52,6 +52,7 @@ export interface Repository {
 
   rounds: {
     findById(id: string): Promise<Round | null>;
+    findAll(): Promise<Round[]>;
     findByCompetition(compId: string): Promise<Round[]>;
     create(round: Round): Promise<void>;
     update(id: string, fields: Partial<Round>): Promise<Round | null>;

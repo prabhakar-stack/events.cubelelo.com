@@ -51,6 +51,7 @@ export interface Competition {
   featured: boolean;
   featuredOrder?: number;
   coverCaption?: string;
+  cancellationReason?: string;
   createdBy?: string;
   createdAt: string;
 }
@@ -64,12 +65,19 @@ export interface CompetitionEvent {
   timeLimitMs?: number;
 }
 
+export interface AdvancementCriteria {
+  method: "rank" | "time";
+  rankLimit?: number;
+  timeLimitMs?: number;
+}
+
 export interface Round {
   id: string;
   competitionEventId: string;
   roundNumber: number;
   status: RoundStatus;
   advancementCount?: number;
+  advancementCriteria?: AdvancementCriteria;
   opensAt?: string;
   closesAt?: string;
   durationMinutes?: number;

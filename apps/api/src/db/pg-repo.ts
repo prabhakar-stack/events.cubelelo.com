@@ -77,6 +77,7 @@ function toComp(r: Row): Competition {
     featured: (r.featured as boolean) ?? false,
     featuredOrder: (r.featured_order as number) ?? undefined,
     coverCaption: (r.cover_caption as string) ?? undefined,
+    cancellationReason: (r.cancellation_reason as string) ?? undefined,
     createdBy: (r.created_by as string) ?? undefined,
     createdAt: ts(r.created_at),
   };
@@ -100,6 +101,11 @@ function toRound(r: Row): Round {
     roundNumber: r.round_number as number,
     status: r.status as Round["status"],
     advancementCount: (r.advancement_count as number) ?? undefined,
+    advancementCriteria: r.advancement_criteria
+      ? (typeof r.advancement_criteria === "string"
+          ? JSON.parse(r.advancement_criteria)
+          : r.advancement_criteria) as Round["advancementCriteria"]
+      : undefined,
     opensAt: r.opens_at ? ts(r.opens_at) : undefined,
     closesAt: r.closes_at ? ts(r.closes_at) : undefined,
     durationMinutes: (r.duration_minutes as number) ?? undefined,
@@ -289,8 +295,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           `INSERT INTO competitions
              (id, title, type, status, cover_url, banner_url, description, rules_md,
               base_fee, per_event_fee, registration_opens_at, registration_deadline,
-              starts_at, ends_at, featured, created_by, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)`,
+              starts_at, ends_at, featured, created_by, cancellation_reason, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)`,
           [
             comp.id, comp.title, comp.type, comp.status,
             comp.coverUrl ?? null, comp.bannerUrl ?? null,
@@ -298,7 +304,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
             comp.baseFee, comp.perEventFee,
             comp.registrationOpensAt ?? null, comp.registrationDeadline ?? null,
             comp.startsAt ?? null, comp.endsAt ?? null,
-            comp.featured ?? false, comp.createdBy ?? null, comp.createdAt,
+            comp.featured ?? false, comp.createdBy ?? null,
+            comp.cancellationReason ?? null, comp.createdAt,
           ],
         );
       },
@@ -311,6 +318,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           startsAt: "starts_at", endsAt: "ends_at",
           coverUrl: "cover_url", bannerUrl: "banner_url",
           featured: "featured", featuredOrder: "featured_order", coverCaption: "cover_caption",
+          cancellationReason: "cancellation_reason",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -379,6 +387,10 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const { rows } = await pool.query("SELECT * FROM rounds WHERE id = $1", [id]);
         return rows[0] ? toRound(rows[0]) : null;
       },
+      async findAll() {
+        const { rows } = await pool.query("SELECT * FROM rounds ORDER BY round_number");
+        return rows.map(toRound);
+      },
       async findByCompetition(compId) {
         const { rows } = await pool.query(
           `SELECT r.* FROM rounds r
@@ -392,13 +404,14 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       async create(round) {
         await pool.query(
           `INSERT INTO rounds
-             (id, competition_event_id, round_number, advancement_count, status, opens_at, closes_at, duration_minutes)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+             (id, competition_event_id, round_number, advancement_count, status, opens_at, closes_at, duration_minutes, advancement_criteria)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [
             round.id, round.competitionEventId, round.roundNumber,
             round.advancementCount ?? null, round.status,
             round.opensAt ?? null, round.closesAt ?? null,
             round.durationMinutes ?? null,
+            round.advancementCriteria ? JSON.stringify(round.advancementCriteria) : null,
           ],
         );
       },
@@ -406,8 +419,13 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const COL: Record<string, string> = {
           status: "status", opensAt: "opens_at", closesAt: "closes_at",
           advancementCount: "advancement_count", durationMinutes: "duration_minutes",
+          advancementCriteria: "advancement_criteria",
         };
-        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        const raw = fields as Record<string, unknown>;
+        if (raw.advancementCriteria !== undefined) {
+          raw.advancementCriteria = raw.advancementCriteria ? JSON.stringify(raw.advancementCriteria) : null;
+        }
+        const { sets, vals, next } = buildSet(COL, raw);
         if (sets.length === 0) return this.findById(id);
         vals.push(id);
         const { rows } = await pool.query(

@@ -25,6 +25,12 @@ export interface AuthUser {
   wcaVerified?: boolean;
 }
 
+export interface AdvancementCriteria {
+  method: "rank" | "time";
+  rankLimit?: number;
+  timeLimitMs?: number;
+}
+
 export interface RoundRef {
   id: string;
   roundNumber: number;
@@ -34,6 +40,7 @@ export interface RoundRef {
   opensAt?: string | null;
   closesAt?: string | null;
   advancementCount?: number | null;
+  advancementCriteria?: AdvancementCriteria | null;
 }
 
 export interface CompetitionSummary {
@@ -44,11 +51,15 @@ export interface CompetitionSummary {
   description?: string;
   baseFee?: number;
   perEventFee?: number;
-  registrationDeadline?: string;
+  registrationOpensAt?: string | null;
+  registrationDeadline?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
   coverUrl?: string;
   createdAt?: string;
   eventTypes?: string[];
   registrationCount?: number;
+  cancellationReason?: string | null;
 }
 
 export interface EventDetail {
@@ -78,6 +89,7 @@ export interface CompetitionDetail {
   createdBy?: string;
   createdAt?: string;
   registrationCount?: number;
+  cancellationReason?: string | null;
   events: EventDetail[];
 }
 
@@ -428,7 +440,14 @@ export function createCompetition(body: {
   endsAt?: string;
   eventType?: string;
   roundCount?: number;
-  events?: Array<{ eventType: string; roundCount?: number; cutoffMs?: number; timeLimitMs?: number }>;
+  events?: Array<{
+    eventType: string;
+    roundCount?: number;
+    cutoffMs?: number;
+    timeLimitMs?: number;
+    durationMinutes?: number;
+    advancementCriteria?: AdvancementCriteria;
+  }>;
 }): Promise<{ id: string }> {
   return sendJson("POST", `/api/v1/admin/competitions`, body);
 }
@@ -446,6 +465,7 @@ export function updateCompetition(
     registrationDeadline?: string | null;
     startsAt?: string | null;
     endsAt?: string | null;
+    cancellationReason?: string;
   },
 ): Promise<{ id: string; title: string; status: string }> {
   return sendJson("PATCH", `/api/v1/admin/competitions/${id}`, body);
@@ -471,17 +491,19 @@ export function generateScrambles(
   return sendJson("POST", `/api/v1/admin/rounds/${roundId}/scrambles`, { count });
 }
 
-export function openRound(roundId: string): Promise<{ id: string; status: string }> {
-  return sendJson("POST", `/api/v1/admin/rounds/${roundId}/open`);
-}
-
-export function closeRound(roundId: string): Promise<{ id: string; status: string }> {
-  return sendJson("POST", `/api/v1/admin/rounds/${roundId}/close`);
+export function cancelRound(roundId: string): Promise<{ id: string; status: string }> {
+  return sendJson("POST", `/api/v1/admin/rounds/${roundId}/cancel`);
 }
 
 export function updateRound(
   roundId: string,
-  body: { opensAt?: string | null; closesAt?: string | null; advancementCount?: number; durationMinutes?: number },
+  body: {
+    opensAt?: string | null;
+    closesAt?: string | null;
+    advancementCount?: number;
+    advancementCriteria?: AdvancementCriteria | null;
+    durationMinutes?: number;
+  },
 ): Promise<{ id: string; status: string; opensAt: string | null; closesAt: string | null; durationMinutes?: number }> {
   return sendJson("PATCH", `/api/v1/admin/rounds/${roundId}`, body);
 }

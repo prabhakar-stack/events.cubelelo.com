@@ -11,6 +11,7 @@ import {
   type RegistrationDto,
 } from "@/lib/api";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { UserStatusBadge } from "@/features/competitions/UserStatusBadge";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 
 export default function CompetitionDetailPage() {
@@ -67,13 +68,24 @@ export default function CompetitionDetailPage() {
   return (
     <main className="mx-auto max-w-4xl px-6 py-10">
       <div className="mb-6 flex items-center gap-3">
-        <StatusBadge status={comp.status} />
+        <UserStatusBadge comp={comp} isRegistered={!!myReg} />
         <span className="text-xs text-zinc-500">{comp.type}</span>
       </div>
 
       <h1 className="mb-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{comp.title}</h1>
       {comp.description && (
         <p className="mb-6 text-zinc-400">{comp.description}</p>
+      )}
+
+      {comp.status === "cancelled" && comp.cancellationReason && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+          <div className="mb-1 text-sm font-semibold text-red-700 dark:text-red-300">
+            This competition has been cancelled
+          </div>
+          <p className="text-sm text-red-600 dark:text-red-400">
+            {comp.cancellationReason}
+          </p>
+        </div>
       )}
 
       <div className="mb-8 grid gap-6 md:grid-cols-2">

@@ -5,14 +5,14 @@ import Link from "next/link";
 import { EVENT_IDS } from "@cubers/scramble-core";
 import {
   createCompetition,
+  cancelRound,
   duplicateCompetition,
   fetchAdminScrambles,
   fetchCompetition,
   fetchCompetitions,
   generateScrambles,
-  openRound,
-  closeRound,
   updateCompetition,
+  type AdvancementCriteria,
   type CompetitionDetail,
   type CompetitionSummary,
 } from "@/lib/api";
@@ -118,6 +118,8 @@ interface EventSpec {
   roundCount: number;
   cutoffMs?: number;
   timeLimitMs?: number;
+  durationMinutes?: number;
+  advancementCriteria?: AdvancementCriteria;
 }
 
 function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
@@ -136,6 +138,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
   ]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   const addEvent = () =>
     setEvents((prev) => [...prev, { eventType: "333", roundCount: 1 }]);
@@ -148,6 +151,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
     if (!title.trim()) return;
     setCreating(true);
     setError(null);
+    setValidationErrors([]);
     try {
       const toISO = (v: string) => v ? new Date(v).toISOString() : undefined;
       const body: Parameters<typeof createCompetition>[0] = {
@@ -179,8 +183,24 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
       setEndsAt("");
       setEvents([{ eventType: "333", roundCount: 1 }]);
       onCreated();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const jsonMatch = msg.match(/\{.*\}/s);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.errors && Array.isArray(parsed.errors)) {
+            setValidationErrors(parsed.errors);
+            setError(parsed.error ?? "Validation failed");
+          } else {
+            setError(parsed.error ?? msg);
+          }
+        } catch {
+          setError(msg);
+        }
+      } else {
+        setError(msg);
+      }
     } finally {
       setCreating(false);
     }
@@ -193,7 +213,14 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
       </h2>
 
       {error && (
-        <div className="mb-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>
+        <div className="mb-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+          <p>{error}</p>
+          {validationErrors.length > 0 && (
+            <ul className="mt-1 list-disc pl-5 text-xs">
+              {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          )}
+        </div>
       )}
 
       <div className="space-y-4">
@@ -340,6 +367,63 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
                     className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                   />
                 </label>
+                <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  Duration (min)
+                  <input
+                    type="number"
+                    min={1}
+                    value={ev.durationMinutes ?? ""}
+                    onChange={(e) =>
+                      updateEvent(i, { durationMinutes: e.target.value ? Number(e.target.value) : undefined })
+                    }
+                    placeholder="—"
+                    className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </label>
+                {ev.roundCount > 1 && (
+                  <>
+                    <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                      Shortlist
+                      <select
+                        value={ev.advancementCriteria?.method ?? "none"}
+                        onChange={(e) => {
+                          const m = e.target.value;
+                          if (m === "none") updateEvent(i, { advancementCriteria: undefined });
+                          else updateEvent(i, { advancementCriteria: { method: m as "rank" | "time" } });
+                        }}
+                        className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      >
+                        <option value="none">None</option>
+                        <option value="rank">Top N</option>
+                        <option value="time">ao5 ≤ X</option>
+                      </select>
+                    </label>
+                    {ev.advancementCriteria?.method === "rank" && (
+                      <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                        N
+                        <input
+                          type="number" min={1}
+                          value={ev.advancementCriteria.rankLimit ?? ""}
+                          onChange={(e) => updateEvent(i, { advancementCriteria: { method: "rank", rankLimit: Number(e.target.value) } })}
+                          placeholder="10"
+                          className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        />
+                      </label>
+                    )}
+                    {ev.advancementCriteria?.method === "time" && (
+                      <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                        Limit (s)
+                        <input
+                          type="number" min={1}
+                          value={ev.advancementCriteria.timeLimitMs ? ev.advancementCriteria.timeLimitMs / 1000 : ""}
+                          onChange={(e) => updateEvent(i, { advancementCriteria: { method: "time", timeLimitMs: Number(e.target.value) * 1000 } })}
+                          placeholder="30"
+                          className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
                 {events.length > 1 && (
                   <button
                     onClick={() => removeEvent(i)}
@@ -511,29 +595,16 @@ function ScrambleManager({
                         View
                       </button>
 
-                      {/* Open / Close round */}
-                      {r.status === "open" ? (
+                      {/* Cancel round */}
+                      {r.status !== "cancelled" && r.status !== "advanced" && r.status !== "closed" && (
                         <button
-                          disabled={busy === `close-${r.id}`}
+                          disabled={busy === `cancel-${r.id}`}
                           onClick={() =>
-                            run(`close-${r.id}`, () => closeRound(r.id))
+                            run(`cancel-${r.id}`, () => cancelRound(r.id))
                           }
-                          className="rounded bg-zinc-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-600 disabled:opacity-40"
+                          className="rounded border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30 disabled:opacity-40"
                         >
-                          Close
-                        </button>
-                      ) : (
-                        <button
-                          disabled={!r.scrambleLocked || busy === `open-${r.id}`}
-                          onClick={() =>
-                            run(`open-${r.id}`, () => openRound(r.id))
-                          }
-                          title={
-                            r.scrambleLocked ? "" : "Generate & lock scrambles first"
-                          }
-                          className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
-                        >
-                          Open
+                          {busy === `cancel-${r.id}` ? "Cancelling…" : "Cancel"}
                         </button>
                       )}
                     </div>
