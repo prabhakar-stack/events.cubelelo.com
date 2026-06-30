@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { fetchCompetitions, fetchPublicAnnouncements, type CompetitionSummary, type AnnouncementDto } from "@/lib/api";
+import { fetchCompetitions, fetchPublicAnnouncements, assetUrl, type CompetitionSummary, type AnnouncementDto } from "@/lib/api";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 
 export default function Home() {
@@ -124,38 +124,38 @@ function AnnouncementSlider() {
 
   const current = announcements[idx];
 
-  const content = (
-    <div className="flex items-center justify-between">
-      <button
-        onClick={() => setIdx((i) => (i - 1 + announcements.length) % announcements.length)}
-        className="mr-3 shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-        aria-label="Previous"
-      >
-        <ChevronLeft />
-      </button>
-      <div className="flex flex-1 flex-col items-center gap-2">
-        {current.imageUrl && (
-          <img src={current.imageUrl} alt={current.title} className="max-h-16 rounded object-contain" />
-        )}
-        <p className="text-center text-sm text-zinc-700 dark:text-zinc-300">{current.title}</p>
-      </div>
-      <button
-        onClick={() => setIdx((i) => (i + 1) % announcements.length)}
-        className="ml-3 shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-        aria-label="Next"
-      >
-        <ChevronRight />
-      </button>
+  const inner = (
+    <div className="flex flex-1 flex-col items-center gap-2">
+      {current.imageUrl && (
+        <img src={assetUrl(current.imageUrl)} alt={current.title} className="max-h-16 rounded object-contain" />
+      )}
+      <p className="text-center text-sm text-zinc-700 dark:text-zinc-300">{current.title}</p>
     </div>
   );
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-      {current.redirectUrl ? (
-        <Link href={current.redirectUrl} className="block">{content}</Link>
-      ) : (
-        content
-      )}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setIdx((i) => (i - 1 + announcements.length) % announcements.length)}
+          className="mr-3 shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+          aria-label="Previous"
+        >
+          <ChevronLeft />
+        </button>
+        {current.redirectUrl ? (
+          <Link href={current.redirectUrl} className="flex flex-1 justify-center">{inner}</Link>
+        ) : (
+          inner
+        )}
+        <button
+          onClick={() => setIdx((i) => (i + 1) % announcements.length)}
+          className="ml-3 shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+          aria-label="Next"
+        >
+          <ChevronRight />
+        </button>
+      </div>
       {announcements.length > 1 && (
         <div className="mt-2 flex justify-center gap-1.5">
           {announcements.map((_, i) => (

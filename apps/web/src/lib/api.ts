@@ -2,6 +2,12 @@ import type { Solve } from "@cubers/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+export function assetUrl(path: string | undefined | null): string {
+  if (!path) return "";
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  return `${BASE_URL}${path}`;
+}
+
 // ── Auth token (set by the AuthProvider; attached to every request) ──
 let authToken: string | null = null;
 export function setAuthToken(token: string | null): void {

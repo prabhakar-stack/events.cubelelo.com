@@ -8,6 +8,7 @@ import {
   updateAnnouncement,
   deleteAnnouncement,
   uploadAnnouncementImage,
+  assetUrl,
   fetchAdminContentPages,
   createContentPage,
   updateContentPage,
@@ -281,7 +282,7 @@ function AnnouncementsSection() {
                 <span className="text-xs text-zinc-600">{new Date(a.updatedAt).toLocaleDateString()}</span>
               </div>
               {a.imageUrl && (
-                <img src={a.imageUrl} alt="" className="mb-2 h-12 rounded object-contain" />
+                <img src={assetUrl(a.imageUrl)} alt="" className="mb-2 h-12 rounded object-contain" />
               )}
               <p className="mb-3 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{a.bodyMd}</p>
               <div className="flex flex-wrap gap-2">
