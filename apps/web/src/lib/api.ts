@@ -4,8 +4,8 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export function assetUrl(path: string | undefined | null): string {
   if (!path) return "";
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  return `${BASE_URL}${path}`;
+  const url = path.startsWith("http://") || path.startsWith("https://") ? path : `${BASE_URL}${path}`;
+  return url.replace(/ /g, "%20");
 }
 
 // ── Auth token (set by the AuthProvider; attached to every request) ──
@@ -1085,6 +1085,18 @@ export function updateBanner(
   body: Partial<Pick<BannerDto, "title" | "imageUrl" | "ctaText" | "ctaLink" | "expiresAt" | "active" | "order">>,
 ): Promise<BannerDto> {
   return sendJson("PATCH", `/api/v1/admin/banners/${id}`, body);
+}
+
+export async function uploadBannerImage(id: string, file: File): Promise<BannerDto> {
+  const form = new FormData();
+  form.append("image", file);
+  const res = await fetch(`${BASE_URL}/api/v1/admin/banners/${id}/upload-image`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json();
 }
 
 export async function deleteBanner(id: string): Promise<void> {

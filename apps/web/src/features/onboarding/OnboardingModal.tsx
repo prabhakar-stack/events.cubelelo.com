@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTimer } from "@/features/timer/useTimer";
 import { formatTime } from "@cubers/timer-core";
 
@@ -163,52 +163,69 @@ function InspectionStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
 }
 
 function TimerDemoStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const { snapshot, down, up, reset } = useTimer({ useInspection: false });
+  const { snapshot, down, up, reset } = useTimer({ useInspection: true });
   const [triedTimer, setTriedTimer] = useState(false);
+  const [penalty, setPenalty] = useState<"none" | "plus2" | "dnf">("none");
+  const stoppedRef = useRef(false);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return;
       if (e.code === "Space") {
         e.preventDefault();
-        if (snapshot.phase === "solving") {
-          down();
-        } else {
-          down();
-        }
+        e.stopPropagation();
+        down();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === "Space") {
         e.preventDefault();
+        e.stopPropagation();
         up();
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
     };
-  }, [snapshot.phase, down, up]);
+  }, [down, up]);
 
   useEffect(() => {
-    if (snapshot.phase === "stopped" && snapshot.result) {
+    if (snapshot.phase === "stopped" && !stoppedRef.current) {
+      stoppedRef.current = true;
       setTriedTimer(true);
+      setPenalty("none");
+    } else if (snapshot.phase !== "stopped") {
+      stoppedRef.current = false;
     }
-  }, [snapshot.phase, snapshot.result]);
+  }, [snapshot.phase]);
 
   let timerText = "0.00";
   let timerColor = "text-zinc-400 dark:text-zinc-600";
-  if (snapshot.phase === "ready") {
+  if (snapshot.phase === "inspection") {
+    const secs = snapshot.inspectionRemainingMs != null ? Math.ceil(snapshot.inspectionRemainingMs / 1000) : 15;
+    timerText = String(secs);
+    timerColor = secs <= 0 ? "text-red-500" : secs <= 8 ? "text-amber-500" : "text-blue-500";
+  } else if (snapshot.phase === "ready") {
     timerText = "0.00";
     timerColor = "text-emerald-500";
   } else if (snapshot.phase === "solving") {
     timerText = formatTime(snapshot.timeMs);
     timerColor = "text-zinc-900 dark:text-white";
   } else if (snapshot.phase === "stopped" && snapshot.result) {
-    timerText = formatTime(snapshot.result.time_ms);
-    timerColor = "text-emerald-600 dark:text-emerald-400";
+    const raw = snapshot.result.time_ms;
+    if (penalty === "dnf") {
+      timerText = "DNF";
+      timerColor = "text-red-500";
+    } else if (penalty === "plus2") {
+      timerText = formatTime(raw + 2000) + "+";
+      timerColor = "text-orange-400";
+    } else {
+      timerText = formatTime(raw);
+      timerColor = "text-emerald-600 dark:text-emerald-400";
+    }
   }
 
   return (
@@ -216,7 +233,7 @@ function TimerDemoStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
       <StepIndicator current={2} total={4} />
       <h2 className="mb-2 text-center text-xl font-bold">Try the Timer</h2>
       <p className="mb-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
-        Practice starting and stopping. Hold Space to arm, release to start, press to stop.
+        Press Space to start inspection, hold Space to arm, release to solve, press to stop.
       </p>
 
       <div className="mb-4 flex flex-col items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 py-8 dark:border-zinc-800 dark:bg-zinc-800/40">
@@ -224,16 +241,37 @@ function TimerDemoStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
           {timerText}
         </div>
         <p className="text-xs text-zinc-500">
-          {snapshot.phase === "idle" && "Hold Space to arm"}
+          {snapshot.phase === "idle" && "Press Space to start inspection"}
+          {snapshot.phase === "inspection" && "Inspecting... hold Space to arm"}
           {snapshot.phase === "ready" && "Release to start!"}
           {snapshot.phase === "solving" && "Press Space to stop"}
           {snapshot.phase === "stopped" && "Nice! Press Space again to retry"}
         </p>
       </div>
 
+      {snapshot.phase === "stopped" && snapshot.result && (
+        <div className="mb-3 flex justify-center">
+          <div className="flex overflow-hidden rounded-lg border border-zinc-300 dark:border-zinc-700">
+            {(["none", "plus2", "dnf"] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPenalty(p)}
+                className={`px-4 py-1.5 text-sm font-semibold transition ${
+                  penalty === p
+                    ? "bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900"
+                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {p === "none" ? "OK" : p === "plus2" ? "+2" : "DNF"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {triedTimer && (
         <button
-          onClick={reset}
+          onClick={() => { reset(); setPenalty("none"); }}
           className="mb-2 w-full rounded-lg border border-zinc-300 py-1.5 text-xs text-zinc-500 transition hover:text-zinc-700 dark:border-zinc-700 dark:hover:text-zinc-300"
         >
           Reset timer

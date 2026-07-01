@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getEvent, isEventId, type EventId } from "@cubers/scramble-core";
-import { fetchCompetition, type CompetitionDetail } from "@/lib/api";
+import { fetchCompetition, fetchMyProgress, type CompetitionDetail } from "@/lib/api";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useLobby } from "@/features/realtime/useLobby";
 
@@ -42,6 +42,7 @@ export function CompetitionLobby({
   const [eventType, setEventType] = useState<EventId>(eventId);
   const [comp, setComp] = useState<CompetitionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [alreadySubmitted, setAlreadySubmitted] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -63,6 +64,16 @@ export function CompetitionLobby({
       active = false;
     };
   }, [competitionId, round, eventId]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchMyProgress(competitionId)
+      .then((p) => {
+        const rnd = p.rounds.find((r) => r.roundNumber === Number(round) && r.eventType === eventId);
+        if (rnd && rnd.userStatus === "submitted") setAlreadySubmitted(true);
+      })
+      .catch(() => {});
+  }, [competitionId, round, eventId, user]);
 
   const me = useMemo(
     () =>
@@ -112,7 +123,16 @@ export function CompetitionLobby({
       <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* Left top — Countdown timer */}
         <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/40 p-8">
-          {isOpen ? (
+          {isOpen && alreadySubmitted ? (
+            <div className="text-center">
+              <div className="text-sm uppercase tracking-wider text-emerald-400">
+                Response submitted
+              </div>
+              <div className="mt-4 rounded-lg bg-zinc-700 px-6 py-3 font-semibold text-zinc-400 cursor-default">
+                Response submitted
+              </div>
+            </div>
+          ) : isOpen ? (
             <>
               <div className="text-sm uppercase tracking-wider text-emerald-400">
                 Round is live

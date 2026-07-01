@@ -58,3 +58,9 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* Competition mode — hide nav and footer for full-screen solve terminal */
+body.competition-mode [data-layout="navbar"],
+body.competition-mode [data-layout="footer"] {
+  display: none !important;
+}

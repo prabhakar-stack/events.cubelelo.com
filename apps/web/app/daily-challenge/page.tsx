@@ -36,11 +36,11 @@ export default function DailyChallengePage() {
       setData((prev) =>
         prev
           ? {
-              ...prev,
-              userResult: result,
-              streak,
-              leaderboard: [...prev.leaderboard, result].sort((a, b) => a.timeMs - b.timeMs),
-            }
+            ...prev,
+            userResult: result,
+            streak,
+            leaderboard: [...prev.leaderboard, result].sort((a, b) => a.timeMs - b.timeMs),
+          }
           : prev,
       );
       reset();
@@ -223,7 +223,7 @@ function TimerDisplay({ snapshot }: { snapshot: ReturnType<typeof useTimer>["sna
 
 function instruction(phase: string): string {
   switch (phase) {
-    case "idle": return "Hold Space to begin inspection";
+    case "idle": return "click space to begin inspection";
     case "inspection": return "Hold Space to arm — release to start";
     case "ready": return "Release to start solving";
     case "solving": return "Press any key to stop";

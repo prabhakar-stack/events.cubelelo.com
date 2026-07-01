@@ -198,6 +198,7 @@ function SelectedRoundView({
   const canEnter =
     liveStatus === "open" &&
     userStatus?.registered &&
+    userRound?.userStatus !== "submitted" &&
     (round.roundNumber === 1 ||
       userRound?.userStatus === "active" ||
       userRound?.userStatus === "upcoming");
@@ -257,6 +258,7 @@ function SelectedRoundView({
         liveStatus={liveStatus}
         canEnter={!!canEnter}
         isLocked={!!isLocked}
+        isSubmitted={userRound?.userStatus === "submitted"}
         userRegistered={!!userStatus?.registered}
         competitionId={competitionId}
         eventType={eventType}
@@ -349,6 +351,7 @@ function RoundActions({
   liveStatus,
   canEnter,
   isLocked,
+  isSubmitted,
   userRegistered,
   competitionId,
   eventType,
@@ -359,6 +362,7 @@ function RoundActions({
   liveStatus: string;
   canEnter: boolean;
   isLocked: boolean;
+  isSubmitted: boolean;
   userRegistered: boolean;
   competitionId: string;
   eventType: string;
@@ -405,7 +409,11 @@ function RoundActions({
       {/* Enter Round button */}
       <div className="ml-auto">
         {liveStatus === "open" && userRegistered && (
-          canEnter ? (
+          isSubmitted ? (
+            <span className="rounded-lg bg-zinc-200 px-5 py-2 text-sm font-semibold text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
+              Response Submitted
+            </span>
+          ) : canEnter ? (
             <Link
               href={`/competitions/${competitionId}/round/${round.roundNumber}?eventId=${eventType}`}
               className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"

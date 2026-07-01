@@ -1282,6 +1282,37 @@ export async function registerAdminRoutes(
     },
   );
 
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/banners/:id/upload-image",
+    adminOnly,
+    async (req, reply) => {
+      const banner = await repo.banners.findById(req.params.id);
+      if (!banner) return reply.code(404).send({ error: "banner_not_found" });
+
+      const data = await req.file();
+      if (!data) return reply.code(400).send({ error: "no_file" });
+
+      const ext = data.filename.split(".").pop()?.toLowerCase() ?? "png";
+      if (!["jpg", "jpeg", "png", "gif", "webp"].includes(ext))
+        return reply.code(400).send({ error: "invalid_file_type" });
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of data.file) chunks.push(chunk as Buffer);
+      const buffer = Buffer.concat(chunks);
+
+      if (buffer.length > 5 * 1024 * 1024)
+        return reply.code(400).send({ error: "file_too_large_max_5mb" });
+
+      const { getStorage } = await import("../../lib/storage");
+      const filename = `banners/${banner.id}_${randomUUID().slice(0, 8)}.${ext}`;
+      const storage = getStorage();
+      const imageUrl = await storage.upload(filename, buffer, `image/${ext === "jpg" ? "jpeg" : ext}`);
+
+      const updated = await repo.banners.update(banner.id, { imageUrl });
+      return updated;
+    },
+  );
+
   // Public: active banners
   app.get("/api/v1/banners", async () => {
     const all = await repo.banners.findAll();

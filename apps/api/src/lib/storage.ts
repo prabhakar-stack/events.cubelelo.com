@@ -7,36 +7,36 @@ export interface StorageService {
   upload(filename: string, data: Buffer, contentType: string): Promise<string>;
 }
 
-async function createR2Storage(): Promise<StorageService> {
-  const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
-
-  const client = new S3Client({
-    region: "auto",
-    endpoint: `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: env.R2_ACCESS_KEY_ID,
-      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    },
-  });
+function createSupabaseStorage(): StorageService {
+  const supabaseUrl = env.SUPABASE_STORAGE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const bucket = env.SUPABASE_STORAGE_BUCKET;
 
   return {
     async upload(filename, data, contentType) {
       const ext = extname(filename) || ".bin";
       const key = `uploads/${randomUUID()}${ext}`;
 
-      await client.send(
-        new PutObjectCommand({
-          Bucket: env.R2_BUCKET,
-          Key: key,
-          Body: data,
-          ContentType: contentType,
-        }),
+      const encodedBucket = encodeURIComponent(bucket);
+      const res = await fetch(
+        `${supabaseUrl}/storage/v1/object/${encodedBucket}/${key}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": contentType,
+            "x-upsert": "true",
+          },
+          body: data,
+        },
       );
 
-      if (env.R2_PUBLIC_URL) {
-        return `${env.R2_PUBLIC_URL.replace(/\/$/, "")}/${key}`;
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Supabase storage upload failed (${res.status}): ${body}`);
       }
-      return `/${key}`;
+
+      return `${supabaseUrl}/storage/v1/object/public/${encodedBucket}/${key}`;
     },
   };
 }
@@ -60,21 +60,13 @@ let storageInstance: StorageService | null = null;
 export function getStorage(): StorageService {
   if (storageInstance) return storageInstance;
 
-  if (env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_BUCKET) {
-    console.log("☁️  Using Cloudflare R2 storage");
-    // Lazy init — the async import happens on first upload
-    const placeholder: StorageService = {
-      async upload(filename, data, contentType) {
-        const r2 = await createR2Storage();
-        storageInstance = r2;
-        return r2.upload(filename, data, contentType);
-      },
-    };
-    storageInstance = placeholder;
-    return placeholder;
+  if (env.SUPABASE_STORAGE_URL && env.SUPABASE_SERVICE_KEY && env.SUPABASE_STORAGE_BUCKET) {
+    console.log("☁️  Using Supabase storage");
+    storageInstance = createSupabaseStorage();
+    return storageInstance;
   }
 
-  console.log("📁 Using local file storage (no R2 configured)");
+  console.log("📁 Using local file storage (no Supabase storage configured)");
   storageInstance = createLocalStorage();
   return storageInstance;
 }

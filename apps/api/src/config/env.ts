@@ -29,9 +29,7 @@ export const env = {
   RESEND_API_KEY: process.env.RESEND_API_KEY ?? "",
   EMAIL_FROM: process.env.EMAIL_FROM ?? "Cubelelo Events <noreply@cubelelo.com>",
   APP_URL: process.env.APP_URL ?? "http://localhost:3000",
-  R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID ?? "",
-  R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID ?? "",
-  R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? "",
-  R2_BUCKET: process.env.R2_BUCKET ?? "",
-  R2_PUBLIC_URL: process.env.R2_PUBLIC_URL ?? "",
+  SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY ?? "",
+  SUPABASE_STORAGE_URL: process.env.SUPABASE_STORAGE_URL || process.env.SUPABASE_URL || "",
+  SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET ?? "images",
 };

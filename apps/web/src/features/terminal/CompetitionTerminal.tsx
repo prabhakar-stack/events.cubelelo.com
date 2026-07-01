@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getEvent, isEventId, type EventId } from "@cubers/scramble-core";
 import { ao5, effectiveTime, formatSolve, formatTime } from "@cubers/timer-core";
 import type { Solve, SolvePenalty } from "@cubers/types";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTimer } from "@/features/timer/useTimer";
 import { TwistyPlayer } from "@/features/scramble/TwistyPlayer";
 import { useLeaderboard } from "@/features/realtime/useLeaderboard";
 import { useAuth } from "@/features/auth/AuthProvider";
 import {
   fetchCompetition,
+  fetchMyProgress,
   fetchScramble,
   submitResult,
   type ResultDto,
@@ -42,9 +44,11 @@ export function CompetitionTerminal({
   const [pendingPenalty, setPendingPenalty] = useState<SolvePenalty>("none");
   const [scrambleStep, setScrambleStep] = useState(0);
 
+  const router = useRouter();
   const { user } = useAuth();
   const userId = user?.clId ?? "guest";
   const [videoUrl, setVideoUrl] = useState("");
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [submit, setSubmit] = useState<
     | { kind: "idle" }
     | { kind: "submitting" }
@@ -62,6 +66,18 @@ export function CompetitionTerminal({
         const rnd =
           ev?.rounds.find((r) => r.roundNumber === Number(round)) ?? ev?.rounds[0];
         if (!ev || !rnd) throw new Error("Round not found");
+
+        try {
+          const progress = await fetchMyProgress(competitionId);
+          const myRound = progress.rounds.find(
+            (r) => r.roundNumber === Number(round) && r.eventType === eventId,
+          );
+          if (myRound?.userStatus === "submitted") {
+            router.push(`/competitions/${competitionId}`);
+            return;
+          }
+        } catch {}
+
         const sc = await fetchScramble(rnd.id);
         if (!active) return;
         setLoad({
@@ -88,11 +104,15 @@ export function CompetitionTerminal({
 
   const [cutoffFailed, setCutoffFailed] = useState(false);
   const [timeLimitHit, setTimeLimitHit] = useState(false);
+  const stoppedRef = useRef(false);
 
   useEffect(() => {
-    if (snapshot.phase === "stopped" && snapshot.result) {
-      setPendingPenalty(snapshot.result.penalty);
+    if (snapshot.phase === "stopped" && !stoppedRef.current) {
+      stoppedRef.current = true;
+      setPendingPenalty(snapshot.result?.penalty ?? "none");
       setTimeLimitHit(false);
+    } else if (snapshot.phase !== "stopped") {
+      stoppedRef.current = false;
     }
   }, [snapshot.phase, snapshot.result]);
 
@@ -110,12 +130,12 @@ export function CompetitionTerminal({
     }
   }, [snapshot.phase, snapshot.timeMs, load, timeLimitHit, down]);
 
-  // Auto-set DNF penalty when time limit is hit
+  // Auto-set DNF penalty when time limit is hit (runs once via stoppedRef gate)
   useEffect(() => {
-    if (timeLimitHit && snapshot.phase === "stopped" && snapshot.result) {
+    if (timeLimitHit && snapshot.phase === "stopped" && stoppedRef.current) {
       setPendingPenalty("dnf");
     }
-  }, [timeLimitHit, snapshot.phase, snapshot.result]);
+  }, [timeLimitHit, snapshot.phase]);
 
   const roundComplete = cutoffFailed || solves.length >= SOLVES_PER_ROUND;
 
@@ -205,6 +225,13 @@ export function CompetitionTerminal({
     }
   }, [load, solves, videoUrl]);
 
+  // Auto-redirect to competition page after successful submission
+  useEffect(() => {
+    if (submit.kind === "done") {
+      router.push(`/competitions/${competitionId}`);
+    }
+  }, [submit.kind, router, competitionId]);
+
   const onPointerDown = useCallback(() => {
     if (snapshot.phase === "stopped" || roundComplete) return;
     down();
@@ -242,13 +269,19 @@ export function CompetitionTerminal({
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 select-none">
-      {/* ── Locked header ── */}
-      <header className="pointer-events-none flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-6 py-3 text-sm">
-        <div className="flex items-center gap-4">
-          <span className="rounded bg-zinc-800 px-2 py-1 font-mono text-xs uppercase tracking-wide text-zinc-400">
-            {competitionId}
-          </span>
+    <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 select-none">
+      {/* ── Header ── */}
+      <header className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-4 py-2 text-sm">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowExitConfirm(true)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
+            title="Leave competition"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
           <span className="font-semibold">{event.name}</span>
           <span className="text-zinc-500">Round {round}</span>
         </div>
@@ -269,6 +302,37 @@ export function CompetitionTerminal({
           </span>
         </div>
       </header>
+
+      {/* ── Exit confirmation dialog ── */}
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="mx-4 w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-900/30">
+              <svg className="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="mb-2 text-lg font-bold text-white">Leave Competition?</h3>
+            <p className="mb-6 text-sm text-zinc-400">
+              Your progress in this round will be lost. Any unsubmitted solves will not be saved.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowExitConfirm(false)}
+                className="flex-1 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Stay
+              </button>
+              <button
+                onClick={() => router.push(`/competitions/${competitionId}`)}
+                className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500"
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {roundComplete ? (
         <RoundComplete
@@ -298,13 +362,10 @@ export function CompetitionTerminal({
           {/* ══════ TOP: info panel ══════ */}
           <div className="flex-shrink-0">
             {/* Scramble text — locked, no select/copy */}
-            <div className="flex items-start gap-3 border-b border-zinc-800 px-6 py-4">
+            <div className="flex items-start gap-2 border-b border-zinc-800 px-4 py-3">
               <div className="min-w-0 flex-1">
-                <div className="text-[11px] uppercase tracking-wider text-zinc-500">
-                  Scramble
-                </div>
                 <div
-                  className="mt-1 font-mono text-lg leading-relaxed text-zinc-200"
+                  className="font-mono text-sm leading-relaxed text-zinc-200"
                   style={{ userSelect: "none", WebkitUserSelect: "none" }}
                   onCopy={(e) => e.preventDefault()}
                   onCut={(e) => e.preventDefault()}
@@ -325,18 +386,18 @@ export function CompetitionTerminal({
                 </div>
               </div>
               {/* Prev / Next step controls */}
-              <div className="flex flex-col gap-1 pt-5">
+              <div className="flex gap-1">
                 <button
                   onClick={() => setScrambleStep((s) => Math.max(0, s - 1))}
                   disabled={scrambleStep <= 0}
-                  className="rounded border border-zinc-700 px-4 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-30"
+                  className="rounded border border-zinc-700 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-30"
                 >
                   prev
                 </button>
                 <button
                   onClick={() => setScrambleStep((s) => Math.min(totalSteps, s + 1))}
                   disabled={scrambleStep >= totalSteps}
-                  className="rounded border border-zinc-700 px-4 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-30"
+                  className="rounded border border-zinc-700 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-30"
                 >
                   next
                 </button>
@@ -344,23 +405,23 @@ export function CompetitionTerminal({
             </div>
 
             {/* 2D visualizer + solve status grid */}
-            <div className="grid grid-cols-1 gap-6 px-6 pb-4 pt-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 px-4 pb-2 pt-2 md:grid-cols-2">
               {/* 2D scramble visualizer — shows state at current step */}
-              <div className="flex items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="flex items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/40 p-2">
                 <TwistyPlayer
                   puzzle={event.puzzle}
                   scramble={visibleScrambleAlg}
-                  className="h-64 w-full"
+                  className="h-48 w-full"
                 />
               </div>
 
               {/* Solve status for this round */}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
                 {/* Progress bar — scoped to solves panel */}
-                <div className="mb-3">
+                <div className="mb-2">
                   <ProgressBar current={solves.length} total={SOLVES_PER_ROUND} />
                 </div>
-                <div className="mb-3 flex items-center justify-between text-sm">
+                <div className="mb-2 flex items-center justify-between text-sm">
                   <span className="text-zinc-400">This round</span>
                   <span className="text-zinc-400">
                     ao5:{" "}
@@ -373,9 +434,8 @@ export function CompetitionTerminal({
                   {Array.from({ length: SOLVES_PER_ROUND }).map((_, i) => (
                     <li
                       key={i}
-                      className={`flex justify-between rounded px-2 py-1 ${
-                        i === index ? "bg-zinc-800/60" : ""
-                      }`}
+                      className={`flex justify-between rounded px-2 py-1 ${i === index ? "bg-zinc-800/60" : ""
+                        }`}
                     >
                       <span className="text-zinc-500">Solve {i + 1}</span>
                       <span className={solves[i] ? "text-zinc-100" : "text-zinc-700"}>
@@ -393,14 +453,14 @@ export function CompetitionTerminal({
 
           {/* ══════ BOTTOM: timer area ══════ */}
           <div
-            className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-10"
+            className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-4"
             onPointerDown={onPointerDown}
             onPointerUp={onPointerUp}
           >
             <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} />
             {snapshot.phase === "stopped" ? (
               <div className="flex items-center gap-3">
-                <PenaltyButtons value={pendingPenalty} onChange={setPendingPenalty} />
+                <PenaltyButtons value={pendingPenalty} />
                 <button
                   onClick={confirmSolve}
                   className="rounded-lg bg-emerald-600 px-5 py-2 font-semibold text-white transition hover:bg-emerald-500"
@@ -442,7 +502,7 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
 function instruction(phase: string): string {
   switch (phase) {
     case "idle":
-      return "Hold Space to begin inspection";
+      return "click space to begin inspection";
     case "inspection":
       return "Hold Space to arm — release to start";
     case "ready":
@@ -477,10 +537,10 @@ function RoundComplete({
   finalAo5: number | null;
   solves: Solve[];
   submit:
-    | { kind: "idle" }
-    | { kind: "submitting" }
-    | { kind: "done"; rank: number | null }
-    | { kind: "error"; message: string };
+  | { kind: "idle" }
+  | { kind: "submitting" }
+  | { kind: "done"; rank: number | null }
+  | { kind: "error"; message: string };
   videoUrl: string;
   setVideoUrl: (v: string) => void;
   onSubmit: () => void;
@@ -516,10 +576,7 @@ function RoundComplete({
 
       {submit.kind === "done" ? (
         <div className="text-center text-sm text-zinc-400">
-          Submitted · your rank{" "}
-          <span className="font-mono font-bold text-emerald-400">
-            #{submit.rank ?? "—"}
-          </span>
+          Submitted! Redirecting…
         </div>
       ) : !signedIn ? (
         <Link
@@ -581,9 +638,8 @@ function LeaderboardCard({
           {board.map((r) => (
             <li
               key={r.id}
-              className={`flex justify-between rounded px-2 py-1 ${
-                r.userId === userId ? "bg-emerald-900/30" : ""
-              }`}
+              className={`flex justify-between rounded px-2 py-1 ${r.userId === userId ? "bg-emerald-900/30" : ""
+                }`}
             >
               <span className="text-zinc-400">
                 #{r.rank} {r.userId === userId ? "(you)" : r.userId.slice(0, 8)}
@@ -642,10 +698,8 @@ function TimerDisplay({
 
 function PenaltyButtons({
   value,
-  onChange,
 }: {
   value: SolvePenalty;
-  onChange: (p: SolvePenalty) => void;
 }) {
   const opts: { key: SolvePenalty; label: string }[] = [
     { key: "none", label: "OK" },
@@ -655,17 +709,15 @@ function PenaltyButtons({
   return (
     <div className="flex overflow-hidden rounded-lg border border-zinc-700">
       {opts.map((o) => (
-        <button
+        <div
           key={o.key}
-          onClick={() => onChange(o.key)}
-          className={`px-4 py-2 text-sm font-semibold transition ${
-            value === o.key
+          className={`px-4 py-2 text-sm font-semibold ${value === o.key
               ? "bg-zinc-200 text-zinc-900"
-              : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-          }`}
+              : "bg-zinc-900 text-zinc-300"
+            }`}
         >
           {o.label}
-        </button>
+        </div>
       ))}
     </div>
   );

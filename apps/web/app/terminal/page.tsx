@@ -45,7 +45,7 @@ function saveSession(eventId: EventId, solves: ExtendedSolve[]) {
     const sessions: Record<string, ExtendedSolve[]> = raw ? JSON.parse(raw) : {};
     sessions[eventId] = solves;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  } catch {}
+  } catch { }
 }
 
 function loadTargetTime(eventId: EventId): number | null {
@@ -66,7 +66,7 @@ function saveTargetTime(eventId: EventId, ms: number | null) {
     if (ms === null) delete targets[eventId];
     else targets[eventId] = ms;
     localStorage.setItem(TARGET_KEY, JSON.stringify(targets));
-  } catch {}
+  } catch { }
 }
 
 export default function PracticeTerminalPage() {
@@ -458,11 +458,10 @@ export default function PracticeTerminalPage() {
 
 function StatCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className={`rounded-lg border px-3 py-2 text-center ${
-      highlight
+    <div className={`rounded-lg border px-3 py-2 text-center ${highlight
         ? "border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20"
         : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40"
-    }`}>
+      }`}>
       <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
       <div className={`font-mono text-lg font-bold ${highlight ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
         {value}
@@ -530,11 +529,10 @@ function PenaltyButtons({
         <button
           key={o.key}
           onClick={() => onChange(o.key)}
-          className={`px-4 py-2 text-sm font-semibold transition ${
-            value === o.key
+          className={`px-4 py-2 text-sm font-semibold transition ${value === o.key
               ? "bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900"
               : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          }`}
+            }`}
         >
           {o.label}
         </button>
@@ -546,7 +544,7 @@ function PenaltyButtons({
 function instruction(phase: string): string {
   switch (phase) {
     case "idle":
-      return "Hold Space to begin inspection";
+      return "click space to begin inspection";
     case "inspection":
       return "Hold Space to arm — release to start";
     case "ready":

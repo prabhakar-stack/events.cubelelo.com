@@ -63,7 +63,7 @@ export function NavBar() {
   }, []);
 
   return (
-    <nav className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <nav data-layout="navbar" className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
       {/* Left — logo + nav links */}
       <div className="flex items-center gap-5">
         <Link href="/" className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100">

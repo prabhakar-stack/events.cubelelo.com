@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   fetchAdminBanners,
   createBanner,
   updateBanner,
   deleteBanner,
+  uploadBannerImage,
   type BannerDto,
 } from "@/lib/api";
 
@@ -26,7 +27,7 @@ const TABS = [
   { label: "Staff", href: "/admin/staff" },
 ];
 
-const EMPTY = { title: "", imageUrl: "", ctaText: "", ctaLink: "", expiresAt: "", active: true, order: 0 };
+const EMPTY = { title: "", ctaText: "", ctaLink: "", expiresAt: "", active: true, order: 0 };
 
 export default function AdminContentPage() {
   const [list, setList] = useState<BannerDto[]>([]);
@@ -36,6 +37,8 @@ export default function AdminContentPage() {
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     fetchAdminBanners()
@@ -46,11 +49,10 @@ export default function AdminContentPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openCreate = () => { setForm(EMPTY); setEditing(null); setCreating(true); };
+  const openCreate = () => { setForm(EMPTY); setEditing(null); setCreating(true); setImageFile(null); };
   const openEdit = (b: BannerDto) => {
     setForm({
       title: b.title,
-      imageUrl: b.imageUrl ?? "",
       ctaText: b.ctaText ?? "",
       ctaLink: b.ctaLink ?? "",
       expiresAt: b.expiresAt ?? "",
@@ -59,8 +61,9 @@ export default function AdminContentPage() {
     });
     setEditing(b);
     setCreating(false);
+    setImageFile(null);
   };
-  const closeForm = () => { setCreating(false); setEditing(null); setError(null); };
+  const closeForm = () => { setCreating(false); setEditing(null); setError(null); setImageFile(null); };
 
   const save = async () => {
     if (!form.title.trim()) { setError("Title is required."); return; }
@@ -69,17 +72,22 @@ export default function AdminContentPage() {
     try {
       const payload = {
         title: form.title,
-        imageUrl: form.imageUrl || undefined,
         ctaText: form.ctaText || undefined,
         ctaLink: form.ctaLink || undefined,
         expiresAt: form.expiresAt || undefined,
         active: form.active,
         order: form.order,
       };
+      let bannerId: string;
       if (editing) {
         await updateBanner(editing.id, payload);
+        bannerId = editing.id;
       } else {
-        await createBanner(payload);
+        const created = await createBanner(payload);
+        bannerId = created.id;
+      }
+      if (imageFile) {
+        await uploadBannerImage(bannerId, imageFile);
       }
       closeForm();
       load();
@@ -147,11 +155,19 @@ export default function AdminContentPage() {
                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Image URL</label>
-              <input value={form.imageUrl}
-                onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-                placeholder="https://example.com/hero.jpg"
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
+              <label className="mb-1 block text-xs text-zinc-500">Banner Image</label>
+              {editing?.imageUrl && !imageFile && (
+                <div className="mb-2">
+                  <img src={editing.imageUrl} alt="Current banner" className="h-20 rounded-lg object-cover" />
+                  <p className="mt-1 text-xs text-zinc-500">Current image — upload a new one to replace</p>
+                </div>
+              )}
+              {imageFile && (
+                <p className="mb-2 text-xs text-emerald-500">Selected: {imageFile.name}</p>
+              )}
+              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 file:mr-3 file:rounded file:border-0 file:bg-emerald-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
