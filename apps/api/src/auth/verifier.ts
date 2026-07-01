@@ -40,28 +40,19 @@ export function createVerifier(): Verifier {
   if (env.authMode === "supabase") {
     const jwks = createRemoteJWKSet(new URL(env.SUPABASE_JWKS_URL));
 
-    if (isDev) {
-      // In development with Supabase configured: try HS256 dev token first,
-      // then fall back to Supabase RS256 so both paths work simultaneously.
-      return {
-        mode: "supabase",
-        async verify(token) {
-          try {
-            const { payload } = await jwtVerify(token, devSecret);
-            return toClaims(payload);
-          } catch {
-            const { payload } = await jwtVerify(token, jwks);
-            return toClaims(payload);
-          }
-        },
-      };
-    }
-
+    // Accept both HS256 tokens (email/password auth) and RS256 Supabase tokens
+    // (Google OAuth). Try HS256 first since it's a local check (faster); fall
+    // back to the remote JWKS verification for Supabase tokens.
     return {
       mode: "supabase",
       async verify(token) {
-        const { payload } = await jwtVerify(token, jwks);
-        return toClaims(payload);
+        try {
+          const { payload } = await jwtVerify(token, devSecret);
+          return toClaims(payload);
+        } catch {
+          const { payload } = await jwtVerify(token, jwks);
+          return toClaims(payload);
+        }
       },
     };
   }
