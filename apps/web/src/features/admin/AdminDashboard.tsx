@@ -113,6 +113,11 @@ export function AdminDashboard() {
    Section 1 — Competition Creation
    ════════════════════════════════════════════════════════════════════════════ */
 
+interface RoundSchedule {
+  startTime?: string;
+  durationMinutes?: number;
+}
+
 interface EventSpec {
   eventType: string;
   roundCount: number;
@@ -120,6 +125,7 @@ interface EventSpec {
   timeLimitMs?: number;
   durationMinutes?: number;
   roundCriteria?: (AdvancementCriteria | undefined)[];
+  roundSchedule?: (RoundSchedule | undefined)[];
 }
 
 function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
@@ -165,7 +171,12 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
         registrationDeadline: toISO(registrationDeadline),
         startsAt: toISO(startsAt),
         endsAt: toISO(endsAt),
-        events,
+        events: events.map((ev) => ({
+          ...ev,
+          roundSchedule: ev.roundSchedule?.map((rs) =>
+            rs ? { ...rs, startTime: rs.startTime ? new Date(rs.startTime).toISOString() : undefined } : undefined,
+          ),
+        })),
       };
       const { id } = await createCompetition(body);
       if (status !== "draft") {
@@ -367,80 +378,97 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
                     className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                   />
                 </label>
-                <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                  Duration (min)
-                  <input
-                    type="number"
-                    min={1}
-                    value={ev.durationMinutes ?? ""}
-                    onChange={(e) =>
-                      updateEvent(i, { durationMinutes: e.target.value ? Number(e.target.value) : undefined })
-                    }
-                    placeholder="—"
-                    className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                  />
-                </label>
-                {ev.roundCount > 1 && (
-                  <div className="mt-2 w-full space-y-2 border-t border-zinc-200 pt-2 dark:border-zinc-800">
-                    {Array.from({ length: ev.roundCount }, (_, ri) => {
-                      const isLast = ri === ev.roundCount - 1;
-                      const criteria = ev.roundCriteria?.[ri];
-                      const updateRoundCriteria = (c: AdvancementCriteria | undefined) => {
-                        const arr = [...(ev.roundCriteria ?? new Array(ev.roundCount).fill(undefined))];
-                        while (arr.length < ev.roundCount) arr.push(undefined);
-                        arr[ri] = c;
-                        updateEvent(i, { roundCriteria: arr });
-                      };
-                      return (
-                        <div key={ri} className="flex flex-wrap items-center gap-2">
+                <div className="mt-2 w-full space-y-2 border-t border-zinc-200 pt-2 dark:border-zinc-800">
+                  {Array.from({ length: ev.roundCount }, (_, ri) => {
+                    const isLast = ri === ev.roundCount - 1;
+                    const criteria = ev.roundCriteria?.[ri];
+                    const schedule = ev.roundSchedule?.[ri];
+                    const updateRoundCriteria = (c: AdvancementCriteria | undefined) => {
+                      const arr = [...(ev.roundCriteria ?? new Array(ev.roundCount).fill(undefined))];
+                      while (arr.length < ev.roundCount) arr.push(undefined);
+                      arr[ri] = c;
+                      updateEvent(i, { roundCriteria: arr });
+                    };
+                    const updateRoundSchedule = (patch: Partial<RoundSchedule>) => {
+                      const arr = [...(ev.roundSchedule ?? new Array(ev.roundCount).fill(undefined))];
+                      while (arr.length < ev.roundCount) arr.push(undefined);
+                      arr[ri] = { ...(arr[ri] ?? {}), ...patch };
+                      updateEvent(i, { roundSchedule: arr });
+                    };
+                    return (
+                      <div key={ri} className="rounded-lg border border-zinc-100 bg-zinc-50/50 px-3 py-2 dark:border-zinc-800/60 dark:bg-zinc-900/30">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs font-medium text-zinc-400 w-20">
                             Round {ri + 1}{isLast ? " (Final)" : ""}
                           </span>
                           <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                            {isLast ? "Top Finishers" : "Shortlist"}
-                            <select
-                              value={criteria?.method ?? "none"}
-                              onChange={(e) => {
-                                const m = e.target.value;
-                                if (m === "none") updateRoundCriteria(undefined);
-                                else updateRoundCriteria({ method: m as "rank" | "time" });
-                              }}
+                            Start
+                            <input
+                              type="datetime-local"
+                              value={schedule?.startTime ?? ""}
+                              onChange={(e) => updateRoundSchedule({ startTime: e.target.value || undefined })}
                               className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                            >
-                              <option value="none">None</option>
-                              <option value="rank">Top N</option>
-                              <option value="time">ao5 ≤ X</option>
-                            </select>
+                            />
                           </label>
-                          {criteria?.method === "rank" && (
-                            <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                              N
-                              <input
-                                type="number" min={1}
-                                value={criteria.rankLimit ?? ""}
-                                onChange={(e) => updateRoundCriteria({ method: "rank", rankLimit: Number(e.target.value) })}
-                                placeholder="10"
-                                className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                              />
-                            </label>
-                          )}
-                          {criteria?.method === "time" && (
-                            <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                              Limit (s)
-                              <input
-                                type="number" min={1}
-                                value={criteria.timeLimitMs ? criteria.timeLimitMs / 1000 : ""}
-                                onChange={(e) => updateRoundCriteria({ method: "time", timeLimitMs: Number(e.target.value) * 1000 })}
-                                placeholder="30"
-                                className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                              />
-                            </label>
+                          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                            Duration (min)
+                            <input
+                              type="number" min={1}
+                              value={schedule?.durationMinutes ?? ""}
+                              onChange={(e) => updateRoundSchedule({ durationMinutes: e.target.value ? Number(e.target.value) : undefined })}
+                              placeholder="—"
+                              className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                            />
+                          </label>
+                          {ev.roundCount > 1 && (
+                            <>
+                              <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                                {isLast ? "Top Finishers" : "Shortlist"}
+                                <select
+                                  value={criteria?.method ?? "none"}
+                                  onChange={(e) => {
+                                    const m = e.target.value;
+                                    if (m === "none") updateRoundCriteria(undefined);
+                                    else updateRoundCriteria({ method: m as "rank" | "time" });
+                                  }}
+                                  className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                                >
+                                  <option value="none">None</option>
+                                  <option value="rank">Top N</option>
+                                  <option value="time">ao5 ≤ X</option>
+                                </select>
+                              </label>
+                              {criteria?.method === "rank" && (
+                                <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                                  N
+                                  <input
+                                    type="number" min={1}
+                                    value={criteria.rankLimit ?? ""}
+                                    onChange={(e) => updateRoundCriteria({ method: "rank", rankLimit: Number(e.target.value) })}
+                                    placeholder="10"
+                                    className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                                  />
+                                </label>
+                              )}
+                              {criteria?.method === "time" && (
+                                <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                                  Limit (s)
+                                  <input
+                                    type="number" min={1}
+                                    value={criteria.timeLimitMs ? criteria.timeLimitMs / 1000 : ""}
+                                    onChange={(e) => updateRoundCriteria({ method: "time", timeLimitMs: Number(e.target.value) * 1000 })}
+                                    placeholder="30"
+                                    className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                                  />
+                                </label>
+                              )}
+                            </>
                           )}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                      </div>
+                    );
+                  })}
+                </div>
                 {events.length > 1 && (
                   <button
                     onClick={() => removeEvent(i)}

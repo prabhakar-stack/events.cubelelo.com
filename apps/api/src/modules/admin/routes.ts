@@ -53,6 +53,7 @@ export async function registerAdminRoutes(
         advancementCount?: number;
         advancementCriteria?: { method: string; rankLimit?: number; timeLimitMs?: number };
         roundCriteria?: Array<{ method: string; rankLimit?: number; timeLimitMs?: number } | null>;
+        roundSchedule?: Array<{ startTime?: string; durationMinutes?: number } | null>;
         durationMinutes?: number;
       }>;
     };
@@ -113,6 +114,14 @@ export async function registerAdminRoutes(
         const rc = spec.roundCriteria?.[i - 1];
         const fallback = i < rounds && spec.advancementCriteria ? spec.advancementCriteria : undefined;
         const criteria = rc ?? fallback;
+        const rs = spec.roundSchedule?.[i - 1];
+        const roundDuration = rs?.durationMinutes ?? spec.durationMinutes;
+        const opensAt = rs?.startTime;
+        let closesAt: string | undefined;
+        if (opensAt && roundDuration) {
+          const close = new Date(new Date(opensAt).getTime() + roundDuration * 60_000);
+          closesAt = close.toISOString();
+        }
         const round: Round = {
           id: randomUUID(),
           competitionEventId: event.id,
@@ -124,7 +133,9 @@ export async function registerAdminRoutes(
                 rankLimit: criteria.rankLimit,
                 timeLimitMs: criteria.timeLimitMs }
             : undefined,
-          durationMinutes: spec.durationMinutes,
+          opensAt,
+          closesAt,
+          durationMinutes: roundDuration,
         };
         await repo.rounds.create(round);
       }

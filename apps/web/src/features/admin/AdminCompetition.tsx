@@ -59,7 +59,9 @@ function AdminSubNav() {
 
 function toLocal(iso?: string | null): string {
   if (!iso) return "";
-  return iso.slice(0, 16); // "2026-07-01T09:00:00Z" → "2026-07-01T09:00"
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function toISO(val: string): string | null {
   return val ? new Date(val).toISOString() : null;

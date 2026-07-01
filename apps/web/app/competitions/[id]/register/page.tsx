@@ -11,15 +11,18 @@ import {
   type CompetitionDetail,
 } from "@/lib/api";
 import { RouteGuard } from "@/features/auth/RouteGuard";
+import { useAuth } from "@/features/auth/AuthProvider";
 
 function RegisterContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const [comp, setComp] = useState<CompetitionDetail | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [showVerifyPopup, setShowVerifyPopup] = useState(false);
   const [promoInput, setPromoInput] = useState("");
   const [promoApplied, setPromoApplied] = useState<{
     code: string;
@@ -80,6 +83,10 @@ function RegisterContent() {
 
   const handleRegister = async () => {
     if (selected.size === 0) return;
+    if (user && !user.emailVerified) {
+      setShowVerifyPopup(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -245,6 +252,39 @@ function RegisterContent() {
             ? "Register (Free)"
             : `Pay ₹${(totalFee / 100).toFixed(0)}`}
       </button>
+
+      {/* Email verification popup */}
+      {showVerifyPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="mx-4 w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+              <svg className="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="mb-2 text-lg font-bold text-zinc-900 dark:text-white">
+              Email Not Verified
+            </h3>
+            <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+              You need to verify your email before you can register for competitions. Go to Settings to verify with Google.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowVerifyPopup(false)}
+                className="flex-1 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => router.push("/settings")}
+                className="flex-1 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-500"
+              >
+                Go to Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

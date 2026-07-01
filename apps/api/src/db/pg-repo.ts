@@ -50,6 +50,7 @@ function toUser(r: Row): User {
     instagram: (r.instagram as string) ?? undefined,
     wcaId: (r.wca_id as string) ?? undefined,
     wcaVerified: r.wca_verified as boolean,
+    passwordHash: (r.password_hash as string) ?? undefined,
     emailVerified: (r.email_verified as boolean) ?? false,
     profilePrivacy: (r.profile_privacy as User["profilePrivacy"]) ?? "public",
     role: r.role as User["role"],
@@ -222,14 +223,16 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           `INSERT INTO users
              (id, cl_id, email, name, last_name, gender, dob, mobile_no, city, state,
               country, avatar_url, instagram, wca_id, wca_verified, role, account_stage,
+              email_verified, password_hash,
               created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$20)`,
           [
             user.id, user.clId, user.email, user.name,
             user.lastName ?? null, user.gender ?? null, user.dob ?? null,
             user.mobileNo ?? null, user.city ?? null, user.state ?? null,
             user.country ?? null, user.avatarUrl ?? null, user.instagram ?? null,
             user.wcaId ?? null, user.wcaVerified, user.role, user.accountStage,
+            user.emailVerified ?? false, user.passwordHash ?? null,
             user.createdAt,
           ],
         );
@@ -240,6 +243,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           mobileNo: "mobile_no", city: "city", state: "state", country: "country",
           avatarUrl: "avatar_url", instagram: "instagram", wcaId: "wca_id",
           wcaVerified: "wca_verified", role: "role", accountStage: "account_stage",
+          emailVerified: "email_verified", passwordHash: "password_hash",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);

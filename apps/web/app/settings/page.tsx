@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthProvider";
 import Link from "next/link";
 import { RouteGuard } from "@/features/auth/RouteGuard";
-import { updateMyProfile, uploadAvatar, changePassword, deleteMyAccount } from "@/lib/api";
+import { updateMyProfile, uploadAvatar, changePassword, deleteMyAccount, verifyEmailWithGoogle, setAuthToken } from "@/lib/api";
 import { useTheme } from "@/features/theme/ThemeProvider";
+import { getSupabase } from "@/lib/supabase";
 
 const FIELDS = [
   { key: "name", label: "Display Name", type: "text" },
@@ -20,8 +22,9 @@ const FIELDS = [
 ] as const;
 
 function SettingsContent() {
-  const { user } = useAuth();
+  const { user, verifyWithGoogle, setUser } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const searchParams = useSearchParams();
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -33,6 +36,42 @@ function SettingsContent() {
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState<string | null>(null);
   const [pwError, setPwError] = useState<string | null>(null);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  // Handle Google OAuth callback for email verification
+  useEffect(() => {
+    if (searchParams.get("verified") !== "1") return;
+    if (!user || user.emailVerified) return;
+    let cancelled = false;
+    (async () => {
+      const sb = getSupabase();
+      if (!sb) return;
+      const { data } = await sb.auth.getSession();
+      const googleToken = data.session?.access_token;
+      if (!googleToken || cancelled) return;
+      setVerifying(true);
+      try {
+        await verifyEmailWithGoogle(googleToken);
+        if (!cancelled) {
+          setVerifyMsg("Email verified successfully!");
+          setUser({ ...user, emailVerified: true });
+        }
+      } catch (e) {
+        if (!cancelled) setVerifyError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setVerifying(false);
+      }
+      // Sign out of Supabase so the user stays on their email/password session
+      await sb.auth.signOut();
+      // Restore the original HS256 token from localStorage
+      const origToken = localStorage.getItem("cubers_token");
+      if (origToken) setAuthToken(origToken);
+      window.history.replaceState({}, "", "/settings");
+    })();
+    return () => { cancelled = true; };
+  }, [searchParams, user, setUser]);
 
   useEffect(() => {
     if (user) {
@@ -147,6 +186,29 @@ function SettingsContent() {
           {(user as unknown as Record<string, unknown>).profilePrivacy === "private" ? "Make Public" : "Make Private"}
         </button>
       </div>
+
+      {/* Email Verification */}
+      {!user!.emailVerified && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-900/20">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Email Not Verified</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Verify your email to participate in competitions
+              </p>
+            </div>
+            <button
+              onClick={() => verifyWithGoogle()}
+              disabled={verifying}
+              className="rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:opacity-50"
+            >
+              {verifying ? "Verifying…" : "Verify with Google"}
+            </button>
+          </div>
+          {verifyMsg && <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">{verifyMsg}</p>}
+          {verifyError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{verifyError}</p>}
+        </div>
+      )}
 
       <div className="space-y-4">
         {FIELDS.map((f) => (

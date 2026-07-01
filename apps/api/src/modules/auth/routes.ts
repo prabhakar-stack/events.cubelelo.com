@@ -270,6 +270,36 @@ export async function registerAuthRoutes(
     },
   );
 
+  // Verify email via Google OAuth — the frontend sends the Supabase access token
+  // from the Google sign-in. We decode it to get the verified Google email, then
+  // find the user by email and set emailVerified = true.
+  app.post<{ Body: { googleToken?: string } }>(
+    "/api/v1/auth/verify-google",
+    async (req, reply) => {
+      const googleToken = req.body?.googleToken;
+      if (!googleToken) return reply.code(400).send({ error: "missing_google_token" });
+
+      let googleEmail: string | undefined;
+      try {
+        const claims = await verifier.verify(googleToken);
+        googleEmail = claims.email?.toLowerCase();
+      } catch {
+        return reply.code(401).send({ error: "invalid_google_token" });
+      }
+
+      if (!googleEmail) {
+        return reply.code(400).send({ error: "no_email_in_token" });
+      }
+
+      const user = await repo.users.findByEmail(googleEmail);
+      if (!user) return reply.code(404).send({ error: "user_not_found" });
+      if (user.emailVerified) return reply.code(409).send({ error: "already_verified" });
+
+      await repo.users.update(user.id, { emailVerified: true });
+      return { ok: true, emailVerified: true };
+    },
+  );
+
   // Legacy account claim — links a migrated_stub profile to the current Google login.
   // The stub was created by the ETL from the old cubelelo-event database.
   // We copy the stub's CL ID + profile onto the current user, then deactivate the stub.

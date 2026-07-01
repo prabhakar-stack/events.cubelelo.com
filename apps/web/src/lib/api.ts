@@ -29,6 +29,7 @@ export interface AuthUser {
   instagram?: string;
   wcaId?: string;
   wcaVerified?: boolean;
+  emailVerified?: boolean;
 }
 
 export interface AdvancementCriteria {
@@ -361,6 +362,12 @@ export function authLogin(
   return sendJson("POST", `/api/v1/auth/login`, { email, password });
 }
 
+export function verifyEmailWithGoogle(
+  googleToken: string,
+): Promise<{ ok: boolean; emailVerified: boolean }> {
+  return sendJson("POST", `/api/v1/auth/verify-google`, { googleToken });
+}
+
 export function syncUser(): Promise<AuthUser> {
   return sendJson("POST", `/api/v1/auth/sync`);
 }
@@ -503,6 +510,7 @@ export function createCompetition(body: {
     durationMinutes?: number;
     advancementCriteria?: AdvancementCriteria;
     roundCriteria?: (AdvancementCriteria | undefined)[];
+    roundSchedule?: ({ startTime?: string; durationMinutes?: number } | undefined)[];
   }>;
 }): Promise<{ id: string }> {
   return sendJson("POST", `/api/v1/admin/competitions`, body);

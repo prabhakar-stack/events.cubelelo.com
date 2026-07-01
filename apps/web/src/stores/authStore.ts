@@ -6,6 +6,7 @@ import {
   fetchMe,
   setAuthToken,
   syncUser,
+  verifyEmailWithGoogle,
   type AuthUser,
 } from "@/lib/api";
 import { getSupabase, supabaseEnabled } from "@/lib/supabase";
@@ -22,6 +23,7 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name?: string) => Promise<void>;
   signInGoogle: () => Promise<void>;
+  verifyWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   init: () => () => void;
 }
@@ -61,6 +63,16 @@ export const useAuthStore = create<AuthState>((set) => ({
     await sb.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
+    });
+  },
+
+  verifyWithGoogle: async () => {
+    const sb = getSupabase();
+    if (!sb) throw new Error("Supabase not configured");
+    // Trigger Google OAuth with redirect back to /settings?verified=1
+    await sb.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/settings?verified=1` },
     });
   },
 

@@ -26,6 +26,10 @@ export async function registerRegistrationRoutes(
       const user = await repo.users.findById(req.authClaims!.sub);
       if (!user) return reply.code(403).send({ error: "not_synced" });
 
+      if (!user.emailVerified) {
+        return reply.code(403).send({ error: "email_not_verified" });
+      }
+
       const existing = await repo.registrations.findByUserAndComp(user.id, comp.id);
       if (existing) return reply.code(409).send({ error: "already_registered" });
 
