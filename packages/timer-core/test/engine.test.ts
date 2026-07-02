@@ -13,7 +13,7 @@ describe("TimerEngine — practice mode (no inspection)", () => {
     e.down(5_123); // stop
     const snap = e.snapshot(5_123);
     expect(snap.phase).toBe("stopped");
-    expect(snap.result).toEqual({ time_ms: 5_123, penalty: "none" });
+    expect(snap.result).toEqual({ time_ms: 5_123, inspectionPenalty: "none", penalty: "none" });
   });
 
   it("requires a full hold before arming when holdToStartMs > 0", () => {
@@ -44,7 +44,7 @@ describe("TimerEngine — competition mode (inspection on)", () => {
     e.down(5_000); // arm
     e.up(5_000); // start solving
     e.down(12_000); // stop
-    expect(e.snapshot(12_000).result).toEqual({ time_ms: 7_000, penalty: "none" });
+    expect(e.snapshot(12_000).result).toEqual({ time_ms: 7_000, inspectionPenalty: "none", penalty: "none" });
   });
 
   it("+2 when solve starts between 15s and 17s", () => {
@@ -53,7 +53,7 @@ describe("TimerEngine — competition mode (inspection on)", () => {
     e.down(16_000); // arm at 16s
     e.up(16_000); // start solving → +2
     e.down(20_000); // stop
-    expect(e.snapshot(20_000).result).toEqual({ time_ms: 4_000, penalty: "plus2" });
+    expect(e.snapshot(20_000).result).toEqual({ time_ms: 4_000, inspectionPenalty: "plus2", penalty: "none" });
   });
 
   it("auto-DNF if inspection passes 17s without starting the solve", () => {
@@ -62,7 +62,7 @@ describe("TimerEngine — competition mode (inspection on)", () => {
     e.tick(17_001);
     const snap = e.snapshot(17_001);
     expect(snap.phase).toBe("stopped");
-    expect(snap.result).toEqual({ time_ms: 0, penalty: "dnf" });
+    expect(snap.result).toEqual({ time_ms: 0, inspectionPenalty: "dnf", penalty: "none" });
   });
 
   it("exposes inspection countdown remaining", () => {

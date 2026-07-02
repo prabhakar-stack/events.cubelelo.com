@@ -693,10 +693,14 @@ function RoundRow({
 
 /* ── Flagged result card ── */
 
-function formatSolve(solve: { time_ms: number; penalty: string }) {
+function formatSolve(solve: { time_ms: number; inspectionPenalty?: string; penalty: string }) {
+  const insp = solve.inspectionPenalty ?? "none";
   const base = formatTime(solve.time_ms);
-  if (solve.penalty === "dnf") return `DNF(${base})`;
-  if (solve.penalty === "plus2") return `${formatTime(solve.time_ms + 2000)}+`;
+  if (insp === "dnf" || solve.penalty === "dnf") return `DNF(${base})`;
+  let extra = 0;
+  if (insp === "plus2") extra += 2000;
+  if (solve.penalty === "plus2") extra += 2000;
+  if (extra > 0) return `${formatTime(solve.time_ms + extra)}+`;
   return base;
 }
 

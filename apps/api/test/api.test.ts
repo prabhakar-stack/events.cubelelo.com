@@ -83,7 +83,7 @@ describe("server-locked scrambles", () => {
 describe("result submission + ranking", () => {
   it("requires authentication", async () => {
     const res = await postJson(`/api/v1/rounds/${roundId}/results`, {
-      solves: [8000, 9000, 7000, 10000, 8500].map((t) => ({ time_ms: t, penalty: "none" })),
+      solves: [8000, 9000, 7000, 10000, 8500].map((t) => ({ time_ms: t, inspectionPenalty: "none", penalty: "none" })),
     });
     expect(res.status).toBe(401);
   });
@@ -94,12 +94,12 @@ describe("result submission + ranking", () => {
 
     await postJson(
       `/api/v1/rounds/${roundId}/results`,
-      { solves: [12000, 13000, 11000, 14000, 12500].map((t) => ({ time_ms: t, penalty: "none" })) },
+      { solves: [12000, 13000, 11000, 14000, 12500].map((t) => ({ time_ms: t, inspectionPenalty: "none", penalty: "none" })) },
       bearer(slow.token),
     );
     const fastRes = await postJson(
       `/api/v1/rounds/${roundId}/results`,
-      { solves: [8000, 9000, 7000, 10000, 8500].map((t) => ({ time_ms: t, penalty: "none" })) },
+      { solves: [8000, 9000, 7000, 10000, 8500].map((t) => ({ time_ms: t, inspectionPenalty: "none", penalty: "none" })) },
       bearer(fast.token),
     );
     expect(fastRes.status).toBe(201);

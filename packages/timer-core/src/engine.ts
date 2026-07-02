@@ -114,7 +114,7 @@ export class TimerEngine {
       this.phase = "stopped";
       this.armed = false;
       this.arming = false;
-      this.result = { time_ms: 0, penalty: "dnf" };
+      this.result = { time_ms: 0, inspectionPenalty: "dnf", penalty: "none" };
     }
   }
 
@@ -168,7 +168,8 @@ export class TimerEngine {
     this.armed = false;
     this.result = {
       time_ms: Math.round(now - this.solveStart),
-      penalty: this.pendingPenalty,
+      inspectionPenalty: this.pendingPenalty,
+      penalty: "none",
     };
   }
 

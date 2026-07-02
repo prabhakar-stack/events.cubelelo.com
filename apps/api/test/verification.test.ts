@@ -44,11 +44,11 @@ describe("admin verification queue", () => {
       url: `/api/v1/rounds/${roundId}/results`,
       payload: {
         solves: [
-          { time_ms: 900, penalty: "none" },
-          { time_ms: 1000, penalty: "none" },
-          { time_ms: 1100, penalty: "none" },
-          { time_ms: 950, penalty: "none" },
-          { time_ms: 1050, penalty: "none" },
+          { time_ms: 900, inspectionPenalty: "none", penalty: "none" },
+          { time_ms: 1000, inspectionPenalty: "none", penalty: "none" },
+          { time_ms: 1100, inspectionPenalty: "none", penalty: "none" },
+          { time_ms: 950, inspectionPenalty: "none", penalty: "none" },
+          { time_ms: 1050, inspectionPenalty: "none", penalty: "none" },
         ],
       },
       headers: bearer(userTok),

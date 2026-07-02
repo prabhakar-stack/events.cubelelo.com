@@ -10,8 +10,9 @@ import {
   ao12,
 } from "../src/stats.js";
 
-const s = (time_ms: number, penalty: Solve["penalty"] = "none"): Solve => ({
+const s = (time_ms: number, penalty: Solve["penalty"] = "none", inspectionPenalty: Solve["inspectionPenalty"] = "none"): Solve => ({
   time_ms,
+  inspectionPenalty,
   penalty,
 });
 

@@ -67,22 +67,43 @@ export async function registerAuthRoutes(
   app.post(
     "/api/v1/auth/sync",
     { preHandler: requireAuth },
-    async (req): Promise<User> => {
+    async (req, reply): Promise<User> => {
       const claims = req.authClaims!;
       let user = await repo.users.findById(claims.sub);
       if (!user && claims.email) {
         user = await repo.users.findByEmail(claims.email);
       }
       if (!user) {
+        const email = claims.email?.trim().toLowerCase() || "";
+        const mobileNo = (claims as Record<string, unknown>).phone as string | undefined;
+
+        if (!email && !mobileNo) {
+          return reply.code(400).send({ error: "email_or_mobile_required" }) as unknown as User;
+        }
+
+        if (email) {
+          const existing = await repo.users.findByEmail(email);
+          if (existing) {
+            return reply.code(409).send({ error: "email_already_registered" }) as unknown as User;
+          }
+        }
+        if (mobileNo) {
+          const existing = await repo.users.findByMobileNo(mobileNo);
+          if (existing) {
+            return reply.code(409).send({ error: "mobile_already_registered" }) as unknown as User;
+          }
+        }
+
         user = {
           id: claims.sub,
           clId: await repo.users.nextClId(),
-          email: claims.email ?? "",
-          name: claims.name ?? claims.email?.split("@")[0] ?? "Cuber",
+          email: email || "",
+          name: claims.name ?? email?.split("@")[0] ?? "Cuber",
+          mobileNo,
           role: "user",
           wcaVerified: false,
-          emailVerified: true,
-          mobileVerified: false,
+          emailVerified: !!email,
+          mobileVerified: !!mobileNo,
           profilePrivacy: "public",
           accountStage: "active",
           createdAt: new Date().toISOString(),
@@ -138,7 +159,7 @@ export async function registerAuthRoutes(
         id,
         clId: await repo.users.nextClId(),
         email: email ?? "",
-        name: name || (usingEmail ? email.split("@")[0] : mobileNo!) || "Cuber",
+        name: name || (usingEmail ? email!.split("@")[0] : mobileNo!) || "Cuber",
         mobileNo,
         passwordHash,
         role: "user",
@@ -157,7 +178,7 @@ export async function registerAuthRoutes(
         const otpKey = `email:${email}`;
         otpStore.set(otpKey, { code: otp, userId: id, expiresAt: Date.now() + 10 * 60 * 1000 });
         const oe = otpEmail(user.name, otp);
-        await emailService.send({ to: email, subject: oe.subject, html: oe.html });
+        await emailService.send({ to: email!, subject: oe.subject, html: oe.html });
       } else {
         const otpKey = `mobile:${mobileNo}`;
         otpStore.set(otpKey, { code: otp, userId: id, expiresAt: Date.now() + 10 * 60 * 1000 });
@@ -295,9 +316,9 @@ export async function registerAuthRoutes(
       otpStore.delete(otpKey);
 
       if (type === "email") {
-        await repo.users.update(user.id, { emailVerified: true });
+        await repo.users.update(user.id, { email: normalized, emailVerified: true });
       } else {
-        await repo.users.update(user.id, { mobileVerified: true });
+        await repo.users.update(user.id, { mobileNo: normalized, mobileVerified: true });
       }
 
       return { ok: true, [`${type}Verified`]: true };

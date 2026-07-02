@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   EVENTS,
   EVENT_IDS,
@@ -82,6 +82,7 @@ export default function PracticeTerminalPage() {
 
   const { snapshot, down, up, reset } = useTimer({ useInspection: true });
   const event = useMemo(() => getEvent(eventId), [eventId]);
+  const stoppedRef = useRef(false);
 
   useEffect(() => {
     setSolves(loadSession(eventId));
@@ -105,15 +106,41 @@ export default function PracticeTerminalPage() {
   }, [genScramble]);
 
   useEffect(() => {
-    if (snapshot.phase === "stopped" && snapshot.result) {
-      setPendingPenalty(snapshot.result.penalty);
+    if (snapshot.phase === "stopped" && snapshot.result && !stoppedRef.current) {
+      stoppedRef.current = true;
+      setPendingPenalty("none");
+
+      // Inspection auto-DNF (>17 s, solve never started): skip Save/Discard
+      // review and auto-save the DNF immediately, then generate next scramble.
+      if (
+        snapshot.result.inspectionPenalty === "dnf" &&
+        snapshot.result.time_ms === 0
+      ) {
+        const inspectionDnfSolve: ExtendedSolve = {
+          time_ms: 0,
+          inspectionPenalty: "dnf",
+          penalty: "none",
+          scramble,
+        };
+        setSolves((prev) => {
+          const next = [...prev, inspectionDnfSolve];
+          saveSession(eventId, next);
+          return next;
+        });
+        reset();
+        genScramble();
+      }
+    } else if (snapshot.phase !== "stopped") {
+      stoppedRef.current = false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.phase, snapshot.result]);
 
   const confirmSolve = useCallback(() => {
     if (!snapshot.result) return;
     const newSolve: ExtendedSolve = {
       time_ms: snapshot.result.time_ms,
+      inspectionPenalty: snapshot.result.inspectionPenalty ?? "none",
       penalty: pendingPenalty,
       note: pendingNote.trim() || undefined,
       scramble,
@@ -494,13 +521,16 @@ function TimerDisplay({
     text = formatTime(snapshot.timeMs);
     color = "text-zinc-900 dark:text-white";
   } else if (snapshot.phase === "stopped" && snapshot.result) {
-    text = formatSolve({ time_ms: snapshot.result.time_ms, penalty: pendingPenalty });
-    color =
-      pendingPenalty === "dnf"
-        ? "text-red-500"
-        : pendingPenalty === "plus2"
-          ? "text-orange-400"
-          : "text-emerald-600 dark:text-emerald-400";
+    const inspP = snapshot.result.inspectionPenalty ?? "none";
+    const displaySolve: Solve = { time_ms: snapshot.result.time_ms, inspectionPenalty: inspP, penalty: pendingPenalty };
+    text = formatSolve(displaySolve);
+    const hasDnf = inspP === "dnf" || pendingPenalty === "dnf";
+    const hasPlus2 = inspP === "plus2" || pendingPenalty === "plus2";
+    color = hasDnf
+      ? "text-red-500"
+      : hasPlus2
+        ? "text-orange-400"
+        : "text-emerald-600 dark:text-emerald-400";
   } else {
     text = "0.00";
     color = "text-zinc-400 dark:text-zinc-600";
@@ -528,6 +558,8 @@ function PenaltyButtons({
       {opts.map((o) => (
         <button
           key={o.key}
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onChange(o.key)}
           className={`px-4 py-2 text-sm font-semibold transition ${value === o.key
               ? "bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900"

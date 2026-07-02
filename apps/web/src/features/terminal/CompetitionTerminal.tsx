@@ -109,11 +109,45 @@ export function CompetitionTerminal({
   useEffect(() => {
     if (snapshot.phase === "stopped" && !stoppedRef.current) {
       stoppedRef.current = true;
-      setPendingPenalty(snapshot.result?.penalty ?? "none");
+      setPendingPenalty("none");
       setTimeLimitHit(false);
+
+      // Inspection auto-DNF (>17 s, solve never started): skip review and
+      // auto-confirm immediately so the user goes straight to the next solve
+      // or the final results screen.
+      if (
+        snapshot.result?.inspectionPenalty === "dnf" &&
+        snapshot.result?.time_ms === 0
+      ) {
+        const inspectionDnfSolve: Solve = {
+          time_ms: 0,
+          inspectionPenalty: "dnf",
+          penalty: "none",
+        };
+        setSolves((prev) => {
+          const next = [...prev, inspectionDnfSolve];
+          // WCA cutoff: inspection DNF counts as exceeding cutoff (Infinity effective time)
+          if (
+            load.kind === "ready" &&
+            load.cutoffMs &&
+            next.length === 2
+          ) {
+            const allAboveCutoff = next.every(
+              (s) => effectiveTime(s) > (load as { cutoffMs: number }).cutoffMs,
+            );
+            if (allAboveCutoff) {
+              setCutoffFailed(true);
+            }
+          }
+          return next;
+        });
+        setIndex((i) => Math.min(i + 1, SOLVES_PER_ROUND - 1));
+        reset();
+      }
     } else if (snapshot.phase !== "stopped") {
       stoppedRef.current = false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.phase, snapshot.result]);
 
   // WCA time limit enforcement: auto-DNF if solve exceeds time limit
@@ -130,12 +164,6 @@ export function CompetitionTerminal({
     }
   }, [snapshot.phase, snapshot.timeMs, load, timeLimitHit, down]);
 
-  // Auto-set DNF penalty when time limit is hit (runs once via stoppedRef gate)
-  useEffect(() => {
-    if (timeLimitHit && snapshot.phase === "stopped" && stoppedRef.current) {
-      setPendingPenalty("dnf");
-    }
-  }, [timeLimitHit, snapshot.phase]);
 
   const roundComplete = cutoffFailed || solves.length >= SOLVES_PER_ROUND;
 
@@ -184,7 +212,12 @@ export function CompetitionTerminal({
 
   const confirmSolve = useCallback(() => {
     if (!snapshot.result) return;
-    const newSolve: Solve = { time_ms: snapshot.result!.time_ms, penalty: pendingPenalty };
+    const inspPenalty = timeLimitHit ? "dnf" as const : (snapshot.result!.inspectionPenalty ?? "none" as const);
+    const newSolve: Solve = {
+      time_ms: snapshot.result!.time_ms,
+      inspectionPenalty: inspPenalty,
+      penalty: pendingPenalty,
+    };
     const newSolves = [...solves, newSolve];
     setSolves(newSolves);
 
@@ -206,7 +239,7 @@ export function CompetitionTerminal({
 
     setIndex((i) => Math.min(i + 1, SOLVES_PER_ROUND - 1));
     reset();
-  }, [snapshot.result, pendingPenalty, reset, solves, load]);
+  }, [snapshot.result, pendingPenalty, timeLimitHit, reset, solves, load]);
 
   const handleSubmit = useCallback(async () => {
     if (load.kind !== "ready") return;
@@ -460,7 +493,7 @@ export function CompetitionTerminal({
             <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} />
             {snapshot.phase === "stopped" ? (
               <div className="flex items-center gap-3">
-                <PenaltyButtons value={pendingPenalty} />
+                <PenaltyButtons value={pendingPenalty} onChange={setPendingPenalty} />
                 <button
                   onClick={confirmSolve}
                   className="rounded-lg bg-emerald-600 px-5 py-2 font-semibold text-white transition hover:bg-emerald-500"
@@ -679,13 +712,16 @@ function TimerDisplay({
     text = formatTime(snapshot.timeMs);
     color = "text-white";
   } else if (snapshot.phase === "stopped" && snapshot.result) {
-    text = formatSolve({ time_ms: snapshot.result.time_ms, penalty: pendingPenalty });
-    color =
-      pendingPenalty === "dnf"
-        ? "text-red-500"
-        : pendingPenalty === "plus2"
-          ? "text-orange-400"
-          : "text-emerald-400";
+    const inspP = snapshot.result.inspectionPenalty ?? "none";
+    const displaySolve: Solve = { time_ms: snapshot.result.time_ms, inspectionPenalty: inspP, penalty: pendingPenalty };
+    text = formatSolve(displaySolve);
+    const hasDnf = inspP === "dnf" || pendingPenalty === "dnf";
+    const hasPlus2 = inspP === "plus2" || pendingPenalty === "plus2";
+    color = hasDnf
+      ? "text-red-500"
+      : hasPlus2
+        ? "text-orange-400"
+        : "text-emerald-400";
   } else {
     text = "0.00";
     color = "text-zinc-600";
@@ -698,8 +734,10 @@ function TimerDisplay({
 
 function PenaltyButtons({
   value,
+  onChange,
 }: {
   value: SolvePenalty;
+  onChange: (p: SolvePenalty) => void;
 }) {
   const opts: { key: SolvePenalty; label: string }[] = [
     { key: "none", label: "OK" },
@@ -709,15 +747,18 @@ function PenaltyButtons({
   return (
     <div className="flex overflow-hidden rounded-lg border border-zinc-700">
       {opts.map((o) => (
-        <div
+        <button
           key={o.key}
-          className={`px-4 py-2 text-sm font-semibold ${value === o.key
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onChange(o.key)}
+          className={`px-4 py-2 text-sm font-semibold transition ${value === o.key
               ? "bg-zinc-200 text-zinc-900"
-              : "bg-zinc-900 text-zinc-300"
+              : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
             }`}
         >
           {o.label}
-        </div>
+        </button>
       ))}
     </div>
   );

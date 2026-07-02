@@ -31,7 +31,7 @@ export default function SessionDetailPage() {
   }, [id, router]);
 
   const solvesAsTimerFormat: Solve[] = useMemo(
-    () => solves.map((s) => ({ time_ms: s.timeMs, penalty: s.penalty })),
+    () => solves.map((s) => ({ time_ms: s.timeMs, inspectionPenalty: (s as any).inspectionPenalty ?? "none", penalty: s.penalty })),
     [solves],
   );
 
@@ -140,7 +140,7 @@ export default function SessionDetailPage() {
                   <tr key={s.id} className="border-b border-zinc-100 hover:bg-zinc-100/50 dark:border-zinc-800 dark:hover:bg-zinc-800/30">
                     <td className="px-4 py-2 text-zinc-500">{i + 1}</td>
                     <td className={`px-4 py-2 font-mono font-medium ${s.penalty === "dnf" ? "text-red-500" : s.penalty === "plus2" ? "text-orange-400" : ""}`}>
-                      {formatSolve({ time_ms: s.timeMs, penalty: s.penalty })}
+                      {formatSolve({ time_ms: s.timeMs, inspectionPenalty: (s as any).inspectionPenalty ?? "none", penalty: s.penalty })}
                     </td>
                     <td className="hidden max-w-[200px] truncate px-4 py-2 font-mono text-xs text-zinc-500 sm:table-cell">
                       {s.scramble}

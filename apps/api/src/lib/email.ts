@@ -13,7 +13,7 @@ interface EmailService {
 
 function parseFrom(from: string): { name: string; email: string } {
   const match = from.match(/^(.+)<(.+)>$/);
-  if (match) return { name: match[1].trim(), email: match[2].trim() };
+  if (match) return { name: match[1]!.trim(), email: match[2]!.trim() };
   return { name: "", email: from.trim() };
 }
 

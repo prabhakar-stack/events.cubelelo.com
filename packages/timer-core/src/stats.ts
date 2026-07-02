@@ -3,10 +3,15 @@ import type { Solve, SolveStats } from "@cubers/types";
 /** Internal sentinel for a DNF when reducing to comparable numbers. */
 const DNF = Number.POSITIVE_INFINITY;
 
-/** Effective time of a solve: +2 adds 2000ms, DNF → Infinity (sorts as worst). */
+/** Effective time of a solve: either DNF → Infinity, or raw + inspection +2 + manual +2. */
 export function effectiveTime(solve: Solve): number {
-  if (solve.penalty === "dnf") return DNF;
-  return solve.time_ms + (solve.penalty === "plus2" ? 2000 : 0);
+  const insp = solve.inspectionPenalty ?? "none";
+  const manual = solve.penalty;
+  if (insp === "dnf" || manual === "dnf") return DNF;
+  let extra = 0;
+  if (insp === "plus2") extra += 2000;
+  if (manual === "plus2") extra += 2000;
+  return solve.time_ms + extra;
 }
 
 /** Best (fastest) valid single, or null if every solve is a DNF / no solves. */

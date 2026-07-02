@@ -19,9 +19,14 @@ export function formatTime(ms: number | null): string {
   return min > 0 ? `${min}:${pad2(sec)}.${pad2(cs)}` : `${sec}.${pad2(cs)}`;
 }
 
-/** Format a solve including its penalty: DNF, or "13.45+" for a +2. */
+/** Format a solve including both penalties: DNF, or "13.45+" for +2. */
 export function formatSolve(solve: Solve): string {
-  if (solve.penalty === "dnf") return "DNF";
-  if (solve.penalty === "plus2") return `${formatTime(solve.time_ms + 2000)}+`;
+  const insp = solve.inspectionPenalty ?? "none";
+  const manual = solve.penalty;
+  if (insp === "dnf" || manual === "dnf") return "DNF";
+  let extra = 0;
+  if (insp === "plus2") extra += 2000;
+  if (manual === "plus2") extra += 2000;
+  if (extra > 0) return `${formatTime(solve.time_ms + extra)}+`;
   return formatTime(solve.time_ms);
 }

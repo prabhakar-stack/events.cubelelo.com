@@ -23,7 +23,15 @@ function parseSolves(input: unknown): Solve[] | null {
     ) {
       return null;
     }
-    solves.push({ time_ms: (raw as Solve).time_ms, penalty: (raw as Solve).penalty });
+    const r = raw as Record<string, unknown>;
+    const inspPenalty = typeof r.inspectionPenalty === "string" && PENALTIES.includes(r.inspectionPenalty as SolvePenalty)
+      ? (r.inspectionPenalty as SolvePenalty)
+      : "none";
+    solves.push({
+      time_ms: (raw as Solve).time_ms,
+      inspectionPenalty: inspPenalty,
+      penalty: (raw as Solve).penalty,
+    });
   }
   return solves;
 }

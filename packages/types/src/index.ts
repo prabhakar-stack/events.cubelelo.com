@@ -14,9 +14,12 @@ export type SolvePenalty = "none" | "plus2" | "dnf";
 export type FlagStatus = "clean" | "flagged" | "verified" | "plus2" | "dnf" | "disqualified";
 
 // ─────────────────────────── Solves ───────────────────────────
-/** A single timed attempt. `time_ms` excludes penalty; penalty applied at compute time. */
+/** A single timed attempt. `time_ms` is the raw solve time; penalties applied at compute time. */
 export interface Solve {
   time_ms: number;
+  /** Inspection penalty — auto-assigned by timer (>15s = +2, >17s = DNF). */
+  inspectionPenalty: SolvePenalty;
+  /** Manual penalty — user self-assigns after stopping (cube unsolved = DNF, 1 move away = +2). */
   penalty: SolvePenalty;
 }
 

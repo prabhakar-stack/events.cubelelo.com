@@ -655,10 +655,14 @@ export async function registerAdminRoutes(
             const user = await repo.users.findById(r.userId);
             const fmtMs = (ms: number | null) =>
               ms === null ? "DNF" : (ms / 1000).toFixed(2);
-            const fmtSolve = (s: { time_ms: number; penalty: string }) => {
-              if (s.penalty === "dnf") return "DNF";
-              const t = s.penalty === "plus2" ? s.time_ms + 2000 : s.time_ms;
-              return (t / 1000).toFixed(2) + (s.penalty === "plus2" ? "+" : "");
+            const fmtSolve = (s: { time_ms: number; inspectionPenalty?: string; penalty: string }) => {
+              const insp = s.inspectionPenalty ?? "none";
+              if (insp === "dnf" || s.penalty === "dnf") return "DNF";
+              let extra = 0;
+              if (insp === "plus2") extra += 2000;
+              if (s.penalty === "plus2") extra += 2000;
+              const t = s.time_ms + extra;
+              return (t / 1000).toFixed(2) + (extra > 0 ? "+" : "");
             };
 
             const solveStrs = Array.from({ length: 5 }, (_, i) =>
