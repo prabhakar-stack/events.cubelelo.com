@@ -27,6 +27,7 @@ export const env = {
   RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET ?? "",
   WCA_API_BASE: process.env.WCA_API_BASE ?? "https://www.worldcubeassociation.org/api/v0",
   EMAIL_FROM: process.env.EMAIL_FROM ?? "Cubelelo Events <noreply@cubelelo.com>",
+  BREVO_API_KEY: process.env.BREVO_API_KEY ?? "",
   SMTP_HOST: process.env.SMTP_HOST ?? "",
   SMTP_PORT: Number(process.env.SMTP_PORT ?? 587),
   SMTP_USER: process.env.SMTP_USER ?? "",

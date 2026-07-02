@@ -11,6 +11,44 @@ interface EmailService {
   send(msg: EmailMessage): Promise<boolean>;
 }
 
+function parseFrom(from: string): { name: string; email: string } {
+  const match = from.match(/^(.+)<(.+)>$/);
+  if (match) return { name: match[1].trim(), email: match[2].trim() };
+  return { name: "", email: from.trim() };
+}
+
+function createBrevoService(apiKey: string): EmailService {
+  return {
+    async send(msg) {
+      const sender = parseFrom(env.EMAIL_FROM);
+      try {
+        const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+          method: "POST",
+          headers: {
+            "api-key": apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sender: { name: sender.name || "Cubelelo Events", email: sender.email },
+            to: [{ email: msg.to }],
+            subject: msg.subject,
+            htmlContent: msg.html,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          console.error(`[EMAIL] Brevo send failed (${res.status}): ${body}`);
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.error("[EMAIL] Brevo send failed:", err);
+        return false;
+      }
+    },
+  };
+}
+
 function createSmtpService(): EmailService {
   const transporter = createTransport({
     host: env.SMTP_HOST,
@@ -49,11 +87,15 @@ function createConsoleService(): EmailService {
 }
 
 function pickService(): EmailService {
+  if (env.BREVO_API_KEY) {
+    console.log("[EMAIL] Service: Brevo (HTTP API)");
+    return createBrevoService(env.BREVO_API_KEY);
+  }
   if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) {
     console.log(`[EMAIL] Service: SMTP (${env.SMTP_HOST}:${env.SMTP_PORT})`);
     return createSmtpService();
   }
-  console.log("[EMAIL] Service: Console (no SMTP configured)");
+  console.log("[EMAIL] Service: Console (no email configured)");
   return createConsoleService();
 }
 
