@@ -31,6 +31,7 @@ const TABS = [
   { label: "Content", href: "/admin/content" },
   { label: "Details", href: "/admin/faq" },
   { label: "Staff", href: "/admin/staff" },
+  { label: "Verification", href: "/admin/verification" },
 ];
 
 type Section = "announcements" | "pages";

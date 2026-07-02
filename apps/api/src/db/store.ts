@@ -106,6 +106,7 @@ export async function seed(db: Db): Promise<void> {
     baseFee: 0,
     perEventFee: 0,
     featured: false,
+    videoDeadlineMinutes: 1440,
     createdBy: admin.clId,
     createdAt: now,
   };

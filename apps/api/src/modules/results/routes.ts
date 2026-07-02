@@ -80,8 +80,7 @@ export async function registerResultRoutes(
       const solves = parseSolves(req.body?.solves);
       if (!solves) return reply.code(400).send({ error: "invalid_solves" });
 
-      const videoUrl = req.body?.videoUrl?.trim() ?? null;
-      if (!videoUrl) return reply.code(400).send({ error: "video_url_required" });
+      const videoUrl = req.body?.videoUrl?.trim() || null;
 
       // Anti-cheat: validate submission falls within round open/close window
       const now = Date.now();
@@ -173,6 +172,44 @@ export async function registerResultRoutes(
       realtime.emitLeaderboard(round.id, board);
 
       return reply.code(201).send(result);
+    },
+  );
+
+  // Update video URL (within deadline window after round closes)
+  app.patch<{
+    Params: { id: string };
+    Body: { videoUrl?: string };
+  }>(
+    "/api/v1/results/:id/video",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const result = await repo.results.findById(req.params.id);
+      if (!result) return reply.code(404).send({ error: "result_not_found" });
+
+      const user = await repo.users.findById(req.authClaims!.sub);
+      if (!user || result.userId !== user.id) return reply.code(403).send({ error: "not_your_result" });
+
+      const round = await repo.rounds.findById(result.roundId);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+
+      const event = await repo.competitionEvents.findById(round.competitionEventId);
+      if (!event) return reply.code(404).send({ error: "event_not_found" });
+
+      const comp = await repo.competitions.findById(event.competitionId);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      if (round.closesAt) {
+        const deadlineMs = new Date(round.closesAt).getTime() + comp.videoDeadlineMinutes * 60 * 1000;
+        if (Date.now() > deadlineMs) {
+          return reply.code(409).send({ error: "video_deadline_passed" });
+        }
+      }
+
+      const videoUrl = req.body?.videoUrl?.trim() || null;
+      if (!videoUrl) return reply.code(400).send({ error: "video_url_required" });
+
+      await repo.results.update(req.params.id, { videoUrl });
+      return { ok: true, videoUrl };
     },
   );
 

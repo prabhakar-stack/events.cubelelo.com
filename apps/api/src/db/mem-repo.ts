@@ -23,6 +23,7 @@ import type {
   Banner,
   FaqEntry,
   ContentPage,
+  JudgeAssignment,
 } from "./types";
 
 /**
@@ -54,6 +55,7 @@ export function createMemRepo(): Repository {
   const bannerStore = new Map<string, Banner>();
   const faqStore = new Map<string, FaqEntry>();
   const contentPageStore = new Map<string, ContentPage>();
+  const judgeAssignmentStore = new Map<string, JudgeAssignment>();
   const roster = new Map<string, Map<string, string>>();
   const clSeq = new Map<number, number>();
 
@@ -451,6 +453,21 @@ export function createMemRepo(): Repository {
     },
 
     async ping() { return null; },
+
+    judgeAssignments: {
+      async findByRound(roundId) {
+        return [...judgeAssignmentStore.values()].filter((a) => a.roundId === roundId);
+      },
+      async findByJudge(judgeId) {
+        return [...judgeAssignmentStore.values()].filter((a) => a.judgeId === judgeId);
+      },
+      async create(assignment) {
+        judgeAssignmentStore.set(assignment.id, assignment);
+      },
+      async delete(id) {
+        judgeAssignmentStore.delete(id);
+      },
+    },
 
     roster: {
       join(roundId, userId, name) {

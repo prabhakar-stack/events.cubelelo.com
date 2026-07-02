@@ -23,6 +23,7 @@ const TABS = [
   { label: "Content", href: "/admin/content" },
   { label: "Details", href: "/admin/faq" },
   { label: "Staff", href: "/admin/staff" },
+  { label: "Verification", href: "/admin/verification" },
 ];
 
 const EVENT_TYPES = ["3x3", "2x2", "4x4", "5x5", "pyraminx", "megaminx", "skewb", "sq1", "clock", "3x3oh", "3x3bld"];

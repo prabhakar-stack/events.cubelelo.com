@@ -9,14 +9,11 @@ import {
   sendBulkEmail,
   sendRoundNotification,
   fetchCompetition,
-  fetchVerificationQueue,
   generateScrambles,
   updateCompetition,
   updateRound,
-  verifyResult,
   type AdvancementCriteria,
   type CompetitionDetail,
-  type FlaggedResultDto,
   type RoundRef,
 } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
@@ -39,6 +36,7 @@ const ADMIN_TABS = [
   { label: "Content", href: "/admin/content" },
   { label: "Details", href: "/admin/faq" },
   { label: "Staff", href: "/admin/staff" },
+  { label: "Verification", href: "/admin/verification" },
 ];
 
 function AdminSubNav() {
@@ -69,7 +67,6 @@ function toISO(val: string): string | null {
 
 export function AdminCompetition({ id }: { id: string }) {
   const [detail, setDetail] = useState<CompetitionDetail | null>(null);
-  const [queue, setQueue] = useState<FlaggedResultDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -85,9 +82,6 @@ export function AdminCompetition({ id }: { id: string }) {
     fetchCompetition(id)
       .then(setDetail)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-    fetchVerificationQueue(id)
-      .then(setQueue)
-      .catch(() => setQueue([]));
   }, [id]);
 
   useEffect(() => {
@@ -318,33 +312,6 @@ export function AdminCompetition({ id }: { id: string }) {
             </div>
           </div>
         ))}
-      </section>
-
-      {/* ── Verification Queue (inline) ── */}
-      <section className="mb-8">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-          Verification Queue
-        </h2>
-
-        {queue.length === 0 ? (
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-8 text-center">
-            <p className="text-zinc-500">No flagged results to review.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {queue.map((r) => (
-              <FlaggedResultCard
-                key={r.id}
-                result={r}
-                competitionId={id}
-                busy={busy}
-                onAction={(action, reason) =>
-                  run(`verify-${r.id}`, () => verifyResult(r.id, action, reason))
-                }
-              />
-            ))}
-          </div>
-        )}
       </section>
 
       {/* ── Bulk Email Modal ── */}
@@ -704,149 +671,3 @@ function formatSolve(solve: { time_ms: number; inspectionPenalty?: string; penal
   return base;
 }
 
-function FlaggedResultCard({
-  result,
-  competitionId,
-  busy,
-  onAction,
-}: {
-  result: FlaggedResultDto;
-  competitionId: string;
-  busy: string | null;
-  onAction: (action: string, reason?: string) => void;
-}) {
-  const [reason, setReason] = useState("");
-  const isBusy = busy === `verify-${result.id}`;
-
-  const handleAction = (action: string) => {
-    onAction(action, reason.trim() || undefined);
-    setReason("");
-  };
-
-  return (
-    <div className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-900/40 dark:bg-zinc-900/40 p-5">
-      {/* Header: user info */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <Link
-            href={`/profile/${result.userClId}`}
-            className="text-sm font-semibold text-emerald-400 hover:text-emerald-300"
-          >
-            {result.userName}
-          </Link>
-          <span className="font-mono text-xs text-zinc-500">
-            {result.userClId}
-          </span>
-          <StatusBadge status={result.flagStatus} />
-        </div>
-        <div className="flex items-center gap-3 text-xs text-zinc-500">
-          <span>{result.eventType}</span>
-          <span>Round {result.roundNumber ?? "?"}</span>
-        </div>
-      </div>
-
-      {/* Stats row */}
-      <div className="mb-3 flex flex-wrap gap-6 text-sm">
-        <div>
-          <span className="text-zinc-500">ao5: </span>
-          <span className="font-mono text-zinc-200">
-            {result.ao5Ms !== null ? formatTime(result.ao5Ms) : "DNF"}
-          </span>
-        </div>
-        <div>
-          <span className="text-zinc-500">Best: </span>
-          <span className="font-mono text-zinc-200">
-            {result.bestSingleMs !== null
-              ? formatTime(result.bestSingleMs)
-              : "DNF"}
-          </span>
-        </div>
-        {result.videoUrl && (
-          <a
-            href={result.videoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 underline hover:text-blue-300"
-          >
-            Video
-          </a>
-        )}
-      </div>
-
-      {/* Individual solves */}
-      {result.solves.length > 0 && (
-        <div className="mb-3">
-          <span className="text-xs text-zinc-500">Solves: </span>
-          <span className="font-mono text-xs text-zinc-300">
-            {result.solves.map((s, i) => (
-              <span key={i}>
-                {i > 0 && ", "}
-                {formatSolve(s)}
-              </span>
-            ))}
-          </span>
-        </div>
-      )}
-
-      {/* Suspicion reasons */}
-      {result.suspicionReasons.length > 0 && (
-        <div className="mb-4 rounded-lg border border-amber-900/30 bg-amber-950/20 px-3 py-2">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-amber-400">
-            Reason for flag
-          </p>
-          <ul className="list-inside list-disc space-y-0.5 text-xs text-amber-300/80">
-            {result.suspicionReasons.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Reason input */}
-      <div className="mb-3">
-        <label className="mb-1 block text-xs text-zinc-500">
-          Judge reason (required before action)
-        </label>
-        <input
-          type="text"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Enter reason for your decision..."
-          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
-        />
-      </div>
-
-      {/* Action buttons */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => handleAction("verified")}
-          disabled={isBusy || !reason.trim()}
-          className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-        >
-          Verify
-        </button>
-        <button
-          onClick={() => handleAction("plus2")}
-          disabled={isBusy || !reason.trim()}
-          className="rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:opacity-50"
-        >
-          +2
-        </button>
-        <button
-          onClick={() => handleAction("dnf")}
-          disabled={isBusy || !reason.trim()}
-          className="rounded-lg bg-orange-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:opacity-50"
-        >
-          DNF
-        </button>
-        <button
-          onClick={() => handleAction("disqualified")}
-          disabled={isBusy || !reason.trim()}
-          className="rounded-lg bg-red-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
-        >
-          Disqualify
-        </button>
-      </div>
-    </div>
-  );
-}

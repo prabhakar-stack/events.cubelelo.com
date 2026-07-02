@@ -23,6 +23,7 @@ const TABS = [
   { label: "Content", href: "/admin/content" },
   { label: "Details", href: "/admin/faq" },
   { label: "Staff", href: "/admin/staff" },
+  { label: "Verification", href: "/admin/verification" },
 ];
 
 const STAFF_ROLES = ["judge", "moderator"] as const;

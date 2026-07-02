@@ -40,6 +40,7 @@ export async function seed(repo: Repository): Promise<void> {
     baseFee: 0,
     perEventFee: 0,
     featured: true,
+    videoDeadlineMinutes: 1440,
     createdBy: adminId,
     createdAt: now,
   });

@@ -8,6 +8,7 @@ import {
   fetchEventPage,
   fetchLeaderboard,
   fetchVerifiedResults,
+  updateResultVideo,
   type EventPageData,
   type EventRoundInfo,
   type EventUserRound,
@@ -149,6 +150,10 @@ export default function EventPage() {
           eventType={event.eventType}
           roundTab={roundTab}
           setRoundTab={setRoundTab}
+          videoDeadlineMinutes={competition.videoDeadlineMinutes}
+          onVideoUpdate={() => {
+            fetchEventPage(params.id!, params.eventId!).then(setData).catch(() => {});
+          }}
         />
       )}
 
@@ -180,6 +185,8 @@ function SelectedRoundView({
   eventType,
   roundTab,
   setRoundTab,
+  videoDeadlineMinutes,
+  onVideoUpdate,
 }: {
   round: EventRoundInfo;
   userRound: EventUserRound | null;
@@ -191,6 +198,8 @@ function SelectedRoundView({
   eventType: string;
   roundTab: RoundTab;
   setRoundTab: (t: RoundTab) => void;
+  videoDeadlineMinutes: number;
+  onVideoUpdate: () => void;
 }) {
   // Live round status via Socket.IO
   const { status: liveStatus } = useRoundStatus(round.id, round.status);
@@ -264,6 +273,9 @@ function SelectedRoundView({
         eventType={eventType}
         nextRound={nextRound}
         isLastRound={isLastRound}
+        userResult={userRound?.result ?? null}
+        videoDeadlineMinutes={videoDeadlineMinutes}
+        onVideoUpdate={onVideoUpdate}
       />
 
       {/* Tabs */}
@@ -357,6 +369,9 @@ function RoundActions({
   eventType,
   nextRound,
   isLastRound,
+  userResult,
+  videoDeadlineMinutes,
+  onVideoUpdate,
 }: {
   round: EventRoundInfo;
   liveStatus: string;
@@ -368,6 +383,9 @@ function RoundActions({
   eventType: string;
   nextRound: EventRoundInfo | null;
   isLastRound: boolean;
+  userResult: { id: string; rank: number | null; ao5Ms: number | null; bestSingleMs: number | null; videoUrl: string | null } | null;
+  videoDeadlineMinutes: number;
+  onVideoUpdate: () => void;
 }) {
   const countdownTarget =
     liveStatus === "pending" && round.opensAt
@@ -378,55 +396,146 @@ function RoundActions({
 
   const remaining = useCountdown(countdownTarget);
 
+  // Video deadline countdown
+  const videoDeadlineTarget = round.closesAt
+    ? new Date(new Date(round.closesAt).getTime() + videoDeadlineMinutes * 60 * 1000).toISOString()
+    : null;
+  const videoRemaining = useCountdown(
+    userResult && (liveStatus === "closed" || liveStatus === "advanced") ? videoDeadlineTarget : null,
+  );
+  const videoDeadlinePassed = videoRemaining !== null && videoRemaining <= 0;
+  const showVideoUpload = userResult && (liveStatus === "closed" || liveStatus === "advanced") && !videoDeadlinePassed;
+
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
-      {/* Countdown */}
-      {remaining !== null && remaining > 0 && (
-        <div className="text-sm text-zinc-500">
-          {liveStatus === "pending" ? "Opens in " : "Next round in "}
-          <span className="font-mono font-semibold text-zinc-300">
-            {fmtCountdown(remaining)}
-          </span>
-        </div>
-      )}
-
-      {liveStatus === "open" && (
-        <span className="text-sm font-medium text-emerald-400">Round is live</span>
-      )}
-
-      {liveStatus === "closed" && !nextRound && (
-        <span className="text-sm text-zinc-500">
-          {isLastRound ? "Final round closed — awaiting results" : "Round closed"}
-        </span>
-      )}
-
-      {liveStatus === "advanced" && (
-        <span className="text-sm text-zinc-500">
-          {isLastRound ? "Event complete — final standings available" : "Round complete — results finalized"}
-        </span>
-      )}
-
-      {/* Enter Round button */}
-      <div className="ml-auto">
-        {liveStatus === "open" && userRegistered && (
-          isSubmitted ? (
-            <span className="rounded-lg bg-zinc-200 px-5 py-2 text-sm font-semibold text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
-              Response Submitted
+    <div className="border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Countdown */}
+        {remaining !== null && remaining > 0 && (
+          <div className="text-sm text-zinc-500">
+            {liveStatus === "pending" ? "Opens in " : "Next round in "}
+            <span className="font-mono font-semibold text-zinc-300">
+              {fmtCountdown(remaining)}
             </span>
-          ) : canEnter ? (
-            <Link
-              href={`/competitions/${competitionId}/round/${round.roundNumber}?eventId=${eventType}`}
-              className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
-            >
-              Enter Round
-            </Link>
-          ) : isLocked ? (
-            <span className="rounded-lg bg-zinc-700 px-5 py-2 text-sm font-semibold text-zinc-400">
-              Not Shortlisted
-            </span>
-          ) : null
+          </div>
         )}
+
+        {liveStatus === "open" && (
+          <span className="text-sm font-medium text-emerald-400">Round is live</span>
+        )}
+
+        {liveStatus === "closed" && !nextRound && (
+          <span className="text-sm text-zinc-500">
+            {isLastRound ? "Final round closed — awaiting results" : "Round closed"}
+          </span>
+        )}
+
+        {liveStatus === "advanced" && (
+          <span className="text-sm text-zinc-500">
+            {isLastRound ? "Event complete — final standings available" : "Round complete — results finalized"}
+          </span>
+        )}
+
+        {/* Enter Round button */}
+        <div className="ml-auto">
+          {liveStatus === "open" && userRegistered && (
+            isSubmitted ? (
+              <span className="rounded-lg bg-zinc-200 px-5 py-2 text-sm font-semibold text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
+                Response Submitted
+              </span>
+            ) : canEnter ? (
+              <Link
+                href={`/competitions/${competitionId}/round/${round.roundNumber}?eventId=${eventType}`}
+                className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+              >
+                Enter Round
+              </Link>
+            ) : isLocked ? (
+              <span className="rounded-lg bg-zinc-700 px-5 py-2 text-sm font-semibold text-zinc-400">
+                Not Shortlisted
+              </span>
+            ) : null
+          )}
+        </div>
       </div>
+
+      {/* Video upload section */}
+      {showVideoUpload && (
+        <VideoUploadSection
+          resultId={userResult.id}
+          currentVideoUrl={userResult.videoUrl}
+          remaining={videoRemaining!}
+          onUpdate={onVideoUpdate}
+        />
+      )}
+    </div>
+  );
+}
+
+function VideoUploadSection({
+  resultId,
+  currentVideoUrl,
+  remaining,
+  onUpdate,
+}: {
+  resultId: string;
+  currentVideoUrl: string | null;
+  remaining: number;
+  onUpdate: () => void;
+}) {
+  const [videoUrl, setVideoUrl] = useState(currentVideoUrl ?? "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const handleSubmitVideo = async () => {
+    if (!videoUrl.trim()) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await updateResultVideo(resultId, videoUrl.trim());
+      setMsg({ type: "ok", text: "Video URL saved!" });
+      onUpdate();
+    } catch (e) {
+      setMsg({ type: "err", text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+          {currentVideoUrl ? "Update Video Link" : "Submit Video Link"}
+        </span>
+        <span className="text-xs font-mono text-amber-500">
+          {fmtCountdown(remaining)} left
+        </span>
+      </div>
+      {currentVideoUrl && (
+        <p className="mb-2 text-xs text-zinc-500">
+          Current: <a href={currentVideoUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">{currentVideoUrl}</a>
+        </p>
+      )}
+      <div className="flex gap-2">
+        <input
+          value={videoUrl}
+          onChange={(e) => setVideoUrl(e.target.value)}
+          placeholder="Paste video link (YouTube / Drive)"
+          className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+        />
+        <button
+          onClick={handleSubmitVideo}
+          disabled={busy || !videoUrl.trim()}
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+        >
+          {busy ? "Saving…" : currentVideoUrl ? "Update" : "Submit"}
+        </button>
+      </div>
+      {msg && (
+        <p className={`mt-2 text-xs ${msg.type === "ok" ? "text-emerald-500" : "text-red-400"}`}>
+          {msg.text}
+        </p>
+      )}
     </div>
   );
 }

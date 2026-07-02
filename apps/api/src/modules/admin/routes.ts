@@ -82,6 +82,7 @@ export async function registerAdminRoutes(
       startsAt: typeof startsAt === "string" ? startsAt : undefined,
       endsAt: typeof endsAt === "string" ? endsAt : undefined,
       featured: false,
+      videoDeadlineMinutes: 1440,
       createdBy: user?.id,
       createdAt: now,
     };
@@ -266,6 +267,7 @@ export async function registerAdminRoutes(
       perEventFee: overrideType === "free" ? 0 : source.perEventFee,
       registrationDeadline: undefined,
       featured: false,
+      videoDeadlineMinutes: source.videoDeadlineMinutes,
       createdBy: user?.id,
       createdAt: now,
     };
@@ -453,10 +455,10 @@ export async function registerAdminRoutes(
     },
   );
 
-  // Verify / override a flagged result (admin + moderator)
+  // Verify / override a result (admin + moderator + assigned judge)
   app.post<{
     Params: { id: string };
-    Body: { action?: FlagStatus; reason?: string };
+    Body: { action?: FlagStatus; reason?: string; comment?: string };
   }>("/api/v1/admin/results/:id/verify", adminOrMod, async (req, reply) => {
     const result = await repo.results.findById(req.params.id);
     if (!result) return reply.code(404).send({ error: "result_not_found" });
@@ -477,6 +479,7 @@ export async function registerAdminRoutes(
       flagStatus: action,
       verifiedBy: admin?.id ?? req.authClaims!.sub,
       verifiedAt: now,
+      verificationComment: req.body?.comment || undefined,
     });
 
     const entry: AuditLogEntry = {
@@ -500,6 +503,119 @@ export async function registerAdminRoutes(
     }
 
     return { id: result.id, flagStatus: action };
+  });
+
+  // ── Verification management (admin + moderator) ─────────────────────────
+
+  // All results for a round with user info + verification status
+  app.get<{ Params: { roundId: string } }>(
+    "/api/v1/admin/verification/rounds/:roundId/results",
+    adminOrMod,
+    async (req, reply) => {
+      const round = await repo.rounds.findById(req.params.roundId);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+
+      const results = await repo.results.findByRound(round.id);
+      const event = await repo.competitionEvents.findByRound(round.id);
+
+      return Promise.all(
+        results.map(async (r) => {
+          const user = await repo.users.findById(r.userId);
+          return {
+            id: r.id,
+            userId: r.userId,
+            userName: user?.name ?? r.userId,
+            userClId: user?.clId ?? r.userId,
+            eventType: event?.eventType ?? "unknown",
+            roundNumber: round.roundNumber,
+            solves: r.solves,
+            bestSingleMs: r.bestSingleMs,
+            ao5Ms: r.ao5Ms,
+            videoUrl: r.videoUrl,
+            flagStatus: r.flagStatus,
+            verifiedBy: r.verifiedBy,
+            verifiedAt: r.verifiedAt,
+            verificationComment: r.verificationComment,
+            submittedAt: r.submittedAt,
+            rank: r.rank,
+          };
+        }),
+      );
+    },
+  );
+
+  // Judges assigned to a round
+  app.get<{ Params: { roundId: string } }>(
+    "/api/v1/admin/verification/rounds/:roundId/judges",
+    adminOrMod,
+    async (req, reply) => {
+      const round = await repo.rounds.findById(req.params.roundId);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+
+      const assignments = await repo.judgeAssignments.findByRound(round.id);
+      return Promise.all(
+        assignments.map(async (a) => {
+          const judge = await repo.users.findById(a.judgeId);
+          // Count how many results in this round were verified by this judge
+          const results = await repo.results.findByRound(round.id);
+          const verified = results.filter((r) => r.verifiedBy === a.judgeId).length;
+          return {
+            id: a.id,
+            judgeId: a.judgeId,
+            judgeName: judge?.name ?? a.judgeId,
+            judgeClId: judge?.clId ?? a.judgeId,
+            assignedAt: a.assignedAt,
+            verifiedCount: verified,
+            totalResults: results.length,
+          };
+        }),
+      );
+    },
+  );
+
+  // Assign a judge to a round
+  app.post<{
+    Body: { judgeId?: string; roundId?: string };
+  }>("/api/v1/admin/verification/assign", adminOrMod, async (req, reply) => {
+    const { judgeId, roundId } = req.body ?? {};
+    if (!judgeId || !roundId)
+      return reply.code(400).send({ error: "judgeId_and_roundId_required" });
+
+    const judge = await repo.users.findById(judgeId);
+    if (!judge || !["judge", "moderator", "admin"].includes(judge.role))
+      return reply.code(400).send({ error: "invalid_judge" });
+
+    const round = await repo.rounds.findById(roundId);
+    if (!round) return reply.code(404).send({ error: "round_not_found" });
+
+    const assignment = {
+      id: randomUUID(),
+      judgeId,
+      roundId,
+      assignedBy: req.authClaims!.sub,
+      assignedAt: new Date().toISOString(),
+    };
+    await repo.judgeAssignments.create(assignment);
+
+    return { id: assignment.id, judgeId, roundId };
+  });
+
+  // Unassign a judge
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/verification/assign/:id",
+    adminOrMod,
+    async (req) => {
+      await repo.judgeAssignments.delete(req.params.id);
+      return { ok: true };
+    },
+  );
+
+  // List judges available for assignment
+  app.get("/api/v1/admin/verification/judges", adminOrMod, async () => {
+    const allUsers = await repo.users.findAll();
+    return allUsers
+      .filter((u) => ["judge", "moderator", "admin"].includes(u.role))
+      .map((u) => ({ id: u.id, name: u.name, clId: u.clId, role: u.role }));
   });
 
   // ── Users (admin) ────────────────────────────────────────────────────────
@@ -1235,6 +1351,74 @@ export async function registerAdminRoutes(
         sentCount,
         roundNumber: round.roundNumber,
         eventType: event.eventType,
+      };
+    },
+  );
+
+  // ── Publish round results ──────────────────────────────────────────────────
+
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/rounds/:id/publish",
+    adminOnly,
+    async (req, reply) => {
+      const round = await repo.rounds.findById(req.params.id);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+
+      const event = await repo.competitionEvents.findById(round.competitionEventId);
+      if (!event) return reply.code(404).send({ error: "event_not_found" });
+
+      const comp = await repo.competitions.findById(event.competitionId);
+      const regs = await repo.registrations.findByCompetition(event.competitionId);
+      const recipients: { email: string; name: string }[] = [];
+
+      for (const reg of regs) {
+        const user = await repo.users.findById(reg.userId);
+        if (user?.email) recipients.push({ email: user.email, name: user.name });
+      }
+
+      const compTitle = comp?.title ?? "Competition";
+      let sentCount = 0;
+      for (const r of recipients) {
+        const msg = roundNotificationEmail(r.name, compTitle, round.roundNumber, "results_published");
+        const ok = await emailService.send({ to: r.email, subject: msg.subject, html: msg.html });
+        if (ok) sentCount++;
+      }
+
+      // Auto-complete: if this is the last round of the event, check completion
+      const allRounds = await repo.rounds.findByCompetition(event.competitionId);
+      const eventRounds = allRounds.filter((r) => r.competitionEventId === event.id);
+      const isLastRound = round.roundNumber === eventRounds.length;
+
+      let eventCompleted = false;
+      let competitionCompleted = false;
+
+      if (isLastRound) {
+        eventCompleted = true;
+
+        // Check if all events of this competition are now complete
+        const allEvents = await repo.competitionEvents.findByCompetition(event.competitionId);
+        const allComplete = allEvents.every((ev) => {
+          if (ev.id === event.id) return true;
+          const evRounds = allRounds.filter((r) => r.competitionEventId === ev.id);
+          if (evRounds.length === 0) return false;
+          const lastRound = evRounds.reduce((max, r) => r.roundNumber > max.roundNumber ? r : max);
+          return lastRound.status === "closed" || lastRound.status === "advanced";
+        });
+
+        if (allComplete && comp) {
+          await repo.competitions.update(comp.id, { status: "completed" });
+          competitionCompleted = true;
+        }
+      }
+
+      return {
+        sent: sentCount > 0,
+        recipientCount: recipients.length,
+        sentCount,
+        roundNumber: round.roundNumber,
+        eventType: event.eventType,
+        eventCompleted,
+        competitionCompleted,
       };
     },
   );

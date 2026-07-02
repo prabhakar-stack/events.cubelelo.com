@@ -53,6 +53,7 @@ export interface Competition {
   featuredOrder?: number;
   coverCaption?: string;
   cancellationReason?: string;
+  videoDeadlineMinutes: number;
   createdBy?: string;
   createdAt: string;
 }
@@ -108,6 +109,7 @@ export interface Result {
   flagStatus: FlagStatus;
   verifiedBy?: string;
   verifiedAt?: string;
+  verificationComment?: string;
   submittedAt: string;
 }
 
@@ -260,6 +262,14 @@ export interface ContentPage {
   published: boolean;
   updatedAt: string;
   createdAt: string;
+}
+
+export interface JudgeAssignment {
+  id: string;
+  judgeId: string;
+  roundId: string;
+  assignedBy: string;
+  assignedAt: string;
 }
 
 export interface PromoCode {

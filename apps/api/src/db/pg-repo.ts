@@ -23,6 +23,7 @@ import type {
   Banner,
   FaqEntry,
   ContentPage,
+  JudgeAssignment,
 } from "./types";
 
 // ── row → domain type mappers ──────────────────────────────────────────────
@@ -80,6 +81,7 @@ function toComp(r: Row): Competition {
     featuredOrder: (r.featured_order as number) ?? undefined,
     coverCaption: (r.cover_caption as string) ?? undefined,
     cancellationReason: (r.cancellation_reason as string) ?? undefined,
+    videoDeadlineMinutes: (r.video_deadline_minutes as number) ?? 1440,
     createdBy: (r.created_by as string) ?? undefined,
     createdAt: ts(r.created_at),
   };
@@ -141,7 +143,18 @@ function toResult(r: Row): Result {
     flagStatus: r.flag_status as Result["flagStatus"],
     verifiedBy: (r.verified_by as string) ?? undefined,
     verifiedAt: r.verified_at ? ts(r.verified_at) : undefined,
+    verificationComment: (r.verification_comment as string) ?? undefined,
     submittedAt: ts(r.submitted_at),
+  };
+}
+
+function toJudgeAssignment(r: Row): JudgeAssignment {
+  return {
+    id: r.id as string,
+    judgeId: r.judge_id as string,
+    roundId: r.round_id as string,
+    assignedBy: r.assigned_by as string,
+    assignedAt: ts(r.assigned_at),
   };
 }
 
@@ -330,7 +343,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           startsAt: "starts_at", endsAt: "ends_at",
           coverUrl: "cover_url", bannerUrl: "banner_url",
           featured: "featured", featuredOrder: "featured_order", coverCaption: "cover_caption",
-          cancellationReason: "cancellation_reason",
+          cancellationReason: "cancellation_reason", videoDeadlineMinutes: "video_deadline_minutes",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -515,6 +528,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       async update(id, fields) {
         const COL: Record<string, string> = {
           flagStatus: "flag_status", verifiedBy: "verified_by", verifiedAt: "verified_at",
+          verificationComment: "verification_comment",
           rank: "rank", videoUrl: "video_url",
           bestSingleMs: "best_single_ms", ao5Ms: "ao5_ms",
         };
@@ -1292,6 +1306,35 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       const t0 = Date.now();
       await pool.query("SELECT 1");
       return { backend: "postgresql", latencyMs: Date.now() - t0 };
+    },
+
+    // ── judge assignments ────────────────────────────────────────────────
+    judgeAssignments: {
+      async findByRound(roundId) {
+        const { rows } = await pool.query(
+          "SELECT * FROM judge_assignments WHERE round_id = $1",
+          [roundId],
+        );
+        return rows.map(toJudgeAssignment);
+      },
+      async findByJudge(judgeId) {
+        const { rows } = await pool.query(
+          "SELECT * FROM judge_assignments WHERE judge_id = $1",
+          [judgeId],
+        );
+        return rows.map(toJudgeAssignment);
+      },
+      async create(assignment) {
+        await pool.query(
+          `INSERT INTO judge_assignments (id, judge_id, round_id, assigned_by, assigned_at)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (judge_id, round_id) DO NOTHING`,
+          [assignment.id, assignment.judgeId, assignment.roundId, assignment.assignedBy, assignment.assignedAt],
+        );
+      },
+      async delete(id) {
+        await pool.query("DELETE FROM judge_assignments WHERE id = $1", [id]);
+      },
     },
 
     // ── roster (always in-memory) ──────────────────────────────────────────

@@ -24,6 +24,7 @@ const TABS = [
   { label: "Content", href: "/admin/content" },
   { label: "Details", href: "/admin/faq" },
   { label: "Staff", href: "/admin/staff" },
+  { label: "Verification", href: "/admin/verification" },
 ];
 
 const EMPTY = { question: "", answerMd: "", order: 0, published: false };

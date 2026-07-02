@@ -47,7 +47,6 @@ export function CompetitionTerminal({
   const router = useRouter();
   const { user } = useAuth();
   const userId = user?.clId ?? "guest";
-  const [videoUrl, setVideoUrl] = useState("");
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [submit, setSubmit] = useState<
     | { kind: "idle" }
@@ -245,10 +244,7 @@ export function CompetitionTerminal({
     if (load.kind !== "ready") return;
     setSubmit({ kind: "submitting" });
     try {
-      const result = await submitResult(load.roundId, {
-        solves,
-        videoUrl: videoUrl.trim() || undefined,
-      });
+      const result = await submitResult(load.roundId, { solves });
       setSubmit({ kind: "done", rank: result.rank });
     } catch (e) {
       setSubmit({
@@ -256,7 +252,7 @@ export function CompetitionTerminal({
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [load, solves, videoUrl]);
+  }, [load, solves]);
 
   // Auto-redirect to competition page after successful submission
   useEffect(() => {
@@ -372,8 +368,6 @@ export function CompetitionTerminal({
           finalAo5={runningAo5}
           solves={solves}
           submit={submit}
-          videoUrl={videoUrl}
-          setVideoUrl={setVideoUrl}
           onSubmit={handleSubmit}
           userId={userId}
           board={liveBoard}
@@ -559,8 +553,6 @@ function RoundComplete({
   finalAo5,
   solves,
   submit,
-  videoUrl,
-  setVideoUrl,
   onSubmit,
   userId,
   board,
@@ -574,8 +566,6 @@ function RoundComplete({
   | { kind: "submitting" }
   | { kind: "done"; rank: number | null }
   | { kind: "error"; message: string };
-  videoUrl: string;
-  setVideoUrl: (v: string) => void;
   onSubmit: () => void;
   userId: string;
   board: ResultDto[];
@@ -620,22 +610,14 @@ function RoundComplete({
         </Link>
       ) : (
         <div className="flex w-full max-w-md flex-col items-center gap-3">
-          <input
-            value={videoUrl}
-            onChange={(e) => setVideoUrl(e.target.value)}
-            placeholder="Video link (YouTube / Drive) — required"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
-          />
-          {!videoUrl.trim() && (
-            <p className="text-xs text-amber-400">A video link is required to submit results.</p>
-          )}
           <button
             onClick={onSubmit}
-            disabled={submit.kind === "submitting" || !videoUrl.trim()}
+            disabled={submit.kind === "submitting"}
             className="rounded-lg bg-emerald-600 px-6 py-2 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
             {submit.kind === "submitting" ? "Submitting…" : "Submit results"}
           </button>
+          <p className="text-xs text-zinc-500">You can upload your video from the event page after submitting.</p>
           {submit.kind === "error" && (
             <p className="text-sm text-red-400">{submit.message}</p>
           )}

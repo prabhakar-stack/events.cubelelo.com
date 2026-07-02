@@ -382,7 +382,7 @@ export async function registerCompetitionRoutes(
                   roundNumber: r.roundNumber,
                   userStatus: userRoundStatus,
                   result: result
-                    ? { rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs }
+                    ? { id: result.id, rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs, videoUrl: result.videoUrl }
                     : null,
                 };
               }),
@@ -420,6 +420,7 @@ export async function registerCompetitionRoutes(
           endsAt: competition.endsAt ?? null,
           type: competition.type,
           cancellationReason: competition.cancellationReason ?? null,
+          videoDeadlineMinutes: competition.videoDeadlineMinutes,
         },
         event: {
           id: event.id,

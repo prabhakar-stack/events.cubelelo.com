@@ -191,7 +191,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 async function sendJson<T>(
-  method: "POST" | "PATCH",
+  method: "POST" | "PATCH" | "DELETE",
   path: string,
   body?: object,
 ): Promise<T> {
@@ -290,7 +290,7 @@ export interface EventUserRound {
   roundId: string;
   roundNumber: number;
   userStatus: string;
-  result: { rank: number | null; ao5Ms: number | null; bestSingleMs: number | null } | null;
+  result: { id: string; rank: number | null; ao5Ms: number | null; bestSingleMs: number | null; videoUrl: string | null } | null;
 }
 
 export interface EventPageData {
@@ -303,6 +303,7 @@ export interface EventPageData {
     endsAt: string | null;
     type: string;
     cancellationReason: string | null;
+    videoDeadlineMinutes: number;
   };
   event: {
     id: string;
@@ -592,10 +593,12 @@ export function verifyResult(
   resultId: string,
   action: string,
   reason?: string,
+  comment?: string,
 ): Promise<{ id: string; flagStatus: string }> {
   return sendJson("POST", `/api/v1/admin/results/${resultId}/verify`, {
     action,
     reason,
+    comment,
   });
 }
 
@@ -1010,6 +1013,24 @@ export async function sendRoundNotification(
   return res.json();
 }
 
+export function updateResultVideo(
+  resultId: string,
+  videoUrl: string,
+): Promise<{ ok: boolean; videoUrl: string }> {
+  return sendJson("PATCH", `/api/v1/results/${resultId}/video`, { videoUrl });
+}
+
+export async function publishRoundResults(
+  roundId: string,
+): Promise<{ sent: boolean; recipientCount: number; sentCount: number; eventCompleted: boolean; competitionCompleted: boolean }> {
+  const res = await fetch(`${BASE_URL}/api/v1/admin/rounds/${roundId}/publish`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Publish failed: ${res.status}`);
+  return res.json();
+}
+
 // ── Avatar upload ───────────────────────────────────────────────────────
 
 export async function uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
@@ -1328,4 +1349,99 @@ export async function fetchDailyChallenge(): Promise<DailyChallengeResponse> {
 
 export async function submitDailyChallenge(timeMs: number): Promise<{ result: DailyChallengeResultDto; streak: number }> {
   return sendJson<{ result: DailyChallengeResultDto; streak: number }>("POST", "/api/v1/daily-challenge/submit", { timeMs });
+}
+
+// ── Verification management ──────────────────────────────────────────────────
+
+export interface VerificationResultDto {
+  id: string;
+  userId: string;
+  userName: string;
+  userClId: string;
+  eventType: string;
+  roundNumber: number;
+  solves: Solve[];
+  bestSingleMs: number | null;
+  ao5Ms: number | null;
+  videoUrl: string | null;
+  flagStatus: string;
+  verifiedBy: string | null;
+  verifiedByName?: string | null;
+  verifiedAt: string | null;
+  verificationComment?: string | null;
+  submittedAt: string;
+  rank: number | null;
+}
+
+export interface JudgeAssignmentDto {
+  id: string;
+  judgeId: string;
+  judgeName: string;
+  judgeClId: string;
+  assignedAt: string;
+  verifiedCount: number;
+  totalResults: number;
+}
+
+export interface AvailableJudgeDto {
+  id: string;
+  name: string;
+  clId: string;
+  role: string;
+}
+
+export function fetchRoundResults(roundId: string): Promise<VerificationResultDto[]> {
+  return getJson<VerificationResultDto[]>(`/api/v1/admin/verification/rounds/${roundId}/results`);
+}
+
+export function fetchRoundJudges(roundId: string): Promise<JudgeAssignmentDto[]> {
+  return getJson<JudgeAssignmentDto[]>(`/api/v1/admin/verification/rounds/${roundId}/judges`);
+}
+
+export function fetchAvailableJudges(): Promise<AvailableJudgeDto[]> {
+  return getJson<AvailableJudgeDto[]>("/api/v1/admin/verification/judges");
+}
+
+export function assignJudge(judgeId: string, roundId: string): Promise<{ id: string }> {
+  return sendJson("POST", "/api/v1/admin/verification/assign", { judgeId, roundId });
+}
+
+export function unassignJudge(assignmentId: string): Promise<{ ok: boolean }> {
+  return sendJson("DELETE", `/api/v1/admin/verification/assign/${assignmentId}`, {});
+}
+
+// ── Judge panel ──────────────────────────────────────────────────────────────
+
+export interface JudgeRoundDto {
+  id: string;
+  roundId: string;
+  roundNumber: number | null;
+  roundStatus: string;
+  eventType: string;
+  competitionId: string | null;
+  competitionTitle: string;
+  assignedAt: string;
+  totalResults: number;
+  verifiedCount: number;
+}
+
+export function fetchJudgeAssignments(): Promise<JudgeRoundDto[]> {
+  return getJson<JudgeRoundDto[]>("/api/v1/judge/assignments");
+}
+
+export function fetchJudgeRoundResults(roundId: string): Promise<VerificationResultDto[]> {
+  return getJson<VerificationResultDto[]>(`/api/v1/judge/rounds/${roundId}/results`);
+}
+
+export function judgeVerifyResult(
+  resultId: string,
+  action: string,
+  reason?: string,
+  comment?: string,
+): Promise<{ id: string; flagStatus: string }> {
+  return sendJson("POST", `/api/v1/judge/results/${resultId}/verify`, {
+    action,
+    reason,
+    comment,
+  });
 }

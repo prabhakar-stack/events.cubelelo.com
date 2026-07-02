@@ -21,6 +21,7 @@ import type {
   Banner,
   FaqEntry,
   ContentPage,
+  JudgeAssignment,
 } from "./types";
 
 export interface Repository {
@@ -192,6 +193,13 @@ export interface Repository {
     findById(id: string): Promise<ContentPage | null>;
     create(page: ContentPage): Promise<void>;
     update(id: string, fields: Partial<ContentPage>): Promise<ContentPage | null>;
+    delete(id: string): Promise<void>;
+  };
+
+  judgeAssignments: {
+    findByRound(roundId: string): Promise<JudgeAssignment[]>;
+    findByJudge(judgeId: string): Promise<JudgeAssignment[]>;
+    create(assignment: JudgeAssignment): Promise<void>;
     delete(id: string): Promise<void>;
   };
 

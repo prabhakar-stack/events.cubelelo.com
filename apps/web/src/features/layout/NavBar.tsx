@@ -196,6 +196,16 @@ export function NavBar() {
                     router.push("/settings");
                   }}
                 />
+                {(user.role === "judge" || user.role === "moderator" || user.role === "admin") && (
+                  <DropdownItem
+                    icon={<AdminIcon />}
+                    label="Judge Panel"
+                    onClick={() => {
+                      setShowDropdown(false);
+                      router.push("/judge/verifications");
+                    }}
+                  />
+                )}
                 {(user.role === "admin" || user.role === "super_admin") && (
                   <DropdownItem
                     icon={<AdminIcon />}

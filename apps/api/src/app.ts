@@ -16,6 +16,7 @@ import { registerRegistrationRoutes } from "./modules/registration/routes";
 import { registerPaymentRoutes } from "./modules/payments/routes";
 import { registerUserRoutes } from "./modules/users/routes";
 import { registerPracticeRoutes } from "./modules/practice/routes";
+import { registerJudgeRoutes } from "./modules/judge/routes";
 
 /** Build the Fastify app around a repository, realtime emitter, and auth verifier. */
 export async function buildApp(
@@ -56,6 +57,7 @@ export async function buildApp(
   await registerPaymentRoutes(app, repo);
   await registerUserRoutes(app, repo);
   await registerPracticeRoutes(app, repo);
+  await registerJudgeRoutes(app, repo, realtime);
 
   return app;
 }
