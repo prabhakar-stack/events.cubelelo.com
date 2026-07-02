@@ -8,7 +8,7 @@ import { useAuth } from "@/features/auth/AuthProvider";
 export default function RegisterPage() {
   const { user, register, signInGoogle, supabaseEnabled } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [name, setName] = useState("");
@@ -36,7 +36,7 @@ export default function RegisterPage() {
   }
 
   const onRegister = async () => {
-    if (!email.trim() || !password) return;
+    if (!identifier.trim() || !password) return;
     if (password !== confirm) {
       setError("Passwords do not match");
       return;
@@ -48,8 +48,8 @@ export default function RegisterPage() {
     setBusy(true);
     setError(null);
     try {
-      await register(email.trim(), password, name.trim() || undefined);
-      router.push("/");
+      const { otpSentTo } = await register(identifier.trim(), password, name.trim() || undefined);
+      router.push(`/verify?type=${otpSentTo}&value=${encodeURIComponent(identifier.trim())}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -85,7 +85,7 @@ export default function RegisterPage() {
 
       <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          {supabaseEnabled ? "Or create with email" : "Create account"}
+          {supabaseEnabled ? "Or create with email / mobile" : "Create account"}
         </p>
         <div className="space-y-3">
           <div>
@@ -99,12 +99,12 @@ export default function RegisterPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-zinc-500">Email</label>
+            <label className="mb-1 block text-xs text-zinc-500">Email or Mobile Number</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="you@example.com or 9876543210"
               className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 dark:focus:border-zinc-500"
             />
           </div>
@@ -130,7 +130,7 @@ export default function RegisterPage() {
           </div>
           <button
             onClick={onRegister}
-            disabled={busy || !email.trim() || !password || !confirm}
+            disabled={busy || !identifier.trim() || !password || !confirm}
             className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
             {busy ? "Creating account…" : "Create account"}

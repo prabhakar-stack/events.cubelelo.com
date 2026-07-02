@@ -20,8 +20,8 @@ interface AuthState {
   setUser: (user: AuthUser | null) => void;
   setLoading: (loading: boolean) => void;
   signInDev: (email: string, name?: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name?: string) => Promise<void>;
+  signIn: (identifier: string, password: string) => Promise<void>;
+  register: (identifier: string, password: string, name?: string) => Promise<{ otpSentTo: "email" | "mobile" }>;
   signInGoogle: () => Promise<void>;
   verifyWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -43,18 +43,19 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ user: await syncUser() });
   },
 
-  signIn: async (email, password) => {
-    const { token } = await authLogin(email, password);
+  signIn: async (identifier, password) => {
+    const { token } = await authLogin(identifier, password);
     localStorage.setItem(TOKEN_KEY, token);
     setAuthToken(token);
     set({ user: await fetchMe().catch(() => syncUser()) });
   },
 
-  register: async (email, password, name?) => {
-    const { token } = await authRegister(email, password, name);
+  register: async (identifier, password, name?) => {
+    const { token, otpSentTo } = await authRegister(identifier, password, name);
     localStorage.setItem(TOKEN_KEY, token);
     setAuthToken(token);
     set({ user: await fetchMe().catch(() => syncUser()) });
+    return { otpSentTo };
   },
 
   signInGoogle: async () => {

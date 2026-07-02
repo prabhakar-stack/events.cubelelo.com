@@ -37,7 +37,7 @@ function toUser(r: Row): User {
   return {
     id: r.id as string,
     clId: r.cl_id as string,
-    email: r.email as string,
+    email: (r.email as string) ?? "",
     name: r.name as string,
     lastName: (r.last_name as string) ?? undefined,
     gender: (r.gender as string) ?? undefined,
@@ -52,6 +52,7 @@ function toUser(r: Row): User {
     wcaVerified: r.wca_verified as boolean,
     passwordHash: (r.password_hash as string) ?? undefined,
     emailVerified: (r.email_verified as boolean) ?? false,
+    mobileVerified: (r.mobile_verified as boolean) ?? false,
     profilePrivacy: (r.profile_privacy as User["profilePrivacy"]) ?? "public",
     role: r.role as User["role"],
     accountStage: r.account_stage as User["accountStage"],
@@ -214,6 +215,10 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
         return rows[0] ? toUser(rows[0]) : null;
       },
+      async findByMobileNo(mobileNo) {
+        const { rows } = await pool.query("SELECT * FROM users WHERE mobile_no = $1", [mobileNo]);
+        return rows[0] ? toUser(rows[0]) : null;
+      },
       async findByClId(clId) {
         const { rows } = await pool.query("SELECT * FROM users WHERE cl_id = $1", [clId]);
         return rows[0] ? toUser(rows[0]) : null;
@@ -223,16 +228,16 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           `INSERT INTO users
              (id, cl_id, email, name, last_name, gender, dob, mobile_no, city, state,
               country, avatar_url, instagram, wca_id, wca_verified, role, account_stage,
-              email_verified, password_hash,
+              email_verified, mobile_verified, password_hash,
               created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$20)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21)`,
           [
-            user.id, user.clId, user.email, user.name,
+            user.id, user.clId, user.email || null, user.name,
             user.lastName ?? null, user.gender ?? null, user.dob ?? null,
             user.mobileNo ?? null, user.city ?? null, user.state ?? null,
             user.country ?? null, user.avatarUrl ?? null, user.instagram ?? null,
             user.wcaId ?? null, user.wcaVerified, user.role, user.accountStage,
-            user.emailVerified ?? false, user.passwordHash ?? null,
+            user.emailVerified ?? false, user.mobileVerified ?? false, user.passwordHash ?? null,
             user.createdAt,
           ],
         );
@@ -243,7 +248,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           mobileNo: "mobile_no", city: "city", state: "state", country: "country",
           avatarUrl: "avatar_url", instagram: "instagram", wcaId: "wca_id",
           wcaVerified: "wca_verified", role: "role", accountStage: "account_stage",
-          emailVerified: "email_verified", passwordHash: "password_hash",
+          emailVerified: "email_verified", mobileVerified: "mobile_verified", passwordHash: "password_hash",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);

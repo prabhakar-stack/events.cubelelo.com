@@ -28,8 +28,10 @@ export interface AuthUser {
   country?: string;
   instagram?: string;
   wcaId?: string;
+  mobileNo?: string;
   wcaVerified?: boolean;
   emailVerified?: boolean;
+  mobileVerified?: boolean;
 }
 
 export interface AdvancementCriteria {
@@ -348,18 +350,18 @@ export function devLogin(
 }
 
 export function authRegister(
-  email: string,
+  identifier: string,
   password: string,
   name?: string,
-): Promise<{ token: string }> {
-  return sendJson("POST", `/api/v1/auth/register`, { email, password, name });
+): Promise<{ token: string; otpSentTo: "email" | "mobile" }> {
+  return sendJson("POST", `/api/v1/auth/register`, { identifier, password, name });
 }
 
 export function authLogin(
-  email: string,
+  identifier: string,
   password: string,
 ): Promise<{ token: string }> {
-  return sendJson("POST", `/api/v1/auth/login`, { email, password });
+  return sendJson("POST", `/api/v1/auth/login`, { identifier, password });
 }
 
 export function verifyEmailWithGoogle(
@@ -378,6 +380,14 @@ export function verifyEmail(token: string): Promise<{ ok: boolean }> {
 
 export function resendVerification(): Promise<{ ok: boolean }> {
   return sendJson("POST", `/api/v1/auth/resend-verification`);
+}
+
+export function sendOtp(type: "email" | "mobile", value: string): Promise<{ ok: boolean }> {
+  return sendJson("POST", `/api/v1/auth/send-otp`, { type, value });
+}
+
+export function verifyOtp(type: "email" | "mobile", value: string, code: string): Promise<{ ok: boolean }> {
+  return sendJson("POST", `/api/v1/auth/verify-otp`, { type, value, code });
 }
 
 export function forgotPassword(email: string): Promise<{ ok: boolean }> {

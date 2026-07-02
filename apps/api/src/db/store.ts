@@ -88,6 +88,7 @@ export async function seed(db: Db): Promise<void> {
     role: "admin",
     wcaVerified: false,
     emailVerified: true,
+    mobileVerified: false,
     profilePrivacy: "public",
     accountStage: "active",
     createdAt: now,

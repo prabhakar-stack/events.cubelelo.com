@@ -29,6 +29,9 @@ export async function registerRegistrationRoutes(
       if (!user.emailVerified) {
         return reply.code(403).send({ error: "email_not_verified" });
       }
+      if (!user.mobileVerified) {
+        return reply.code(403).send({ error: "mobile_not_verified" });
+      }
 
       const existing = await repo.registrations.findByUserAndComp(user.id, comp.id);
       if (existing) return reply.code(409).send({ error: "already_registered" });

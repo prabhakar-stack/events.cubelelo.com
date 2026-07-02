@@ -1468,6 +1468,7 @@ export async function registerAdminRoutes(
       role: role as "judge" | "moderator" | "admin",
       wcaVerified: false,
       emailVerified: false,
+      mobileVerified: false,
       profilePrivacy: "public" as const,
       accountStage: "active" as const,
       createdAt: now,

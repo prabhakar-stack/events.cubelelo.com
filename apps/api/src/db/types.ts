@@ -27,6 +27,7 @@ export interface User {
   wcaVerified: boolean;
   passwordHash?: string;
   emailVerified: boolean;
+  mobileVerified: boolean;
   profilePrivacy: "public" | "private";
   role: UserRole;
   accountStage: AccountStage;

@@ -83,7 +83,7 @@ function RegisterContent() {
 
   const handleRegister = async () => {
     if (selected.size === 0) return;
-    if (user && !user.emailVerified) {
+    if (user && (!user.emailVerified || !user.mobileVerified)) {
       setShowVerifyPopup(true);
       return;
     }
@@ -263,10 +263,10 @@ function RegisterContent() {
               </svg>
             </div>
             <h3 className="mb-2 text-lg font-bold text-zinc-900 dark:text-white">
-              Email Not Verified
+              Verification Required
             </h3>
             <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
-              You need to verify your email before you can register for competitions. Go to Settings to verify with Google.
+              You need to verify both your email and mobile number before you can register for competitions. Go to Settings to complete verification.
             </p>
             <div className="flex gap-3">
               <button

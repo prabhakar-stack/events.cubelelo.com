@@ -78,6 +78,9 @@ export function createMemRepo(): Repository {
       async findByEmail(email) {
         return [...users.values()].find((u) => u.email === email) ?? null;
       },
+      async findByMobileNo(mobileNo) {
+        return [...users.values()].find((u) => u.mobileNo === mobileNo) ?? null;
+      },
       async findByClId(clId) {
         return [...users.values()].find((u) => u.clId === clId) ?? null;
       },

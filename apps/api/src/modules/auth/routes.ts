@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomInt } from "node:crypto";
 import { SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import type { FastifyInstance } from "fastify";
@@ -7,11 +7,31 @@ import type { User } from "../../db/types";
 import { env } from "../../config/env";
 import { requireAuth } from "../../auth/plugin";
 import type { Verifier } from "../../auth/verifier";
-import { emailService, verificationEmail, passwordResetEmail } from "../../lib/email";
+import { emailService, verificationEmail, passwordResetEmail, otpEmail } from "../../lib/email";
+import { smsService } from "../../lib/sms";
 import { authLimiter, loginLimiter, passwordResetLimiter } from "../../lib/rateLimiter";
 
 // In-memory token store — swap for Redis/DB in production
 const emailTokens = new Map<string, { userId: string; type: "verify" | "reset"; expiresAt: number }>();
+
+// OTP store: keyed by `${type}:${identifier}` (e.g. "email:foo@bar.com" or "mobile:+919876543210")
+const otpStore = new Map<string, { code: string; userId: string; expiresAt: number }>();
+
+function generateOtp(): string {
+  return String(randomInt(100000, 999999));
+}
+
+function isEmail(input: string): boolean {
+  return input.includes("@");
+}
+
+function normalizeMobile(input: string): string {
+  let cleaned = input.replace(/[\s\-()]/g, "");
+  if (!cleaned.startsWith("+")) {
+    cleaned = "+91" + cleaned;
+  }
+  return cleaned;
+}
 
 export async function registerAuthRoutes(
   app: FastifyInstance,
@@ -62,6 +82,7 @@ export async function registerAuthRoutes(
           role: "user",
           wcaVerified: false,
           emailVerified: true,
+          mobileVerified: false,
           profilePrivacy: "public",
           accountStage: "active",
           createdAt: new Date().toISOString(),
@@ -78,46 +99,70 @@ export async function registerAuthRoutes(
     return user;
   });
 
-  // Email + password registration
-  app.post<{ Body: { email?: string; password?: string; name?: string } }>(
+  // Email/mobile + password registration
+  app.post<{ Body: { identifier?: string; password?: string; name?: string } }>(
     "/api/v1/auth/register",
     { preHandler: authLimiter },
     async (req, reply) => {
-      const email = req.body?.email?.trim().toLowerCase();
+      const identifier = req.body?.identifier?.trim().toLowerCase();
       const password = req.body?.password;
       const name = req.body?.name?.trim();
-      if (!email || !password) {
-        return reply.code(400).send({ error: "email_and_password_required" });
+      if (!identifier || !password) {
+        return reply.code(400).send({ error: "identifier_and_password_required" });
       }
       if (password.length < 6) {
         return reply.code(400).send({ error: "password_too_short" });
       }
-      const existing = await repo.users.findByEmail(email);
-      if (existing) {
-        return reply.code(409).send({ error: "email_already_registered" });
+
+      const usingEmail = isEmail(identifier);
+      let email: string | undefined;
+      let mobileNo: string | undefined;
+
+      if (usingEmail) {
+        email = identifier;
+        const existing = await repo.users.findByEmail(email);
+        if (existing) {
+          return reply.code(409).send({ error: "email_already_registered" });
+        }
+      } else {
+        mobileNo = normalizeMobile(identifier);
+        const existing = await repo.users.findByMobileNo(mobileNo);
+        if (existing) {
+          return reply.code(409).send({ error: "mobile_already_registered" });
+        }
       }
+
       const id = randomUUID();
       const passwordHash = await bcrypt.hash(password, 10);
       const user: User = {
         id,
         clId: await repo.users.nextClId(),
-        email,
-        name: name || email.split("@")[0] || email,
+        email: email ?? "",
+        name: name || (usingEmail ? email.split("@")[0] : mobileNo!) || "Cuber",
+        mobileNo,
         passwordHash,
         role: "user",
         wcaVerified: false,
         emailVerified: false,
+        mobileVerified: false,
         profilePrivacy: "public",
         accountStage: "active",
         createdAt: new Date().toISOString(),
       };
       await repo.users.create(user);
 
-      // Send verification email
-      const verifyToken = randomUUID();
-      emailTokens.set(verifyToken, { userId: id, type: "verify", expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
-      const ve = verificationEmail(user.name, verifyToken);
-      await emailService.send({ to: email, subject: ve.subject, html: ve.html });
+      // Send OTP to the identifier used for signup
+      const otp = generateOtp();
+      if (usingEmail) {
+        const otpKey = `email:${email}`;
+        otpStore.set(otpKey, { code: otp, userId: id, expiresAt: Date.now() + 10 * 60 * 1000 });
+        const oe = otpEmail(user.name, otp);
+        await emailService.send({ to: email, subject: oe.subject, html: oe.html });
+      } else {
+        const otpKey = `mobile:${mobileNo}`;
+        otpStore.set(otpKey, { code: otp, userId: id, expiresAt: Date.now() + 10 * 60 * 1000 });
+        await smsService.sendOtp(mobileNo!, otp);
+      }
 
       const secret = new TextEncoder().encode(env.DEV_AUTH_SECRET);
       const token = await new SignJWT({ email, name: user.name })
@@ -126,21 +171,29 @@ export async function registerAuthRoutes(
         .setIssuedAt()
         .setExpirationTime("7d")
         .sign(secret);
-      return { token };
+      return { token, otpSentTo: usingEmail ? "email" : "mobile" };
     },
   );
 
-  // Email + password login
-  app.post<{ Body: { email?: string; password?: string } }>(
+  // Email/mobile + password login
+  app.post<{ Body: { identifier?: string; password?: string } }>(
     "/api/v1/auth/login",
     { preHandler: loginLimiter },
     async (req, reply) => {
-      const email = req.body?.email?.trim().toLowerCase();
+      const identifier = req.body?.identifier?.trim().toLowerCase();
       const password = req.body?.password;
-      if (!email || !password) {
-        return reply.code(400).send({ error: "email_and_password_required" });
+      if (!identifier || !password) {
+        return reply.code(400).send({ error: "identifier_and_password_required" });
       }
-      const user = await repo.users.findByEmail(email);
+
+      const usingEmail = isEmail(identifier);
+      let user: User | null;
+      if (usingEmail) {
+        user = await repo.users.findByEmail(identifier);
+      } else {
+        user = await repo.users.findByMobileNo(normalizeMobile(identifier));
+      }
+
       if (!user || !user.passwordHash) {
         return reply.code(401).send({ error: "invalid_credentials" });
       }
@@ -150,7 +203,7 @@ export async function registerAuthRoutes(
       }
 
       const secret = new TextEncoder().encode(env.DEV_AUTH_SECRET);
-      const token = await new SignJWT({ email, name: user.name })
+      const token = await new SignJWT({ email: user.email, name: user.name })
         .setProtectedHeader({ alg: "HS256" })
         .setSubject(user.id)
         .setIssuedAt()
@@ -160,7 +213,98 @@ export async function registerAuthRoutes(
     },
   );
 
-  // Verify email
+  // ── OTP: Send ──
+  app.post<{ Body: { type?: "email" | "mobile"; value?: string } }>(
+    "/api/v1/auth/send-otp",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const { type, value } = req.body ?? {};
+      if (!type || !value?.trim()) {
+        return reply.code(400).send({ error: "type_and_value_required" });
+      }
+      const user = await repo.users.findById(req.authClaims!.sub);
+      if (!user) return reply.code(404).send({ error: "not_synced" });
+
+      const otp = generateOtp();
+
+      if (type === "email") {
+        const email = value.trim().toLowerCase();
+        // If user is adding/changing email, update it
+        if (!user.email || user.email !== email) {
+          const existing = await repo.users.findByEmail(email);
+          if (existing && existing.id !== user.id) {
+            return reply.code(409).send({ error: "email_already_registered" });
+          }
+          await repo.users.update(user.id, { email, emailVerified: false });
+        }
+        if (user.emailVerified && user.email === email) {
+          return reply.code(409).send({ error: "already_verified" });
+        }
+        const otpKey = `email:${email}`;
+        otpStore.set(otpKey, { code: otp, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
+        const oe = otpEmail(user.name, otp);
+        await emailService.send({ to: email, subject: oe.subject, html: oe.html });
+      } else {
+        const mobile = normalizeMobile(value.trim());
+        if (!user.mobileNo || user.mobileNo !== mobile) {
+          const existing = await repo.users.findByMobileNo(mobile);
+          if (existing && existing.id !== user.id) {
+            return reply.code(409).send({ error: "mobile_already_registered" });
+          }
+          await repo.users.update(user.id, { mobileNo: mobile, mobileVerified: false });
+        }
+        if (user.mobileVerified && user.mobileNo === mobile) {
+          return reply.code(409).send({ error: "already_verified" });
+        }
+        const otpKey = `mobile:${mobile}`;
+        otpStore.set(otpKey, { code: otp, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
+        await smsService.sendOtp(mobile, otp);
+      }
+
+      return { ok: true };
+    },
+  );
+
+  // ── OTP: Verify ──
+  app.post<{ Body: { type?: "email" | "mobile"; value?: string; code?: string } }>(
+    "/api/v1/auth/verify-otp",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const { type, value, code } = req.body ?? {};
+      if (!type || !value?.trim() || !code?.trim()) {
+        return reply.code(400).send({ error: "type_value_code_required" });
+      }
+      const user = await repo.users.findById(req.authClaims!.sub);
+      if (!user) return reply.code(404).send({ error: "not_synced" });
+
+      const normalized = type === "email" ? value.trim().toLowerCase() : normalizeMobile(value.trim());
+      const otpKey = `${type}:${normalized}`;
+      const entry = otpStore.get(otpKey);
+
+      if (!entry || entry.userId !== user.id) {
+        return reply.code(400).send({ error: "invalid_otp" });
+      }
+      if (Date.now() > entry.expiresAt) {
+        otpStore.delete(otpKey);
+        return reply.code(410).send({ error: "otp_expired" });
+      }
+      if (entry.code !== code.trim()) {
+        return reply.code(400).send({ error: "invalid_otp" });
+      }
+
+      otpStore.delete(otpKey);
+
+      if (type === "email") {
+        await repo.users.update(user.id, { emailVerified: true });
+      } else {
+        await repo.users.update(user.id, { mobileVerified: true });
+      }
+
+      return { ok: true, [`${type}Verified`]: true };
+    },
+  );
+
+  // Keep legacy verify-email for old link-based tokens that may still be in inboxes
   app.post<{ Body: { token?: string } }>(
     "/api/v1/auth/verify-email",
     async (req, reply) => {
@@ -180,7 +324,7 @@ export async function registerAuthRoutes(
     },
   );
 
-  // Resend verification email
+  // Resend verification — now sends OTP instead of link
   app.post(
     "/api/v1/auth/resend-verification",
     { preHandler: requireAuth },
@@ -188,11 +332,13 @@ export async function registerAuthRoutes(
       const user = await repo.users.findById(req.authClaims!.sub);
       if (!user) return reply.code(404).send({ error: "not_synced" });
       if (user.emailVerified) return reply.code(409).send({ error: "already_verified" });
+      if (!user.email) return reply.code(400).send({ error: "no_email_set" });
 
-      const verifyToken = randomUUID();
-      emailTokens.set(verifyToken, { userId: user.id, type: "verify", expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
-      const ve = verificationEmail(user.name, verifyToken);
-      await emailService.send({ to: user.email, subject: ve.subject, html: ve.html });
+      const otp = generateOtp();
+      const otpKey = `email:${user.email}`;
+      otpStore.set(otpKey, { code: otp, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
+      const oe = otpEmail(user.name, otp);
+      await emailService.send({ to: user.email, subject: oe.subject, html: oe.html });
       return { ok: true };
     },
   );
@@ -207,7 +353,6 @@ export async function registerAuthRoutes(
 
       const user = await repo.users.findByEmail(email);
       if (!user || !user.passwordHash) {
-        // Don't reveal whether the email exists
         return { ok: true };
       }
 
@@ -270,9 +415,7 @@ export async function registerAuthRoutes(
     },
   );
 
-  // Verify email via Google OAuth — the frontend sends the Supabase access token
-  // from the Google sign-in. We decode it to get the verified Google email, then
-  // find the user by email and set emailVerified = true.
+  // Verify email via Google OAuth
   app.post<{ Body: { googleToken?: string } }>(
     "/api/v1/auth/verify-google",
     async (req, reply) => {
@@ -300,9 +443,7 @@ export async function registerAuthRoutes(
     },
   );
 
-  // Legacy account claim — links a migrated_stub profile to the current Google login.
-  // The stub was created by the ETL from the old cubelelo-event database.
-  // We copy the stub's CL ID + profile onto the current user, then deactivate the stub.
+  // Legacy account claim
   app.post<{ Body: { legacyClId?: string; legacyEmail?: string } }>(
     "/api/v1/auth/migrate-claim",
     { preHandler: requireAuth },
@@ -315,7 +456,6 @@ export async function registerAuthRoutes(
       const current = await repo.users.findById(req.authClaims!.sub);
       if (!current) return reply.code(404).send({ error: "not_synced" });
 
-      // Find the stub by old CL ID or email
       const stub = legacyClId
         ? await repo.users.findByClId(legacyClId)
         : await repo.users.findByEmail(legacyEmail!);
@@ -328,7 +468,6 @@ export async function registerAuthRoutes(
         return reply.code(409).send({ error: "already_same_account" });
       }
 
-      // Claim: copy the stub's CL ID and legacy profile fields onto the current user
       const claimed = await repo.users.update(current.id, {
         clId: stub.clId,
         name: stub.name || current.name,
@@ -341,7 +480,6 @@ export async function registerAuthRoutes(
         wcaVerified: stub.wcaVerified || current.wcaVerified,
       });
 
-      // Deactivate stub so it cannot be claimed again
       await repo.users.update(stub.id, { accountStage: "banned" });
 
       return claimed;

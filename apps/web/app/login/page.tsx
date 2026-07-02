@@ -8,7 +8,7 @@ import { useAuth } from "@/features/auth/AuthProvider";
 export default function LoginPage() {
   const { user, signIn, signInDev, signInGoogle, signOut, supabaseEnabled } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,11 +41,11 @@ export default function LoginPage() {
   }
 
   const onDev = async () => {
-    if (!email.trim()) return;
+    if (!identifier.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      await signInDev(email.trim(), name.trim() || undefined);
+      await signInDev(identifier.trim(), name.trim() || undefined);
       router.push("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -55,11 +55,11 @@ export default function LoginPage() {
   };
 
   const onLogin = async () => {
-    if (!email.trim() || !password) return;
+    if (!identifier.trim() || !password) return;
     setBusy(true);
     setError(null);
     try {
-      await signIn(email.trim(), password);
+      await signIn(identifier.trim(), password);
       router.push("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -83,10 +83,10 @@ export default function LoginPage() {
 
       <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
         <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          type="email"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          placeholder="Email or Mobile Number"
+          type="text"
           className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
         <input
@@ -98,7 +98,7 @@ export default function LoginPage() {
         />
         <button
           onClick={onLogin}
-          disabled={busy || !email.trim() || !password}
+          disabled={busy || !identifier.trim() || !password}
           className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
         >
           {busy ? "Signing in…" : "Sign in"}
@@ -128,7 +128,7 @@ export default function LoginPage() {
           />
           <button
             onClick={onDev}
-            disabled={busy || !email.trim()}
+            disabled={busy || !identifier.trim()}
             className="w-full rounded-lg bg-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-400 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600 disabled:opacity-50"
           >
             Dev Sign in

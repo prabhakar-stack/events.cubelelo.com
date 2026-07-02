@@ -1,3 +1,4 @@
+import { createTransport } from "nodemailer";
 import { env } from "../config/env";
 
 interface EmailMessage {
@@ -10,23 +11,27 @@ interface EmailService {
   send(msg: EmailMessage): Promise<boolean>;
 }
 
-function createResendService(apiKey: string): EmailService {
+function createSmtpService(): EmailService {
+  const transporter = createTransport({
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    secure: env.SMTP_PORT === 465,
+    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+  });
   return {
     async send(msg) {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      try {
+        await transporter.sendMail({
           from: env.EMAIL_FROM,
           to: msg.to,
           subject: msg.subject,
           html: msg.html,
-        }),
-      });
-      return res.ok;
+        });
+        return true;
+      } catch (err) {
+        console.error("[EMAIL] SMTP send failed:", err);
+        return false;
+      }
     },
   };
 }
@@ -40,9 +45,16 @@ function createConsoleService(): EmailService {
   };
 }
 
-export const emailService: EmailService = env.RESEND_API_KEY
-  ? createResendService(env.RESEND_API_KEY)
-  : createConsoleService();
+function pickService(): EmailService {
+  if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) {
+    console.log(`[EMAIL] Service: SMTP (${env.SMTP_HOST}:${env.SMTP_PORT})`);
+    return createSmtpService();
+  }
+  console.log("[EMAIL] Service: Console (no SMTP configured)");
+  return createConsoleService();
+}
+
+export const emailService: EmailService = pickService();
 
 export function verificationEmail(name: string, token: string): { subject: string; html: string } {
   const link = `${env.APP_URL}/verify-email?token=${token}`;
@@ -55,6 +67,21 @@ export function verificationEmail(name: string, token: string): { subject: strin
         <a href="${link}" style="display:inline-block;background:#059669;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Verify Email</a>
         <p style="margin-top:24px;font-size:12px;color:#71717a">If you didn't create an account, you can ignore this email.</p>
         <p style="font-size:12px;color:#71717a">Or copy this link: ${link}</p>
+      </div>
+    `,
+  };
+}
+
+export function otpEmail(name: string, otp: string): { subject: string; html: string } {
+  return {
+    subject: `${otp} — Cubelelo Events verification code`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+        <h2>Hi ${name},</h2>
+        <p>Your verification code is:</p>
+        <div style="font-size:32px;font-weight:700;letter-spacing:6px;text-align:center;margin:24px 0;color:#059669">${otp}</div>
+        <p style="font-size:14px;color:#71717a">This code expires in 10 minutes.</p>
+        <p style="margin-top:24px;font-size:12px;color:#71717a">If you didn't request this, you can ignore this email.</p>
       </div>
     `,
   };

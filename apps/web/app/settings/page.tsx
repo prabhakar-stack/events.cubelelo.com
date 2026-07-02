@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthProvider";
 import Link from "next/link";
 import { RouteGuard } from "@/features/auth/RouteGuard";
-import { updateMyProfile, uploadAvatar, changePassword, deleteMyAccount, verifyEmailWithGoogle, setAuthToken } from "@/lib/api";
+import { updateMyProfile, uploadAvatar, changePassword, deleteMyAccount, verifyEmailWithGoogle, setAuthToken, sendOtp, verifyOtp } from "@/lib/api";
 import { useTheme } from "@/features/theme/ThemeProvider";
 import { getSupabase } from "@/lib/supabase";
 
@@ -63,9 +63,7 @@ function SettingsContent() {
       } finally {
         if (!cancelled) setVerifying(false);
       }
-      // Sign out of Supabase so the user stays on their email/password session
       await sb.auth.signOut();
-      // Restore the original HS256 token from localStorage
       const origToken = localStorage.getItem("cubers_token");
       if (origToken) setAuthToken(origToken);
       window.history.replaceState({}, "", "/settings");
@@ -108,7 +106,7 @@ function SettingsContent() {
       <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
         <span className="font-mono text-emerald-600 dark:text-emerald-400">{user!.clId}</span>
         {" · "}
-        {user!.email}
+        {user!.email || "No email set"}
       </p>
 
       <div className="mb-6 flex items-center gap-4">
@@ -189,24 +187,45 @@ function SettingsContent() {
 
       {/* Email Verification */}
       {!user!.emailVerified && (
-        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-900/20">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Email Not Verified</p>
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                Verify your email to participate in competitions
-              </p>
-            </div>
-            <button
-              onClick={() => verifyWithGoogle()}
-              disabled={verifying}
-              className="rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:opacity-50"
-            >
-              {verifying ? "Verifying…" : "Verify with Google"}
-            </button>
-          </div>
-          {verifyMsg && <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">{verifyMsg}</p>}
-          {verifyError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{verifyError}</p>}
+        <OtpVerifySection
+          type="email"
+          currentValue={user!.email}
+          label="Email"
+          placeholder="you@example.com"
+          icon="&#x2709;"
+          onVerified={() => setUser({ ...user!, emailVerified: true })}
+          verifyWithGoogle={verifyWithGoogle}
+          verifying={verifying}
+          verifyMsg={verifyMsg}
+          verifyError={verifyError}
+        />
+      )}
+
+      {/* Mobile Verification */}
+      {!user!.mobileVerified && (
+        <OtpVerifySection
+          type="mobile"
+          currentValue={user!.mobileNo || ""}
+          label="Mobile Number"
+          placeholder="+919876543210"
+          icon="&#x1F4F1;"
+          onVerified={() => setUser({ ...user!, mobileVerified: true })}
+        />
+      )}
+
+      {/* Verification status badges */}
+      {(user!.emailVerified || user!.mobileVerified) && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {user!.emailVerified && (
+            <span className="rounded-full bg-emerald-900/30 px-3 py-1 text-xs font-semibold text-emerald-400">
+              Email Verified
+            </span>
+          )}
+          {user!.mobileVerified && (
+            <span className="rounded-full bg-emerald-900/30 px-3 py-1 text-xs font-semibold text-emerald-400">
+              Mobile Verified
+            </span>
+          )}
         </div>
       )}
 
@@ -338,6 +357,145 @@ function SettingsContent() {
         </button>
       </div>
     </main>
+  );
+}
+
+function OtpVerifySection({
+  type,
+  currentValue,
+  label,
+  placeholder,
+  icon,
+  onVerified,
+  verifyWithGoogle,
+  verifying,
+  verifyMsg,
+  verifyError,
+}: {
+  type: "email" | "mobile";
+  currentValue: string;
+  label: string;
+  placeholder: string;
+  icon: string;
+  onVerified: () => void;
+  verifyWithGoogle?: () => void;
+  verifying?: boolean;
+  verifyMsg?: string | null;
+  verifyError?: string | null;
+}) {
+  const [value, setValue] = useState(currentValue);
+  const [otpSent, setOtpSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [sending, setSending] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const handleSendOtp = async () => {
+    if (!value.trim()) return;
+    setSending(true);
+    setError(null);
+    try {
+      await sendOtp(type, value.trim());
+      setOtpSent(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!code.trim() || code.trim().length !== 6) return;
+    setChecking(true);
+    setError(null);
+    try {
+      await verifyOtp(type, value.trim(), code.trim());
+      setSuccess(true);
+      onVerified();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  if (success) return null;
+
+  return (
+    <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-900/20">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-lg">{icon}</span>
+        <div>
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">{label} Not Verified</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Verify your {label.toLowerCase()} to participate in competitions
+          </p>
+        </div>
+      </div>
+
+      {!otpSent ? (
+        <div className="mt-2 flex gap-2">
+          <input
+            type={type === "email" ? "email" : "tel"}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={placeholder}
+            className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:border-amber-500 focus:outline-none dark:border-amber-700 dark:bg-zinc-900 dark:text-zinc-100"
+          />
+          <button
+            onClick={handleSendOtp}
+            disabled={sending || !value.trim()}
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:opacity-50"
+          >
+            {sending ? "Sending…" : "Send OTP"}
+          </button>
+          {type === "email" && verifyWithGoogle && (
+            <button
+              onClick={verifyWithGoogle}
+              disabled={verifying}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-zinc-900 dark:text-amber-200"
+            >
+              {verifying ? "…" : "Google"}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            OTP sent to <span className="font-medium">{value}</span>
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="Enter 6-digit code"
+              className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-center text-sm font-bold tracking-widest focus:border-amber-500 focus:outline-none dark:border-amber-700 dark:bg-zinc-900 dark:text-zinc-100"
+              autoFocus
+            />
+            <button
+              onClick={handleVerify}
+              disabled={checking || code.length !== 6}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {checking ? "…" : "Verify"}
+            </button>
+          </div>
+          <button
+            onClick={() => { setOtpSent(false); setCode(""); setError(null); }}
+            className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400"
+          >
+            Change {label.toLowerCase()} / Resend
+          </button>
+        </div>
+      )}
+      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {verifyMsg && <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">{verifyMsg}</p>}
+      {verifyError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{verifyError}</p>}
+    </div>
   );
 }
 

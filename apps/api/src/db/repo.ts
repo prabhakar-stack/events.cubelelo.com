@@ -28,6 +28,7 @@ export interface Repository {
     findAll(search?: string): Promise<User[]>;
     findById(id: string): Promise<User | null>;
     findByEmail(email: string): Promise<User | null>;
+    findByMobileNo(mobileNo: string): Promise<User | null>;
     findByClId(clId: string): Promise<User | null>;
     create(user: User): Promise<void>;
     update(id: string, fields: Partial<User>): Promise<User | null>;
