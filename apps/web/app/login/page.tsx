@@ -6,11 +6,10 @@ import Link from "next/link";
 import { useAuth } from "@/features/auth/AuthProvider";
 
 export default function LoginPage() {
-  const { user, signIn, signInDev, signInGoogle, signOut, supabaseEnabled } = useAuth();
+  const { user, signIn, signInGoogle, signOut, supabaseEnabled } = useAuth();
   const router = useRouter();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,20 +38,6 @@ export default function LoginPage() {
       </main>
     );
   }
-
-  const onDev = async () => {
-    if (!identifier.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await signInDev(identifier.trim(), name.trim() || undefined);
-      router.push("/");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const onLogin = async () => {
     if (!identifier.trim() || !password) return;
@@ -117,27 +102,6 @@ export default function LoginPage() {
         </Link>
       </div>
 
-      {process.env.NODE_ENV !== "production" && (
-        <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-          <div className="text-xs uppercase tracking-wide text-zinc-500">Dev sign-in</div>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="display name (optional)"
-            className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-          />
-          <button
-            onClick={onDev}
-            disabled={busy || !identifier.trim()}
-            className="w-full rounded-lg bg-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-400 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600 disabled:opacity-50"
-          >
-            Dev Sign in
-          </button>
-          <p className="text-xs text-zinc-500 dark:text-zinc-600">
-            Tip: use admin@cubelelo.com for demo admin.
-          </p>
-        </div>
-      )}
     </main>
   );
 }

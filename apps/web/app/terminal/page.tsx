@@ -19,6 +19,17 @@ import {
 import type { Solve, SolvePenalty } from "@cubers/types";
 import { useTimer } from "@/features/timer/useTimer";
 import { TwistyPlayer } from "@/features/scramble/TwistyPlayer";
+import { useAuthStore } from "@/stores/authStore";
+import {
+  createPracticeSession,
+  addPracticeSolve,
+  deletePracticeSolve,
+  fetchPracticeSessions,
+  fetchPracticeSession,
+  deletePracticeSession,
+  type PracticeSessionDto,
+  type PracticeSolveDto,
+} from "@/lib/api";
 
 const STORAGE_KEY = "cubers_practice_sessions";
 const TARGET_KEY = "cubers_target_times";
@@ -26,9 +37,12 @@ const TARGET_KEY = "cubers_target_times";
 interface ExtendedSolve extends Solve {
   note?: string;
   scramble?: string;
+  apiId?: string;
 }
 
-function loadSession(eventId: EventId): ExtendedSolve[] {
+// ── localStorage helpers (guest mode fallback) ─────────────────────────
+
+function loadLocalSession(eventId: EventId): ExtendedSolve[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
@@ -39,13 +53,13 @@ function loadSession(eventId: EventId): ExtendedSolve[] {
   }
 }
 
-function saveSession(eventId: EventId, solves: ExtendedSolve[]) {
+function saveLocalSession(eventId: EventId, solves: ExtendedSolve[]) {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const sessions: Record<string, ExtendedSolve[]> = raw ? JSON.parse(raw) : {};
     sessions[eventId] = solves;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  } catch { }
+  } catch {}
 }
 
 function loadTargetTime(eventId: EventId): number | null {
@@ -66,28 +80,90 @@ function saveTargetTime(eventId: EventId, ms: number | null) {
     if (ms === null) delete targets[eventId];
     else targets[eventId] = ms;
     localStorage.setItem(TARGET_KEY, JSON.stringify(targets));
-  } catch { }
+  } catch {}
+}
+
+function apiSolveToLocal(s: PracticeSolveDto): ExtendedSolve {
+  return {
+    time_ms: s.timeMs,
+    penalty: s.penalty,
+    inspectionPenalty: "none",
+    scramble: s.scramble,
+    note: s.note,
+    apiId: s.id,
+  };
 }
 
 export default function PracticeTerminalPage() {
+  const user = useAuthStore((s) => s.user);
+  const isLoggedIn = !!user;
+
   const [eventId, setEventId] = useState<EventId>("333");
   const [solves, setSolves] = useState<ExtendedSolve[]>([]);
   const [scramble, setScramble] = useState<string>("");
   const [scrambleLoading, setScrambleLoading] = useState(true);
   const [pendingPenalty, setPendingPenalty] = useState<SolvePenalty>("none");
   const [pendingNote, setPendingNote] = useState("");
+  const escPendingRef = useRef(false);
   const [targetTime, setTargetTime] = useState<number | null>(null);
   const [showTargetInput, setShowTargetInput] = useState(false);
   const [targetInput, setTargetInput] = useState("");
+
+  const apiSessionId = useRef<string | null>(null);
+  const apiSessionsCache = useRef<PracticeSessionDto[]>([]);
 
   const { snapshot, down, up, reset } = useTimer({ useInspection: true });
   const event = useMemo(() => getEvent(eventId), [eventId]);
   const stoppedRef = useRef(false);
 
+  // Load or create API session for the current event
+  const ensureApiSession = useCallback(async (evId: EventId): Promise<string | null> => {
+    if (!isLoggedIn) return null;
+    try {
+      if (apiSessionsCache.current.length === 0) {
+        apiSessionsCache.current = await fetchPracticeSessions();
+      }
+      const existing = apiSessionsCache.current.find(
+        (s) => s.eventType === evId && !s.endedAt,
+      );
+      if (existing) return existing.id;
+      const created = await createPracticeSession(evId);
+      apiSessionsCache.current.push(created);
+      return created.id;
+    } catch {
+      return null;
+    }
+  }, [isLoggedIn]);
+
+  // Load solves when event changes
   useEffect(() => {
-    setSolves(loadSession(eventId));
+    let cancelled = false;
     setTargetTime(loadTargetTime(eventId));
-  }, [eventId]);
+
+    if (isLoggedIn) {
+      apiSessionId.current = null;
+      (async () => {
+        const sid = await ensureApiSession(eventId);
+        if (cancelled) return;
+        apiSessionId.current = sid;
+        if (sid) {
+          try {
+            const { solves: apiSolves } = await fetchPracticeSession(sid);
+            if (!cancelled) setSolves(apiSolves.map(apiSolveToLocal));
+          } catch {
+            if (!cancelled) setSolves([]);
+          }
+        } else {
+          setSolves([]);
+        }
+      })();
+    } else {
+      apiSessionId.current = null;
+      setSolves(loadLocalSession(eventId));
+    }
+
+    return () => { cancelled = true; };
+  }, [eventId, isLoggedIn, ensureApiSession]);
 
   const genScramble = useCallback(async () => {
     setScrambleLoading(true);
@@ -110,8 +186,6 @@ export default function PracticeTerminalPage() {
       stoppedRef.current = true;
       setPendingPenalty("none");
 
-      // Inspection auto-DNF (>17 s, solve never started): skip Save/Discard
-      // review and auto-save the DNF immediately, then generate next scramble.
       if (
         snapshot.result.inspectionPenalty === "dnf" &&
         snapshot.result.time_ms === 0
@@ -124,9 +198,23 @@ export default function PracticeTerminalPage() {
         };
         setSolves((prev) => {
           const next = [...prev, inspectionDnfSolve];
-          saveSession(eventId, next);
+          if (!isLoggedIn) saveLocalSession(eventId, next);
           return next;
         });
+        if (isLoggedIn && apiSessionId.current) {
+          addPracticeSolve(apiSessionId.current, {
+            timeMs: 0,
+            scramble,
+            penalty: "dnf",
+          }).then((saved) => {
+            setSolves((prev) => {
+              const copy = [...prev];
+              const last = copy[copy.length - 1];
+              if (last && !last.apiId) copy[copy.length - 1] = { ...last, apiId: saved.id };
+              return copy;
+            });
+          }).catch(() => {});
+        }
         reset();
         genScramble();
       }
@@ -147,29 +235,67 @@ export default function PracticeTerminalPage() {
     };
     setSolves((prev) => {
       const next = [...prev, newSolve];
-      saveSession(eventId, next);
+      if (!isLoggedIn) saveLocalSession(eventId, next);
       return next;
     });
+
+    if (isLoggedIn && apiSessionId.current) {
+      const effectivePenalty =
+        newSolve.inspectionPenalty === "dnf" || pendingPenalty === "dnf"
+          ? "dnf"
+          : pendingPenalty === "plus2" || newSolve.inspectionPenalty === "plus2"
+            ? "plus2"
+            : "none";
+      addPracticeSolve(apiSessionId.current, {
+        timeMs: snapshot.result.time_ms,
+        scramble,
+        penalty: effectivePenalty,
+        note: pendingNote.trim() || undefined,
+      }).then((saved) => {
+        setSolves((prev) => {
+          const copy = [...prev];
+          const last = copy[copy.length - 1];
+          if (last && !last.apiId) copy[copy.length - 1] = { ...last, apiId: saved.id };
+          return copy;
+        });
+      }).catch(() => {});
+    }
+
     setPendingNote("");
     reset();
     genScramble();
-  }, [snapshot.result, pendingPenalty, pendingNote, scramble, reset, genScramble, eventId]);
+  }, [snapshot.result, pendingPenalty, pendingNote, scramble, reset, genScramble, eventId, isLoggedIn]);
 
   const deleteSolve = useCallback(
     (index: number) => {
       setSolves((prev) => {
+        const removed = prev[index];
         const next = prev.filter((_, i) => i !== index);
-        saveSession(eventId, next);
+        if (!isLoggedIn) saveLocalSession(eventId, next);
+        if (isLoggedIn && removed?.apiId) {
+          deletePracticeSolve(removed.apiId).catch(() => {});
+        }
         return next;
       });
     },
-    [eventId],
+    [eventId, isLoggedIn],
   );
 
-  const clearSession = useCallback(() => {
+  const clearSession = useCallback(async () => {
+    if (isLoggedIn && apiSessionId.current) {
+      try {
+        await deletePracticeSession(apiSessionId.current);
+        apiSessionsCache.current = apiSessionsCache.current.filter(
+          (s) => s.id !== apiSessionId.current,
+        );
+        const newSid = await ensureApiSession(eventId);
+        apiSessionId.current = newSid;
+      } catch {}
+    } else {
+      saveLocalSession(eventId, []);
+    }
     setSolves([]);
-    saveSession(eventId, []);
-  }, [eventId]);
+  }, [eventId, isLoggedIn, ensureApiSession]);
 
   // Keyboard controls
   useEffect(() => {
@@ -184,7 +310,17 @@ export default function PracticeTerminalPage() {
         e.preventDefault();
         down();
       } else if (e.key === "Escape") {
-        reset();
+        if (snapshot.phase === "stopped" && snapshot.result) {
+          if (escPendingRef.current) {
+            escPendingRef.current = false;
+            reset();
+          } else {
+            escPendingRef.current = true;
+            setTimeout(() => { escPendingRef.current = false; }, 1500);
+          }
+        } else {
+          reset();
+        }
       } else if (e.key === "d" || e.key === "D") {
         if (snapshot.phase === "stopped" && snapshot.result) {
           setPendingPenalty((p) => (p === "dnf" ? "none" : "dnf"));
@@ -254,8 +390,8 @@ export default function PracticeTerminalPage() {
   const handleSetTarget = useCallback(() => {
     const parts = targetInput.trim().split(":").map(Number);
     let ms = 0;
-    if (parts.length === 2) ms = (parts[0] * 60 + parts[1]) * 1000;
-    else if (parts.length === 1) ms = parts[0] * 1000;
+    if (parts.length === 2) ms = (parts[0]! * 60 + parts[1]!) * 1000;
+    else if (parts.length === 1) ms = parts[0]! * 1000;
     if (ms > 0) {
       setTargetTime(ms);
       saveTargetTime(eventId, ms);
@@ -293,6 +429,9 @@ export default function PracticeTerminalPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold">Practice Terminal</h1>
         <div className="flex items-center gap-3">
+          {!isLoggedIn && (
+            <span className="text-xs text-amber-500">Guest mode — solves saved locally only</span>
+          )}
           <select
             value={eventId}
             onChange={(e) => {
@@ -453,7 +592,7 @@ export default function PracticeTerminalPage() {
                 const hitTarget = targetTime && s.penalty !== "dnf" && effectiveTime(s) <= targetTime;
                 return (
                   <li
-                    key={i}
+                    key={s.apiId ?? i}
                     className="group rounded px-2 py-1 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/60"
                   >
                     <div className="flex items-center justify-between">

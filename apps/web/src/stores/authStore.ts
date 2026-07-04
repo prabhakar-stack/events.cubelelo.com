@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import {
+  apiSignOut,
   authLogin,
   authRegister,
-  devLogin,
   fetchMe,
   setAuthToken,
   syncUser,
@@ -19,7 +19,6 @@ interface AuthState {
   supabaseEnabled: boolean;
   setUser: (user: AuthUser | null) => void;
   setLoading: (loading: boolean) => void;
-  signInDev: (email: string, name?: string) => Promise<void>;
   signIn: (identifier: string, password: string) => Promise<void>;
   register: (identifier: string, password: string, name?: string) => Promise<{ otpSentTo: "email" | "mobile" }>;
   signInGoogle: () => Promise<void>;
@@ -35,13 +34,6 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setUser: (user) => set({ user }),
   setLoading: (loading) => set({ loading }),
-
-  signInDev: async (email, name?) => {
-    const { token } = await devLogin(email, name);
-    localStorage.setItem(TOKEN_KEY, token);
-    setAuthToken(token);
-    set({ user: await syncUser() });
-  },
 
   signIn: async (identifier, password) => {
     const { token } = await authLogin(identifier, password);
@@ -78,6 +70,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   signOut: async () => {
+    await apiSignOut();
     const sb = getSupabase();
     if (sb) await sb.auth.signOut();
     localStorage.removeItem(TOKEN_KEY);
@@ -89,19 +82,20 @@ export const useAuthStore = create<AuthState>((set) => ({
     let active = true;
 
     (async () => {
-      const sb = getSupabase();
       let resolved = false;
+      const sb = getSupabase();
 
       if (sb) {
-        const { data } = await sb.auth.getSession();
-        if (data.session) {
-          resolved = true;
-          setAuthToken(data.session.access_token);
-          try {
+        try {
+          const { data } = await sb.auth.getSession();
+          if (data.session) {
+            resolved = true;
+            setAuthToken(data.session.access_token);
             const u = await syncUser();
             if (active) set({ user: u });
-          } catch {}
-        }
+          }
+        } catch {}
+
         sb.auth.onAuthStateChange(async (_event, session) => {
           if (session) {
             setAuthToken(session.access_token);

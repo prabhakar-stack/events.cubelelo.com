@@ -343,13 +343,6 @@ export function fetchLeaderboard(roundId: string): Promise<ResultDto[]> {
 }
 
 // ── Auth ──
-export function devLogin(
-  email: string,
-  name?: string,
-): Promise<{ token: string }> {
-  return sendJson("POST", `/api/v1/auth/dev-login`, { email, name });
-}
-
 export function authRegister(
   identifier: string,
   password: string,
@@ -373,6 +366,13 @@ export function verifyEmailWithGoogle(
 
 export function syncUser(): Promise<AuthUser> {
   return sendJson("POST", `/api/v1/auth/sync`);
+}
+
+export async function apiSignOut(): Promise<void> {
+  await fetch(`${BASE_URL}/api/v1/auth/sign-out`, {
+    method: "POST",
+    headers: authHeaders(),
+  }).catch(() => {});
 }
 
 export function verifyEmail(token: string): Promise<{ ok: boolean }> {
@@ -717,10 +717,11 @@ export function updateAnnouncement(
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {
-  await fetch(`${typeof window !== "undefined" ? "" : ""}${BASE_URL}/api/v1/admin/announcements/${id}`, {
+  const res = await fetch(`${typeof window !== "undefined" ? "" : ""}${BASE_URL}/api/v1/admin/announcements/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
+  if (!res.ok) throw new Error(`Delete announcement failed: ${res.status}`);
 }
 
 export async function uploadAnnouncementImage(id: string, file: File): Promise<AnnouncementDto> {
@@ -1281,11 +1282,13 @@ export async function updatePracticeSession(id: string, name: string): Promise<P
 }
 
 export async function deletePracticeSession(id: string): Promise<void> {
-  await fetch(`${BASE_URL}/api/v1/practice/sessions/${id}`, { method: "DELETE", headers: authHeaders() });
+  const res = await fetch(`${BASE_URL}/api/v1/practice/sessions/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) throw new Error(`Delete session failed: ${res.status}`);
 }
 
 export async function endPracticeSession(id: string): Promise<void> {
-  await fetch(`${BASE_URL}/api/v1/practice/sessions/${id}/end`, { method: "POST", headers: authHeaders() });
+  const res = await fetch(`${BASE_URL}/api/v1/practice/sessions/${id}/end`, { method: "POST", headers: authHeaders() });
+  if (!res.ok) throw new Error(`End session failed: ${res.status}`);
 }
 
 export async function addPracticeSolve(sessionId: string, body: {
@@ -1296,7 +1299,8 @@ export async function addPracticeSolve(sessionId: string, body: {
 }
 
 export async function deletePracticeSolve(id: string): Promise<void> {
-  await fetch(`${BASE_URL}/api/v1/practice/solves/${id}`, { method: "DELETE", headers: authHeaders() });
+  const res = await fetch(`${BASE_URL}/api/v1/practice/solves/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) throw new Error(`Delete solve failed: ${res.status}`);
 }
 
 // ── Practice Stats ─────────────────────────────────────────────────────

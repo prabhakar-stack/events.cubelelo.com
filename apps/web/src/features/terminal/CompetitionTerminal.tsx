@@ -39,14 +39,22 @@ export function CompetitionTerminal({
   const { snapshot, down, up, reset } = useTimer({ useInspection: true });
 
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
-  const [index, setIndex] = useState(0);
-  const [solves, setSolves] = useState<Solve[]>([]);
+  const [index, setIndex] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    const saved = sessionStorage.getItem(`comp_solves_${competitionId}_${eventId}_${round}`);
+    return saved ? (JSON.parse(saved) as Solve[]).length : 0;
+  });
+  const [solves, setSolves] = useState<Solve[]>(() => {
+    if (typeof window === "undefined") return [];
+    const saved = sessionStorage.getItem(`comp_solves_${competitionId}_${eventId}_${round}`);
+    return saved ? JSON.parse(saved) : [];
+  });
   const [pendingPenalty, setPendingPenalty] = useState<SolvePenalty>("none");
   const [scrambleStep, setScrambleStep] = useState(0);
 
   const router = useRouter();
   const { user } = useAuth();
-  const userId = user?.clId ?? "guest";
+  const currentUserId = user?.id ?? "guest";
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [submit, setSubmit] = useState<
     | { kind: "idle" }
@@ -54,6 +62,15 @@ export function CompetitionTerminal({
     | { kind: "done"; rank: number | null }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+
+  useEffect(() => {
+    const key = `comp_solves_${competitionId}_${eventId}_${round}`;
+    if (solves.length > 0) {
+      sessionStorage.setItem(key, JSON.stringify(solves));
+    } else {
+      sessionStorage.removeItem(key);
+    }
+  }, [solves, competitionId, eventId, round]);
 
   useEffect(() => {
     let active = true;
@@ -245,6 +262,7 @@ export function CompetitionTerminal({
     setSubmit({ kind: "submitting" });
     try {
       const result = await submitResult(load.roundId, { solves });
+      sessionStorage.removeItem(`comp_solves_${competitionId}_${eventId}_${round}`);
       setSubmit({ kind: "done", rank: result.rank });
     } catch (e) {
       setSubmit({
@@ -369,7 +387,7 @@ export function CompetitionTerminal({
           solves={solves}
           submit={submit}
           onSubmit={handleSubmit}
-          userId={userId}
+          userId={currentUserId}
           board={liveBoard}
           signedIn={Boolean(user)}
           cutoffFailed={cutoffFailed}
