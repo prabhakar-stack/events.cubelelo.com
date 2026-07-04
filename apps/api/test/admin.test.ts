@@ -69,7 +69,12 @@ describe("admin competition lifecycle", () => {
     // not open yet → scramble blocked
     expect((await get(`/api/v1/rounds/${round1}/scramble`, admin)).status).toBe(409);
 
-    expect((await post(`/api/v1/admin/rounds/${round1}/open`, {})).body.status).toBe("open");
+    // Round status is schedule-driven: an opensAt in the past opens the round.
+    const openRes = await patch(`/api/v1/admin/rounds/${round1}`, {
+      opensAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    expect(openRes.status).toBe(200);
+    expect((await get(`/api/v1/rounds/${round1}`)).body.status).toBe("open");
     const scramble = await get(`/api/v1/rounds/${round1}/scramble`, admin);
     expect(scramble.status).toBe(200);
     expect(scramble.body.scrambles).toHaveLength(5);

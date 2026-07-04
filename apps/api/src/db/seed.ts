@@ -3,16 +3,18 @@ import { generateScrambleSet } from "@cubers/scramble-core";
 import type { Repository } from "./repo";
 
 export const SEED_ADMIN_EMAIL = "admin@cubelelo.com";
+export const SEED_ADMIN_ID = "00000000-0000-0000-0000-0000000000ad";
 export const SEED_DEMO_COMP_ID = "00000000-0000-0000-0000-000000000001";
 
-/** Idempotent dev seed — skips if admin already exists. */
+/** Idempotent dev seed — skips if admin already exists or in production. */
 export async function seed(repo: Repository): Promise<void> {
+  if (process.env.NODE_ENV === "production") return;
   const existing = await repo.users.findByEmail(SEED_ADMIN_EMAIL);
   if (existing) return;
 
   const now = new Date().toISOString();
   const clId = await repo.users.nextClId();
-  const adminId = randomUUID();
+  const adminId = SEED_ADMIN_ID;
 
   await repo.users.create({
     id: adminId,

@@ -54,17 +54,20 @@ describe("competition lobby", () => {
   });
 
   it("broadcasts the roster as competitors check in", async () => {
-    const a = ioClient(baseUrl, { transports: ["websocket"] });
+    // lobby:checkin requires an authenticated socket — identity comes from the JWT.
+    const aliceTok = await devTokenHttp(baseUrl, "alice@lobby.test", "Alice");
+    const a = ioClient(baseUrl, { transports: ["websocket"], auth: { token: aliceTok } });
     await once(a, "connect");
 
     const aliceEcho = once<{ competitors: unknown[] }>(a, "lobby:roster");
-    a.emit("lobby:checkin", { roundId, userId: "alice", name: "Alice" });
+    a.emit("lobby:checkin", { roundId, name: "Alice" });
     expect((await aliceEcho).competitors.length).toBe(1);
 
     const afterBob = once<{ competitors: unknown[] }>(a, "lobby:roster");
-    const b = ioClient(baseUrl, { transports: ["websocket"] });
+    const bobTok = await devTokenHttp(baseUrl, "bob@lobby.test", "Bob");
+    const b = ioClient(baseUrl, { transports: ["websocket"], auth: { token: bobTok } });
     await once(b, "connect");
-    b.emit("lobby:checkin", { roundId, userId: "bob", name: "Bob" });
+    b.emit("lobby:checkin", { roundId, name: "Bob" });
 
     expect((await afterBob).competitors.length).toBe(2);
 
@@ -72,25 +75,36 @@ describe("competition lobby", () => {
     b.disconnect();
   });
 
-  it("pushes round:status to the room when the round opens/closes", async () => {
+  it("pushes round:status to the room on reopen and cancel", async () => {
     const c = ioClient(baseUrl, { transports: ["websocket"] });
     await once(c, "connect");
     c.emit("join", { roundId });
     await new Promise((r) => setTimeout(r, 50));
 
-    const closed = once<{ status: string }>(c, "round:status");
-    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}/close`, {
-      method: "POST",
-      headers: adminAuth,
+    // Close the round via schedule (PATCH emits no socket event) so we can reopen it.
+    const round = (await (
+      await fetch(`${baseUrl}/api/v1/rounds/${roundId}`)
+    ).json()) as { opensAt: string };
+    const justAfterOpen = new Date(+new Date(round.opensAt) + 1).toISOString();
+    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}`, {
+      method: "PATCH",
+      headers: { ...adminAuth, "content-type": "application/json" },
+      body: JSON.stringify({ closesAt: justAfterOpen }),
     });
-    expect((await closed).status).toBe("closed");
 
     const opened = once<{ status: string }>(c, "round:status");
-    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}/open`, {
+    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}/reopen`, {
       method: "POST",
       headers: adminAuth,
     });
     expect((await opened).status).toBe("open");
+
+    const cancelled = once<{ status: string }>(c, "round:status");
+    await fetch(`${baseUrl}/api/v1/admin/rounds/${roundId}/cancel`, {
+      method: "POST",
+      headers: adminAuth,
+    });
+    expect((await cancelled).status).toBe("cancelled");
 
     c.disconnect();
   });

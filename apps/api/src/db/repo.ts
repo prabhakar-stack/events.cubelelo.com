@@ -28,6 +28,7 @@ export interface Repository {
   users: {
     findAll(search?: string): Promise<User[]>;
     findById(id: string): Promise<User | null>;
+    findByIds(ids: string[]): Promise<Map<string, User>>;
     findByEmail(email: string): Promise<User | null>;
     findByMobileNo(mobileNo: string): Promise<User | null>;
     findByClId(clId: string): Promise<User | null>;
@@ -38,7 +39,7 @@ export interface Repository {
   };
 
   competitions: {
-    findAll(): Promise<Competition[]>;
+    findAll(search?: string): Promise<Competition[]>;
     findById(id: string): Promise<Competition | null>;
     create(comp: Competition): Promise<void>;
     update(id: string, fields: Partial<Competition>): Promise<Competition | null>;
@@ -51,6 +52,8 @@ export interface Repository {
     findByCompetition(compId: string): Promise<CompetitionEvent[]>;
     findByRound(roundId: string): Promise<CompetitionEvent | null>;
     create(event: CompetitionEvent): Promise<void>;
+    update(id: string, fields: Partial<CompetitionEvent>): Promise<CompetitionEvent | null>;
+    delete(id: string): Promise<void>;
   };
 
   rounds: {
@@ -83,7 +86,9 @@ export interface Repository {
     findByUserAndComp(userId: string, compId: string): Promise<Registration | null>;
     create(reg: Registration): Promise<void>;
     update(id: string, fields: Partial<Registration>): Promise<void>;
+    delete(id: string): Promise<void>;
     addEvent(registrationId: string, competitionEventId: string): Promise<void>;
+    removeEvents(registrationId: string): Promise<void>;
     countEvents(registrationId: string): Promise<number>;
     findEvents(registrationId: string): Promise<CompetitionEvent[]>;
   };
@@ -97,7 +102,17 @@ export interface Repository {
   };
 
   auditLog: {
+    findAll(limit?: number, offset?: number): Promise<AuditLogEntry[]>;
+    findByAdmin(adminId: string): Promise<AuditLogEntry[]>;
     create(entry: AuditLogEntry): Promise<void>;
+  };
+
+  verificationTokens: {
+    create(token: { id: string; userId: string; type: string; token: string; identifier?: string; expiresAt: number }): Promise<void>;
+    findByToken(token: string, type: string): Promise<{ id: string; userId: string; type: string; token: string; identifier?: string; expiresAt: number } | null>;
+    findByIdentifier(identifier: string, type: string): Promise<{ id: string; userId: string; type: string; token: string; identifier?: string; expiresAt: number } | null>;
+    delete(id: string): Promise<void>;
+    deleteExpired(): Promise<void>;
   };
 
   announcements: {
@@ -130,6 +145,7 @@ export interface Repository {
     deleteSession(id: string): Promise<void>;
     endSession(id: string): Promise<void>;
     addSolve(solve: PracticeSolve): Promise<void>;
+    findSolve(id: string): Promise<PracticeSolve | null>;
     findSolvesBySession(sessionId: string): Promise<PracticeSolve[]>;
     deleteSolve(id: string): Promise<void>;
   };
@@ -168,7 +184,7 @@ export interface Repository {
     create(promo: PromoCode): Promise<void>;
     update(id: string, fields: Partial<PromoCode>): Promise<PromoCode | null>;
     delete(id: string): Promise<void>;
-    incrementUsed(id: string): Promise<void>;
+    incrementUsed(id: string): Promise<boolean>;
   };
 
   banners: {
@@ -206,10 +222,10 @@ export interface Repository {
   /** Returns the DB backend name and latency, or null if in-memory. */
   ping(): Promise<{ backend: string; latencyMs: number } | null>;
 
-  /** Ephemeral in-memory roster — always lives in RAM regardless of backend. */
+  /** Ephemeral roster — uses Redis when available, falls back to RAM. */
   roster: {
-    join(roundId: string, userId: string, name: string): void;
-    leave(roundId: string, userId: string): void;
-    snapshot(roundId: string): { userId: string; name: string }[];
+    join(roundId: string, userId: string, name: string): Promise<void>;
+    leave(roundId: string, userId: string): Promise<void>;
+    snapshot(roundId: string): Promise<{ userId: string; name: string }[]>;
   };
 }

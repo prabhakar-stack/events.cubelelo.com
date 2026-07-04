@@ -3,26 +3,21 @@ import { SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import type { FastifyInstance } from "fastify";
 import type { Repository } from "../../db/repo";
-import type { User } from "../../db/types";
+import { type User, sanitizeUser } from "../../db/types";
 import { env } from "../../config/env";
 import { requireAuth } from "../../auth/plugin";
 import type { Verifier } from "../../auth/verifier";
 import { emailService, verificationEmail, passwordResetEmail, otpEmail } from "../../lib/email";
 import { smsService } from "../../lib/sms";
 import { authLimiter, loginLimiter, passwordResetLimiter } from "../../lib/rateLimiter";
-
-// In-memory token store — swap for Redis/DB in production
-const emailTokens = new Map<string, { userId: string; type: "verify" | "reset"; expiresAt: number }>();
-
-// OTP store: keyed by `${type}:${identifier}` (e.g. "email:foo@bar.com" or "mobile:+919876543210")
-const otpStore = new Map<string, { code: string; userId: string; expiresAt: number }>();
+import { blockToken } from "../../lib/tokenBlocklist";
 
 function generateOtp(): string {
   return String(randomInt(100000, 999999));
 }
 
 function isEmail(input: string): boolean {
-  return input.includes("@");
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
 }
 
 function normalizeMobile(input: string): string {
@@ -38,31 +33,6 @@ export async function registerAuthRoutes(
   repo: Repository,
   verifier: Verifier,
 ): Promise<void> {
-  // Local dev sign-in — never registered in production. In development, works
-  // alongside Supabase: the verifier accepts both HS256 dev tokens and real
-  // Supabase RS256 tokens so you can use dev-login without clearing .env.
-  if (process.env.NODE_ENV !== "production") {
-    app.post<{ Body: { email?: string; name?: string } }>(
-      "/api/v1/auth/dev-login",
-      async (req, reply) => {
-        const email = req.body?.email?.trim();
-        if (!email) return reply.code(400).send({ error: "missing_email" });
-        const existing = await repo.users.findByEmail(email);
-        const sub = existing?.id ?? randomUUID();
-        const name =
-          existing?.name ?? req.body?.name?.trim() ?? email.split("@")[0] ?? email;
-        const secret = new TextEncoder().encode(env.DEV_AUTH_SECRET);
-        const token = await new SignJWT({ email, name })
-          .setProtectedHeader({ alg: "HS256" })
-          .setSubject(sub)
-          .setIssuedAt()
-          .setExpirationTime("7d")
-          .sign(secret);
-        return { token };
-      },
-    );
-  }
-
   // First-login sync: create the user row + assign a CL ID if needed.
   app.post(
     "/api/v1/auth/sync",
@@ -75,7 +45,7 @@ export async function registerAuthRoutes(
       }
       if (!user) {
         const email = claims.email?.trim().toLowerCase() || "";
-        const mobileNo = (claims as Record<string, unknown>).phone as string | undefined;
+        const mobileNo = claims.phone;
 
         if (!email && !mobileNo) {
           return reply.code(400).send({ error: "email_or_mobile_required" }) as unknown as User;
@@ -110,14 +80,22 @@ export async function registerAuthRoutes(
         } satisfies User;
         await repo.users.create(user);
       }
-      return user!;
+      return sanitizeUser(user!);
     },
   );
 
   app.get("/api/v1/users/me", { preHandler: requireAuth }, async (req, reply) => {
     const user = await repo.users.findById(req.authClaims!.sub);
     if (!user) return reply.code(404).send({ error: "not_synced" });
-    return user;
+    return sanitizeUser(user);
+  });
+
+  app.post("/api/v1/auth/sign-out", { preHandler: requireAuth }, async (req) => {
+    const claims = req.authClaims!;
+    if (claims.jti && claims.exp) {
+      await blockToken(claims.jti, claims.exp);
+    }
+    return { ok: true };
   });
 
   // Email/mobile + password registration
@@ -174,14 +152,17 @@ export async function registerAuthRoutes(
 
       // Send OTP to the identifier used for signup
       const otp = generateOtp();
+      const otpType = usingEmail ? "otp_email" : "otp_mobile";
+      const otpIdentifier = usingEmail ? email! : mobileNo!;
+      await repo.verificationTokens.create({
+        id: randomUUID(), userId: id, type: otpType,
+        token: otp, identifier: otpIdentifier,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      });
       if (usingEmail) {
-        const otpKey = `email:${email}`;
-        otpStore.set(otpKey, { code: otp, userId: id, expiresAt: Date.now() + 10 * 60 * 1000 });
         const oe = otpEmail(user.name, otp);
         await emailService.send({ to: email!, subject: oe.subject, html: oe.html });
       } else {
-        const otpKey = `mobile:${mobileNo}`;
-        otpStore.set(otpKey, { code: otp, userId: id, expiresAt: Date.now() + 10 * 60 * 1000 });
         await smsService.sendOtp(mobileNo!, otp);
       }
 
@@ -189,6 +170,7 @@ export async function registerAuthRoutes(
       const token = await new SignJWT({ email, name: user.name })
         .setProtectedHeader({ alg: "HS256" })
         .setSubject(id)
+        .setJti(randomUUID())
         .setIssuedAt()
         .setExpirationTime("7d")
         .sign(secret);
@@ -227,6 +209,7 @@ export async function registerAuthRoutes(
       const token = await new SignJWT({ email: user.email, name: user.name })
         .setProtectedHeader({ alg: "HS256" })
         .setSubject(user.id)
+        .setJti(randomUUID())
         .setIssuedAt()
         .setExpirationTime("7d")
         .sign(secret);
@@ -261,8 +244,11 @@ export async function registerAuthRoutes(
         if (user.emailVerified && user.email === email) {
           return reply.code(409).send({ error: "already_verified" });
         }
-        const otpKey = `email:${email}`;
-        otpStore.set(otpKey, { code: otp, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
+        await repo.verificationTokens.create({
+          id: randomUUID(), userId: user.id, type: "otp_email",
+          token: otp, identifier: email,
+          expiresAt: Date.now() + 10 * 60 * 1000,
+        });
         const oe = otpEmail(user.name, otp);
         await emailService.send({ to: email, subject: oe.subject, html: oe.html });
       } else {
@@ -277,8 +263,11 @@ export async function registerAuthRoutes(
         if (user.mobileVerified && user.mobileNo === mobile) {
           return reply.code(409).send({ error: "already_verified" });
         }
-        const otpKey = `mobile:${mobile}`;
-        otpStore.set(otpKey, { code: otp, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
+        await repo.verificationTokens.create({
+          id: randomUUID(), userId: user.id, type: "otp_mobile",
+          token: otp, identifier: mobile,
+          expiresAt: Date.now() + 10 * 60 * 1000,
+        });
         await smsService.sendOtp(mobile, otp);
       }
 
@@ -299,21 +288,21 @@ export async function registerAuthRoutes(
       if (!user) return reply.code(404).send({ error: "not_synced" });
 
       const normalized = type === "email" ? value.trim().toLowerCase() : normalizeMobile(value.trim());
-      const otpKey = `${type}:${normalized}`;
-      const entry = otpStore.get(otpKey);
+      const otpType = type === "email" ? "otp_email" : "otp_mobile";
+      const entry = await repo.verificationTokens.findByIdentifier(normalized, otpType);
 
       if (!entry || entry.userId !== user.id) {
         return reply.code(400).send({ error: "invalid_otp" });
       }
       if (Date.now() > entry.expiresAt) {
-        otpStore.delete(otpKey);
+        await repo.verificationTokens.delete(entry.id);
         return reply.code(410).send({ error: "otp_expired" });
       }
-      if (entry.code !== code.trim()) {
+      if (entry.token !== code.trim()) {
         return reply.code(400).send({ error: "invalid_otp" });
       }
 
-      otpStore.delete(otpKey);
+      await repo.verificationTokens.delete(entry.id);
 
       if (type === "email") {
         await repo.users.update(user.id, { email: normalized, emailVerified: true });
@@ -332,15 +321,15 @@ export async function registerAuthRoutes(
       const { token } = req.body ?? {};
       if (!token) return reply.code(400).send({ error: "missing_token" });
 
-      const entry = emailTokens.get(token);
-      if (!entry || entry.type !== "verify") return reply.code(400).send({ error: "invalid_token" });
+      const entry = await repo.verificationTokens.findByToken(token, "verify");
+      if (!entry) return reply.code(400).send({ error: "invalid_token" });
       if (Date.now() > entry.expiresAt) {
-        emailTokens.delete(token);
+        await repo.verificationTokens.delete(entry.id);
         return reply.code(410).send({ error: "token_expired" });
       }
 
       await repo.users.update(entry.userId, { emailVerified: true });
-      emailTokens.delete(token);
+      await repo.verificationTokens.delete(entry.id);
       return { ok: true };
     },
   );
@@ -356,8 +345,11 @@ export async function registerAuthRoutes(
       if (!user.email) return reply.code(400).send({ error: "no_email_set" });
 
       const otp = generateOtp();
-      const otpKey = `email:${user.email}`;
-      otpStore.set(otpKey, { code: otp, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
+      await repo.verificationTokens.create({
+        id: randomUUID(), userId: user.id, type: "otp_email",
+        token: otp, identifier: user.email,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      });
       const oe = otpEmail(user.name, otp);
       await emailService.send({ to: user.email, subject: oe.subject, html: oe.html });
       return { ok: true };
@@ -378,7 +370,11 @@ export async function registerAuthRoutes(
       }
 
       const resetToken = randomUUID();
-      emailTokens.set(resetToken, { userId: user.id, type: "reset", expiresAt: Date.now() + 60 * 60 * 1000 });
+      await repo.verificationTokens.create({
+        id: randomUUID(), userId: user.id, type: "reset",
+        token: resetToken, identifier: user.email,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      });
       const re = passwordResetEmail(user.name, resetToken);
       await emailService.send({ to: user.email, subject: re.subject, html: re.html });
       return { ok: true };
@@ -394,16 +390,16 @@ export async function registerAuthRoutes(
       if (!token || !newPassword) return reply.code(400).send({ error: "missing_fields" });
       if (newPassword.length < 6) return reply.code(400).send({ error: "password_too_short" });
 
-      const entry = emailTokens.get(token);
-      if (!entry || entry.type !== "reset") return reply.code(400).send({ error: "invalid_token" });
+      const entry = await repo.verificationTokens.findByToken(token, "reset");
+      if (!entry) return reply.code(400).send({ error: "invalid_token" });
       if (Date.now() > entry.expiresAt) {
-        emailTokens.delete(token);
+        await repo.verificationTokens.delete(entry.id);
         return reply.code(410).send({ error: "token_expired" });
       }
 
       const hash = await bcrypt.hash(newPassword, 10);
       await repo.users.update(entry.userId, { passwordHash: hash });
-      emailTokens.delete(token);
+      await repo.verificationTokens.delete(entry.id);
       return { ok: true };
     },
   );
@@ -490,7 +486,6 @@ export async function registerAuthRoutes(
       }
 
       const claimed = await repo.users.update(current.id, {
-        clId: stub.clId,
         name: stub.name || current.name,
         gender: stub.gender ?? current.gender,
         dob: stub.dob ?? current.dob,
@@ -503,7 +498,7 @@ export async function registerAuthRoutes(
 
       await repo.users.update(stub.id, { accountStage: "banned" });
 
-      return claimed;
+      return sanitizeUser(claimed!);
     },
   );
 }

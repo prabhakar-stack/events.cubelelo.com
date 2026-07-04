@@ -4,7 +4,10 @@ import { env } from "../config/env";
 export interface AuthClaims {
   sub: string;
   email?: string;
+  phone?: string;
   name?: string;
+  jti?: string;
+  exp?: number;
 }
 
 export interface Verifier {
@@ -20,10 +23,13 @@ function toClaims(payload: JWTPayload): AuthClaims {
   return {
     sub: String(payload.sub),
     email: typeof payload.email === "string" ? payload.email : undefined,
+    phone: typeof payload.phone === "string" && payload.phone ? payload.phone : undefined,
     name:
       meta.name ??
       meta.full_name ??
       (typeof payload.name === "string" ? payload.name : undefined),
+    jti: typeof payload.jti === "string" ? payload.jti : undefined,
+    exp: typeof payload.exp === "number" ? payload.exp : undefined,
   };
 }
 
@@ -47,10 +53,10 @@ export function createVerifier(): Verifier {
       mode: "supabase",
       async verify(token) {
         try {
-          const { payload } = await jwtVerify(token, devSecret);
+          const { payload } = await jwtVerify(token, devSecret, { algorithms: ["HS256"] });
           return toClaims(payload);
         } catch {
-          const { payload } = await jwtVerify(token, jwks);
+          const { payload } = await jwtVerify(token, jwks, { algorithms: ["RS256"] });
           return toClaims(payload);
         }
       },
@@ -60,7 +66,7 @@ export function createVerifier(): Verifier {
   return {
     mode: "dev",
     async verify(token) {
-      const { payload } = await jwtVerify(token, devSecret);
+      const { payload } = await jwtVerify(token, devSecret, { algorithms: ["HS256"] });
       return toClaims(payload);
     },
   };

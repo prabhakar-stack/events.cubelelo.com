@@ -5,11 +5,11 @@ import type { Payment } from "../../db/types";
 import { requireAuth } from "../../auth/plugin";
 import { env } from "../../config/env";
 import { generateInvoicePDF, type InvoiceData } from "../../lib/invoice";
+import { submitLimiter } from "../../lib/rateLimiter";
 
-function getRazorpay() {
+async function getRazorpay() {
   if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) return null;
-  // Dynamic import avoids loading the SDK when keys aren't configured
-  const Razorpay = require("razorpay");
+  const { default: Razorpay } = await import("razorpay");
   return new Razorpay({ key_id: env.RAZORPAY_KEY_ID, key_secret: env.RAZORPAY_KEY_SECRET });
 }
 
@@ -17,11 +17,11 @@ export async function registerPaymentRoutes(
   app: FastifyInstance,
   repo: Repository,
 ): Promise<void> {
-  app.post<{ Body: { registrationId?: string } }>(
+  app.post<{ Body: { registrationId?: string; promoCode?: string } }>(
     "/api/v1/payments/order",
-    { preHandler: requireAuth },
+    { preHandler: [submitLimiter, requireAuth] },
     async (req, reply) => {
-      const { registrationId } = req.body ?? {};
+      const { registrationId, promoCode } = req.body ?? {};
       if (!registrationId) return reply.code(400).send({ error: "missing_registration_id" });
 
       const registration = await repo.registrations.findById(registrationId);
@@ -34,14 +34,68 @@ export async function registerPaymentRoutes(
       if (registration.paymentStatus === "paid")
         return reply.code(409).send({ error: "already_paid" });
 
+      const existingPayments = await repo.payments.findAll();
+      const pendingPayment = existingPayments.find(
+        (p) => p.registrationId === registration.id && p.status === "pending",
+      );
+      if (pendingPayment) {
+        return reply.send({
+          orderId: pendingPayment.razorpayOrderId,
+          amount: pendingPayment.amount,
+          currency: pendingPayment.currency,
+          paymentId: pendingPayment.id,
+        });
+      }
+
       const [comp, eventCount] = await Promise.all([
         repo.competitions.findById(registration.competitionId),
         repo.registrations.countEvents(registration.id),
       ]);
-      const amount = (comp?.baseFee ?? 0) + (comp?.perEventFee ?? 0) * eventCount;
+      let amount = (comp?.baseFee ?? 0) + (comp?.perEventFee ?? 0) * eventCount;
+
+      let appliedPromoId: string | undefined;
+      if (promoCode) {
+        const promo = await repo.promoCodes.findByCode(promoCode.trim().toUpperCase());
+        if (!promo || !promo.active) {
+          return reply.code(400).send({ error: "invalid_promo_code" });
+        }
+        if (promo.competitionId && promo.competitionId !== registration.competitionId) {
+          return reply.code(400).send({ error: "promo_not_valid_for_competition" });
+        }
+        const now = new Date().toISOString();
+        if ((promo.validFrom && now < promo.validFrom) || (promo.validTo && now > promo.validTo)) {
+          return reply.code(400).send({ error: "promo_expired" });
+        }
+        const claimed = await repo.promoCodes.incrementUsed(promo.id);
+        if (!claimed) {
+          return reply.code(409).send({ error: "promo_fully_redeemed" });
+        }
+        if (promo.discountType === "percentage") {
+          amount = Math.max(0, Math.round(amount * (1 - promo.discountValue / 100)));
+        } else {
+          amount = Math.max(0, amount - promo.discountValue);
+        }
+        appliedPromoId = promo.id;
+      }
+
+      if (amount === 0) {
+        const payment: Payment = {
+          id: randomUUID(),
+          userId: user.id,
+          registrationId: registration.id,
+          amount: 0,
+          currency: "INR",
+          promoCodeId: appliedPromoId,
+          status: "paid",
+          createdAt: new Date().toISOString(),
+        };
+        await repo.payments.create(payment);
+        await repo.registrations.update(registration.id, { paymentStatus: "paid" });
+        return reply.code(201).send({ orderId: null, amount: 0, currency: "INR", paymentId: payment.id, status: "paid" });
+      }
 
       let orderId: string;
-      const rzp = getRazorpay();
+      const rzp = await getRazorpay();
       if (rzp) {
         const order = await rzp.orders.create({
           amount,
@@ -50,7 +104,6 @@ export async function registerPaymentRoutes(
         });
         orderId = order.id as string;
       } else {
-        // Dev fallback — no Razorpay keys configured
         orderId = `order_${randomUUID().slice(0, 12)}`;
       }
 
@@ -61,6 +114,7 @@ export async function registerPaymentRoutes(
         amount,
         currency: "INR",
         razorpayOrderId: orderId,
+        promoCodeId: appliedPromoId,
         status: "pending",
         createdAt: new Date().toISOString(),
       };
@@ -101,6 +155,15 @@ export async function registerPaymentRoutes(
       status: "paid",
     });
     await repo.registrations.update(payment.registrationId, { paymentStatus: "paid" });
+
+    await repo.auditLog.create({
+      id: randomUUID(),
+      adminId: "system",
+      action: "payment_confirmed",
+      target: payment.id,
+      reason: `order=${razorpay_order_id} payment=${razorpay_payment_id} sig=${razorpay_signature ? "verified" : "skipped"}`,
+      createdAt: new Date().toISOString(),
+    });
 
     return { status: "confirmed" };
   });

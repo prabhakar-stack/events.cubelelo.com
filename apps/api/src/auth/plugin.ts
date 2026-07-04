@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { UserRole } from "@cubers/types";
 import type { Repository } from "../db/repo";
 import type { AuthClaims, Verifier } from "./verifier";
+import { isTokenBlocked } from "../lib/tokenBlocklist";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -19,9 +20,14 @@ export function registerAuth(app: FastifyInstance, verifier: Verifier): void {
     const header = req.headers.authorization;
     if (!header?.startsWith("Bearer ")) return;
     try {
-      req.authClaims = await verifier.verify(header.slice(7));
-    } catch {
-      // leave undefined — treated as unauthenticated
+      const claims = await verifier.verify(header.slice(7));
+      if (claims.jti && await isTokenBlocked(claims.jti)) {
+        req.log.debug("Token blocklisted (signed out)");
+        return;
+      }
+      req.authClaims = claims;
+    } catch (err) {
+      req.log.debug({ err }, "JWT verification failed");
     }
   });
 }

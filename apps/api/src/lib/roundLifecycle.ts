@@ -43,6 +43,11 @@ export async function shortlistRound(
 
   if (shortlisted.length === 0) return;
 
+  const existing = await repo.advancements.findByRound(round.id);
+  if (existing.length > 0) {
+    throw new Error(`Round ${round.id} already has ${existing.length} advancements — clear them first`);
+  }
+
   const advanced: RoundAdvancement[] = shortlisted.map((r, i) => ({
     roundId: round.id,
     userId: r.userId,

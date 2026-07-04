@@ -2,20 +2,22 @@ import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 import { createMemRepo } from "../src/db/mem-repo";
+import type { Repository } from "../src/db/repo";
 import { seed, SEED_DEMO_COMP_ID } from "../src/db/seed";
-import { adminToken, bearer, devToken } from "./helpers";
+import { adminToken, bearer, devToken, syncVerifiedUser } from "./helpers";
 
 let app: FastifyInstance;
+let repo: Repository;
 let admin: string;
 let userToken: string;
 
 beforeAll(async () => {
-  const repo = createMemRepo();
+  repo = createMemRepo();
   await seed(repo);
   app = await buildApp(repo);
   admin = await adminToken(app);
   userToken = await devToken(app, "cuber@test.com", "Test Cuber");
-  await app.inject({ method: "POST", url: "/api/v1/auth/sync", headers: bearer(userToken) });
+  await syncVerifiedUser(app, repo, userToken);
 });
 
 describe("registration flow", () => {
@@ -53,7 +55,7 @@ describe("registration flow", () => {
 
   it("rejects registration with no events", async () => {
     const tok2 = await devToken(app, "noevents@test.com", "No Events");
-    await app.inject({ method: "POST", url: "/api/v1/auth/sync", headers: bearer(tok2) });
+    await syncVerifiedUser(app, repo, tok2);
     const res = await app.inject({
       method: "POST",
       url: `/api/v1/competitions/${SEED_DEMO_COMP_ID}/register`,

@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { RoundStatus } from "@cubers/types";
 import type { Repository } from "../db/repo";
 import { env } from "../config/env";
+import { createVerifier } from "../auth/verifier";
 
 /**
  * Real-time fan-out for live competition data. Routes depend only on this
@@ -57,17 +58,34 @@ export function createRealtime(): AttachableRealtime {
             const pub = new Redis(env.REDIS_URL);
             const sub = pub.duplicate();
             io!.adapter(createAdapter(pub, sub));
-            console.log("🔴 Socket.io using Redis adapter");
+            console.log("Socket.io using Redis adapter");
           }),
-        );
+        ).catch((err) => {
+          console.error("Socket.io Redis adapter failed:", err);
+        });
       }
 
-      const broadcastRoster = (roundId: string) => {
+      const broadcastRoster = async (roundId: string) => {
         io?.to(roomOf(roundId)).emit("lobby:roster", {
           roundId,
-          competitors: repo.roster.snapshot(roundId),
+          competitors: await repo.roster.snapshot(roundId),
         });
       };
+
+      const verifier = createVerifier();
+      io.use(async (socket, next) => {
+        const token = socket.handshake.auth?.token as string | undefined;
+        if (!token) {
+          socket.data.authClaims = null;
+          return next();
+        }
+        try {
+          socket.data.authClaims = await verifier.verify(token);
+        } catch {
+          socket.data.authClaims = null;
+        }
+        next();
+      });
 
       io.on("connection", (socket) => {
         socket.on("join", (payload: { roundId?: string; compId?: string }) => {
@@ -77,23 +95,26 @@ export function createRealtime(): AttachableRealtime {
 
         socket.on(
           "lobby:checkin",
-          (payload: { roundId?: string; userId?: string; name?: string }) => {
-            const { roundId, userId } = payload ?? {};
-            if (!roundId || !userId) return;
+          async (payload: { roundId?: string; name?: string }) => {
+            const claims = socket.data.authClaims;
+            if (!claims) return;
+            const { roundId } = payload ?? {};
+            if (!roundId) return;
             socket.join(roomOf(roundId));
-            socket.data.lobby = { roundId, userId };
-            repo.roster.join(roundId, userId, payload.name?.trim() || userId.slice(0, 8));
-            broadcastRoster(roundId);
+            socket.data.lobby = { roundId, userId: claims.sub };
+            const user = await repo.users.findById(claims.sub);
+            await repo.roster.join(roundId, claims.sub, payload.name?.trim() || user?.name || claims.name || claims.sub.slice(0, 8));
+            await broadcastRoster(roundId);
           },
         );
 
-        socket.on("disconnect", () => {
+        socket.on("disconnect", async () => {
           const lobby = socket.data.lobby as
             | { roundId: string; userId: string }
             | undefined;
           if (!lobby) return;
-          repo.roster.leave(lobby.roundId, lobby.userId);
-          broadcastRoster(lobby.roundId);
+          await repo.roster.leave(lobby.roundId, lobby.userId);
+          await broadcastRoster(lobby.roundId);
         });
       });
 

@@ -42,6 +42,7 @@ export function createMemRepo(): Repository {
   const registrationEvents: RegistrationEvent[] = [];
   const payments = new Map<string, Payment>();
   const auditLogEntries: AuditLogEntry[] = [];
+  const verificationTokenStore = new Map<string, { id: string; userId: string; type: string; token: string; identifier?: string; expiresAt: number }>();
   const announcements = new Map<string, Announcement>();
   const roundAdvancements = new Map<string, RoundAdvancement[]>();
   const personalBests = new Map<string, PersonalBest>();
@@ -77,6 +78,14 @@ export function createMemRepo(): Repository {
         );
       },
       async findById(id) { return users.get(id) ?? null; },
+      async findByIds(ids) {
+        const map = new Map<string, import("./types").User>();
+        for (const id of ids) {
+          const u = users.get(id);
+          if (u) map.set(id, u);
+        }
+        return map;
+      },
       async findByEmail(email) {
         return [...users.values()].find((u) => u.email === email) ?? null;
       },
@@ -98,7 +107,12 @@ export function createMemRepo(): Repository {
     },
 
     competitions: {
-      async findAll() { return [...competitions.values()]; },
+      async findAll(search) {
+        const all = [...competitions.values()];
+        if (!search) return all;
+        const q = search.toLowerCase();
+        return all.filter((c) => c.title.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q));
+      },
       async findById(id) { return competitions.get(id) ?? null; },
       async create(comp) { competitions.set(comp.id, comp); },
       async update(id, fields) {
@@ -124,6 +138,13 @@ export function createMemRepo(): Repository {
         return competitionEvents.get(round.competitionEventId) ?? null;
       },
       async create(event) { competitionEvents.set(event.id, event); },
+      async update(id, fields) {
+        const ev = competitionEvents.get(id);
+        if (!ev) return null;
+        Object.assign(ev, fields);
+        return ev;
+      },
+      async delete(id) { competitionEvents.delete(id); },
     },
 
     rounds: {
@@ -196,8 +217,14 @@ export function createMemRepo(): Repository {
         const reg = registrations.get(id);
         if (reg) Object.assign(reg, fields);
       },
+      async delete(id) { registrations.delete(id); },
       async addEvent(registrationId, competitionEventId) {
         registrationEvents.push({ registrationId, competitionEventId });
+      },
+      async removeEvents(registrationId) {
+        for (let i = registrationEvents.length - 1; i >= 0; i--) {
+          if (registrationEvents[i]!.registrationId === registrationId) registrationEvents.splice(i, 1);
+        }
       },
       async countEvents(registrationId) {
         return registrationEvents.filter((re) => re.registrationId === registrationId).length;
@@ -226,7 +253,36 @@ export function createMemRepo(): Repository {
     },
 
     auditLog: {
+      async findAll(limit = 100, offset = 0) {
+        return auditLogEntries.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(offset, offset + limit);
+      },
+      async findByAdmin(adminId) {
+        return auditLogEntries.filter((e) => e.adminId === adminId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      },
       async create(entry) { auditLogEntries.push(entry); },
+    },
+
+    verificationTokens: {
+      async create(t) { verificationTokenStore.set(t.id, t); },
+      async findByToken(token, type) {
+        for (const v of verificationTokenStore.values()) {
+          if (v.token === token && v.type === type) return v;
+        }
+        return null;
+      },
+      async findByIdentifier(identifier, type) {
+        for (const v of verificationTokenStore.values()) {
+          if (v.identifier === identifier && v.type === type) return v;
+        }
+        return null;
+      },
+      async delete(id) { verificationTokenStore.delete(id); },
+      async deleteExpired() {
+        const now = Date.now();
+        for (const [k, v] of verificationTokenStore.entries()) {
+          if (v.expiresAt < now) verificationTokenStore.delete(k);
+        }
+      },
     },
 
     announcements: {
@@ -291,6 +347,9 @@ export function createMemRepo(): Repository {
         if (s) s.endedAt = new Date().toISOString();
       },
       async addSolve(solve) { practiceSolves.push(solve); },
+      async findSolve(id) {
+        return practiceSolves.find((s) => s.id === id) ?? null;
+      },
       async findSolvesBySession(sessionId) {
         return practiceSolves.filter((s) => s.sessionId === sessionId);
       },
@@ -395,7 +454,9 @@ export function createMemRepo(): Repository {
       async delete(id) { promoCodes.delete(id); },
       async incrementUsed(id) {
         const existing = promoCodes.get(id);
-        if (existing) promoCodes.set(id, { ...existing, usedCount: existing.usedCount + 1 });
+        if (!existing || existing.usedCount >= existing.maxUses) return false;
+        promoCodes.set(id, { ...existing, usedCount: existing.usedCount + 1 });
+        return true;
       },
     },
 
@@ -470,14 +531,14 @@ export function createMemRepo(): Repository {
     },
 
     roster: {
-      join(roundId, userId, name) {
+      async join(roundId, userId, name) {
         if (!roster.has(roundId)) roster.set(roundId, new Map());
         roster.get(roundId)!.set(userId, name);
       },
-      leave(roundId, userId) {
+      async leave(roundId, userId) {
         roster.get(roundId)?.delete(userId);
       },
-      snapshot(roundId) {
+      async snapshot(roundId) {
         const r = roster.get(roundId);
         if (!r) return [];
         return [...r.entries()].map(([userId, name]) => ({ userId, name }));

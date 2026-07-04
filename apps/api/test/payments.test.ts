@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 import { createMemRepo } from "../src/db/mem-repo";
 import { seed, SEED_DEMO_COMP_ID } from "../src/db/seed";
-import { adminToken, bearer, devToken } from "./helpers";
+import { adminToken, bearer, devToken, syncVerifiedUser } from "./helpers";
 
 let app: FastifyInstance;
 let userToken: string;
@@ -24,7 +24,7 @@ beforeAll(async () => {
   });
 
   userToken = await devToken(app, "payer@test.com", "Payer");
-  await app.inject({ method: "POST", url: "/api/v1/auth/sync", headers: bearer(userToken) });
+  await syncVerifiedUser(app, repo, userToken);
 
   // Register for the demo competition
   const detail = await app.inject({

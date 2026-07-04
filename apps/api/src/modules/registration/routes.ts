@@ -41,12 +41,19 @@ export async function registerRegistrationRoutes(
         return reply.code(400).send({ error: "no_events_selected" });
       }
 
-      // Validate event IDs belong to this competition
+      // Validate event IDs belong to this competition and have at least one non-cancelled round
       const compEvents = await repo.competitionEvents.findByCompetition(comp.id);
       const compEventIds = new Set(compEvents.map((e) => e.id));
+      const rounds = await repo.rounds.findByCompetition(comp.id);
+      const eventsWithRounds = new Set(
+        rounds.filter((r) => r.status !== "cancelled").map((r) => r.competitionEventId),
+      );
       for (const eid of eventIds) {
         if (!compEventIds.has(eid)) {
           return reply.code(400).send({ error: "invalid_event_id" });
+        }
+        if (!eventsWithRounds.has(eid)) {
+          return reply.code(400).send({ error: "event_not_available" });
         }
       }
 
@@ -71,6 +78,36 @@ export async function registerRegistrationRoutes(
         totalFee,
         paymentStatus: registration.paymentStatus,
       });
+    },
+  );
+
+  app.delete<{ Params: { regId: string } }>(
+    "/api/v1/registrations/:regId",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const reg = await repo.registrations.findById(req.params.regId);
+      if (!reg) return reply.code(404).send({ error: "registration_not_found" });
+
+      const user = await repo.users.findById(req.authClaims!.sub);
+      if (!user || reg.userId !== user.id)
+        return reply.code(403).send({ error: "forbidden" });
+
+      const comp = await repo.competitions.findById(reg.competitionId);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const status = effectiveCompStatus(comp);
+      if (status !== "registration_open" && status !== "published") {
+        return reply.code(409).send({ error: "registration_closed_cannot_withdraw" });
+      }
+
+      if (reg.paymentStatus === "paid") {
+        return reply.code(409).send({ error: "paid_registration_contact_admin" });
+      }
+
+      await repo.registrations.removeEvents(reg.id);
+      await repo.registrations.delete(reg.id);
+
+      return { ok: true };
     },
   );
 

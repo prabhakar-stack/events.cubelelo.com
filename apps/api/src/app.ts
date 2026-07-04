@@ -17,6 +17,7 @@ import { registerPaymentRoutes } from "./modules/payments/routes";
 import { registerUserRoutes } from "./modules/users/routes";
 import { registerPracticeRoutes } from "./modules/practice/routes";
 import { registerJudgeRoutes } from "./modules/judge/routes";
+import { emailServiceName } from "./lib/email";
 
 /** Build the Fastify app around a repository, realtime emitter, and auth verifier. */
 export async function buildApp(
@@ -24,9 +25,17 @@ export async function buildApp(
   realtime: Realtime = noopRealtime,
   verifier: Verifier = createVerifier(),
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    logger: process.env.NODE_ENV === "production"
+      ? { level: "info" }
+      : false,
+  });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: process.env.CORS_ORIGINS
+      ? process.env.CORS_ORIGINS.split(",")
+      : true,
+  });
   await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
   await app.register(staticPlugin, {
     root: join(process.cwd(), "uploads"),
@@ -41,6 +50,8 @@ export async function buildApp(
       return {
         status: "ok",
         db: db ?? { backend: "memory", latencyMs: 0 },
+        email: emailServiceName(),
+        sms: process.env.TWILIO_ACCOUNT_SID ? "twilio" : "none",
       };
     } catch (err) {
       reply.code(503);

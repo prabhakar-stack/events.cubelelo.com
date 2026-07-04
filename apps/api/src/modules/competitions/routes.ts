@@ -25,7 +25,7 @@ export async function registerCompetitionRoutes(
         id: c.id, title: c.title, type: c.type,
         status: effectiveCompStatus(c),
         description: c.description,
-        coverUrl: c.coverUrl, coverCaption: c.coverCaption,
+        coverUrl: c.coverUrl, coverCaption: c.coverCaption, bannerUrl: c.bannerUrl,
         registrationOpensAt: c.registrationOpensAt ?? null,
         registrationDeadline: c.registrationDeadline ?? null,
         startsAt: c.startsAt ?? null,
@@ -60,7 +60,10 @@ export async function registerCompetitionRoutes(
       } else if (filter === "live") {
         comps = comps.filter((c) => effectiveCompStatus(c) === "live");
       } else if (filter === "past") {
-        comps = comps.filter((c) => effectiveCompStatus(c) === "completed");
+        comps = comps.filter((c) => {
+          const s = effectiveCompStatus(c);
+          return s === "completed" || s === "results_pending";
+        });
       } else if (filter === "draft" && isAdmin) {
         comps = comps.filter((c) => c.status === "draft");
       }
@@ -81,7 +84,7 @@ export async function registerCompetitionRoutes(
             registrationDeadline: c.registrationDeadline ?? null,
             startsAt: c.startsAt ?? null,
             endsAt: c.endsAt ?? null,
-            coverUrl: c.coverUrl,
+            coverUrl: c.coverUrl, bannerUrl: c.bannerUrl,
             featured: c.featured,
             featuredOrder: c.featuredOrder,
             createdAt: c.createdAt,
@@ -266,28 +269,28 @@ export async function registerCompetitionRoutes(
       if (!activeRound) return { roundId: null, roundNumber: null, ranking: [] };
 
       const results = await repo.results.findByRound(activeRound.id);
-      const users = await Promise.all(
-        results.map(async (r) => {
-          const u = await repo.users.findById(r.userId);
-          return {
-            userId: r.userId,
-            clId: u?.clId ?? r.userId,
-            name: u?.name ?? "Unknown",
-            rank: r.rank,
-            ao5Ms: r.ao5Ms,
-            bestSingleMs: r.bestSingleMs,
-            flagStatus: r.flagStatus,
-          };
-        }),
-      );
+      const userIds = [...new Set(results.map((r) => r.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
+      const ranking = results.map((r) => {
+        const u = usersMap.get(r.userId);
+        return {
+          userId: r.userId,
+          clId: u?.clId ?? r.userId,
+          name: u?.name ?? "Unknown",
+          rank: r.rank,
+          ao5Ms: r.ao5Ms,
+          bestSingleMs: r.bestSingleMs,
+          flagStatus: r.flagStatus,
+        };
+      });
 
-      users.sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
+      ranking.sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
 
       return {
         roundId: activeRound.id,
         roundNumber: activeRound.roundNumber,
         eventType: targetEvent.eventType,
-        ranking: users,
+        ranking,
       };
     },
   );
@@ -467,38 +470,44 @@ export async function registerCompetitionRoutes(
   );
 
   // Public rankings — personal bests grouped by event
-  app.get<{ Querystring: { event?: string } }>(
+  app.get<{ Querystring: { event?: string; page?: string; limit?: string } }>(
     "/api/v1/rankings",
     async (req) => {
       const allPbs = await repo.personalBests.findAll();
-      const users = await repo.users.findAll();
-      const userMap = new Map(users.map((u) => [u.id, u]));
 
       const eventFilter = req.query.event;
       const filtered = eventFilter
         ? allPbs.filter((pb) => pb.eventType === eventFilter)
         : allPbs;
 
-      const entries = filtered
-        .filter((pb) => pb.bestAo5Ms !== null || pb.bestSingleMs !== null)
-        .map((pb) => {
-          const u = userMap.get(pb.userId);
-          return {
-            userId: pb.userId,
-            clId: u?.clId ?? pb.userId,
-            name: u?.name ?? "Unknown",
-            eventType: pb.eventType,
-            bestSingleMs: pb.bestSingleMs,
-            bestAo5Ms: pb.bestAo5Ms,
-          };
-        })
-        .sort((a, b) => {
-          const aVal = a.bestAo5Ms ?? a.bestSingleMs ?? Infinity;
-          const bVal = b.bestAo5Ms ?? b.bestSingleMs ?? Infinity;
-          return aVal - bVal;
-        });
+      const withValues = filtered.filter((pb) => pb.bestAo5Ms !== null || pb.bestSingleMs !== null);
+      withValues.sort((a, b) => {
+        const aVal = a.bestAo5Ms ?? a.bestSingleMs ?? Infinity;
+        const bVal = b.bestAo5Ms ?? b.bestSingleMs ?? Infinity;
+        return aVal - bVal;
+      });
 
-      return entries;
+      const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+      const page = Math.max(Number(req.query.page) || 1, 1);
+      const offset = (page - 1) * limit;
+      const paged = withValues.slice(offset, offset + limit);
+
+      const userIds = [...new Set(paged.map((pb) => pb.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
+
+      const entries = paged.map((pb) => {
+        const u = usersMap.get(pb.userId);
+        return {
+          userId: pb.userId,
+          clId: u?.clId ?? pb.userId,
+          name: u?.name ?? "Unknown",
+          eventType: pb.eventType,
+          bestSingleMs: pb.bestSingleMs,
+          bestAo5Ms: pb.bestAo5Ms,
+        };
+      });
+
+      return { rankings: entries, total: withValues.length, page, limit };
     },
   );
 }

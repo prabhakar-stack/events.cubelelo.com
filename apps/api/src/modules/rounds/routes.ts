@@ -4,10 +4,12 @@ import { generateScrambleSet, isEventId } from "@cubers/scramble-core";
 import type { Repository } from "../../db/repo";
 import type { Realtime } from "../../sockets/realtime";
 import { requireRole, requireAuth } from "../../auth/plugin";
+import type { RoundStatus } from "@cubers/types";
 import type { Round } from "../../db/types";
 import { effectiveRoundStatus } from "../../lib/statusUtils";
 import { validateRoundTimes } from "../../lib/scheduleValidation";
 import { recordScrambleFetch } from "../../lib/scrambleTiming";
+import { scrambleLimiter, adminLimiter } from "../../lib/rateLimiter";
 
 export async function registerRoundRoutes(
   app: FastifyInstance,
@@ -62,7 +64,7 @@ export async function registerRoundRoutes(
           title: competition?.title ?? null,
           rulesMd: competition?.rulesMd ?? null,
         },
-        roster: repo.roster.snapshot(round.id),
+        roster: await repo.roster.snapshot(round.id),
       };
     },
   );
@@ -70,7 +72,7 @@ export async function registerRoundRoutes(
   // Server-locked scramble delivery.
   app.get<{ Params: { id: string } }>(
     "/api/v1/rounds/:id/scramble",
-    { preHandler: requireAuth },
+    { preHandler: [scrambleLimiter, requireAuth] },
     async (req, reply) => {
       const round = await repo.rounds.findById(req.params.id);
       if (!round) return reply.code(404).send({ error: "round_not_found" });
@@ -87,7 +89,7 @@ export async function registerRoundRoutes(
         if (!advanced) return reply.code(403).send({ error: "not_shortlisted" });
       }
 
-      recordScrambleFetch(round.id, req.authClaims!.sub);
+      await recordScrambleFetch(round.id, req.authClaims!.sub);
       return { roundId: round.id, scrambles: set.scrambles };
     },
   );
@@ -156,6 +158,40 @@ export async function registerRoundRoutes(
       if (!updated) return reply.code(404).send({ error: "round_not_found" });
       realtime.emitRoundStatus(updated.id, "cancelled", updated.opensAt);
       return { id: updated.id, status: "cancelled" };
+    },
+  );
+
+  // Reopen a closed or advanced round (admin only).
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/rounds/:id/reopen",
+    adminOnly,
+    async (req, reply) => {
+      const round = await repo.rounds.findById(req.params.id);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+      const status = effectiveRoundStatus(round);
+      if (status !== "closed" && status !== "advanced") {
+        return reply.code(409).send({ error: "round_not_closed_or_advanced" });
+      }
+
+      if (status === "advanced") {
+        const event = await repo.competitionEvents.findByRound(round.id);
+        if (event) {
+          const allRounds = await repo.rounds.findByCompetition(event.competitionId);
+          const nextRound = allRounds.find(
+            (r) => r.competitionEventId === round.competitionEventId && r.roundNumber === round.roundNumber + 1,
+          );
+          if (nextRound) {
+            const nextResults = await repo.results.findByRound(nextRound.id);
+            if (nextResults.length > 0) {
+              return reply.code(409).send({ error: "next_round_has_results" });
+            }
+          }
+        }
+      }
+
+      await repo.rounds.update(round.id, { status: "open" });
+      realtime.emitRoundStatus(round.id, "open" as RoundStatus, round.opensAt);
+      return { id: round.id, status: "open" };
     },
   );
 

@@ -41,3 +41,12 @@ export const env = {
   TWILIO_FROM_NUMBER: process.env.TWILIO_FROM_NUMBER ?? "",
   TWILIO_MESSAGING_SID: process.env.TWILIO_MESSAGING_SID ?? "",
 };
+
+if (process.env.NODE_ENV === "production") {
+  if (env.DEV_AUTH_SECRET === "dev-secret-change-me" || env.DEV_AUTH_SECRET.length < 32) {
+    throw new Error("FATAL: DEV_AUTH_SECRET must be set to a secure value (≥32 chars) in production");
+  }
+  if (env.RAZORPAY_KEY_ID && !env.RAZORPAY_WEBHOOK_SECRET) {
+    throw new Error("FATAL: RAZORPAY_WEBHOOK_SECRET must be set when Razorpay is enabled in production");
+  }
+}

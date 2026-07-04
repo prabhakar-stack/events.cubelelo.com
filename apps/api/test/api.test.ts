@@ -28,6 +28,10 @@ async function postJson(url: string, payload: object, headers?: Record<string, s
   const res = await app.inject({ method: "POST", url, payload, headers });
   return { status: res.statusCode, body: res.json() };
 }
+async function patchJson(url: string, payload: object, headers?: Record<string, string>) {
+  const res = await app.inject({ method: "PATCH", url, payload, headers });
+  return { status: res.statusCode, body: res.json() };
+}
 
 async function loginSync(email: string): Promise<{ token: string; id: string; clId: string }> {
   const token = await devToken(app, email);
@@ -73,9 +77,20 @@ describe("server-locked scrambles", () => {
   });
 
   it("blocks scrambles for a closed round (409), then serves again once reopened", async () => {
-    await postJson(`/api/v1/admin/rounds/${roundId}/close`, {}, bearer(admin));
+    // Round status is schedule-driven: a closesAt in the past closes the round.
+    const { body: round } = await getJson(`/api/v1/rounds/${roundId}`);
+    const justAfterOpen = new Date(+new Date(round.opensAt) + 1).toISOString();
+    const closeRes = await patchJson(
+      `/api/v1/admin/rounds/${roundId}`,
+      { closesAt: justAfterOpen },
+      bearer(admin),
+    );
+    expect(closeRes.status).toBe(200);
     expect((await getAuth(`/api/v1/rounds/${roundId}/scramble`, admin)).status).toBe(409);
-    await postJson(`/api/v1/admin/rounds/${roundId}/open`, {}, bearer(admin));
+
+    // Pushing closesAt into the future reopens it.
+    const inAnHour = new Date(Date.now() + 3_600_000).toISOString();
+    await patchJson(`/api/v1/admin/rounds/${roundId}`, { closesAt: inAnHour }, bearer(admin));
     expect((await getAuth(`/api/v1/rounds/${roundId}/scramble`, admin)).status).toBe(200);
   });
 });

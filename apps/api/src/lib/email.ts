@@ -101,6 +101,26 @@ function pickService(): EmailService {
 
 export const emailService: EmailService = pickService();
 
+export function emailServiceName(): string {
+  if (env.BREVO_API_KEY) return "brevo";
+  if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) return "smtp";
+  return "console";
+}
+
+const BATCH_SIZE = 10;
+
+export async function sendBulk(
+  messages: EmailMessage[],
+): Promise<number> {
+  let sentCount = 0;
+  for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+    const batch = messages.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(batch.map((m) => emailService.send(m)));
+    sentCount += results.filter((r) => r.status === "fulfilled" && r.value).length;
+  }
+  return sentCount;
+}
+
 export function verificationEmail(name: string, token: string): { subject: string; html: string } {
   const link = `${env.APP_URL}/verify-email?token=${token}`;
   return {
@@ -189,6 +209,20 @@ export function migrationEmail(name: string, clId: string): { subject: string; h
         <p>Claim your account to keep your history, personal bests, and rankings.</p>
         <a href="${link}" style="display:inline-block;background:#059669;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Claim My Account</a>
         <p style="margin-top:24px;font-size:12px;color:#71717a">If you don't recognize this, you can ignore this email.</p>
+      </div>
+    `,
+  };
+}
+
+export function staffWelcomeEmail(name: string, role: string): { subject: string; html: string } {
+  return {
+    subject: `You've been added as ${role} on Cubelelo Events`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+        <h2>Welcome, ${name}!</h2>
+        <p>You have been added as a <strong>${role}</strong> on Cubelelo Events.</p>
+        <p>Please visit <a href="${env.APP_URL}/login">${env.APP_URL}/login</a> to set up your account and get started.</p>
+        <p style="margin-top:24px;font-size:12px;color:#71717a">— Cubelelo Events</p>
       </div>
     `,
   };

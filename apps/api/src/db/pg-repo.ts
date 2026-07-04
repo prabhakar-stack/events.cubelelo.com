@@ -1,5 +1,6 @@
 import type pg from "pg";
 import type { Repository } from "./repo";
+import { getRedis } from "../lib/redis";
 import type {
   User,
   Competition,
@@ -224,6 +225,20 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
         return rows[0] ? toUser(rows[0]) : null;
       },
+      async findByIds(ids) {
+        const map = new Map<string, User>();
+        if (ids.length === 0) return map;
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(",");
+        const { rows } = await pool.query(
+          `SELECT * FROM users WHERE id IN (${placeholders})`,
+          ids,
+        );
+        for (const r of rows) {
+          const u = toUser(r);
+          map.set(u.id, u);
+        }
+        return map;
+      },
       async findByEmail(email) {
         const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
         return rows[0] ? toUser(rows[0]) : null;
@@ -305,7 +320,15 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
 
     // ── competitions ───────────────────────────────────────────────────────
     competitions: {
-      async findAll() {
+      async findAll(search) {
+        if (search) {
+          const q = `%${search}%`;
+          const { rows } = await pool.query(
+            "SELECT * FROM competitions WHERE title ILIKE $1 OR description ILIKE $1 ORDER BY created_at DESC",
+            [q],
+          );
+          return rows.map(toComp);
+        }
         const { rows } = await pool.query(
           "SELECT * FROM competitions ORDER BY created_at DESC",
         );
@@ -403,6 +426,21 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
             event.cutoffMs ?? null, event.timeLimitMs ?? null,
           ],
         );
+      },
+      async update(id, fields) {
+        const COL: Record<string, string> = {
+          roundCount: "round_count", cutoffMs: "cutoff_ms", timeLimitMs: "time_limit_ms",
+        };
+        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        if (sets.length === 0) return this.findById(id);
+        vals.push(id);
+        const { rows } = await pool.query(
+          `UPDATE competition_events SET ${sets.join(", ")} WHERE id = $${next} RETURNING *`, vals,
+        );
+        return rows[0] ? toEvent(rows[0]) : null;
+      },
+      async delete(id) {
+        await pool.query("DELETE FROM competition_events WHERE id = $1", [id]);
       },
     },
 
@@ -543,16 +581,13 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
       async updateRanks(rankings) {
         if (rankings.length === 0) return;
-        // Single query: UPDATE … SET rank = CASE WHEN id=$1 THEN $2 … END
-        const cases = rankings
-          .map((_, i) => `WHEN id = $${i * 2 + 1}::uuid THEN $${i * 2 + 2}::integer`)
-          .join(" ");
-        const vals: unknown[] = rankings.flatMap((r) => [r.id, Math.trunc(r.rank)]);
         const ids = rankings.map((r) => r.id);
-        vals.push(ids);
+        const ranks = rankings.map((r) => Math.trunc(r.rank));
         await pool.query(
-          `UPDATE results SET rank = CASE ${cases} END WHERE id = ANY($${vals.length}::uuid[])`,
-          vals,
+          `UPDATE results SET rank = u.rank
+           FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::integer[]) AS rank) u
+           WHERE results.id = u.id`,
+          [ids, ranks],
         );
       },
     },
@@ -592,12 +627,15 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
       },
       async update(id, fields) {
-        if (fields.paymentStatus !== undefined) {
-          await pool.query(
-            "UPDATE registrations SET payment_status = $1 WHERE id = $2",
-            [fields.paymentStatus, id],
-          );
-        }
+        const COL: Record<string, string> = { paymentStatus: "payment_status", userId: "user_id" };
+        const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
+        if (sets.length === 0) return;
+        vals.push(id);
+        await pool.query(`UPDATE registrations SET ${sets.join(", ")} WHERE id = $${next}`, vals);
+      },
+      async delete(id) {
+        await pool.query("DELETE FROM registration_events WHERE registration_id = $1", [id]);
+        await pool.query("DELETE FROM registrations WHERE id = $1", [id]);
       },
       async addEvent(registrationId, competitionEventId) {
         await pool.query(
@@ -605,6 +643,9 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
            VALUES ($1,$2) ON CONFLICT DO NOTHING`,
           [registrationId, competitionEventId],
         );
+      },
+      async removeEvents(registrationId) {
+        await pool.query("DELETE FROM registration_events WHERE registration_id = $1", [registrationId]);
       },
       async countEvents(registrationId) {
         const { rows } = await pool.query(
@@ -659,6 +700,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const COL: Record<string, string> = {
           razorpayPaymentId: "razorpay_payment_id",
           status: "status",
+          userId: "user_id",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return;
@@ -674,6 +716,28 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
 
     // ── auditLog ───────────────────────────────────────────────────────────
     auditLog: {
+      async findAll(limit = 100, offset = 0) {
+        const { rows } = await pool.query(
+          "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+          [limit, offset],
+        );
+        return rows.map((r: Row): AuditLogEntry => ({
+          id: r.id as string, adminId: r.admin_id as string,
+          action: r.action as string, target: (r.target as string) ?? undefined,
+          reason: (r.reason as string) ?? undefined, createdAt: ts(r.created_at),
+        }));
+      },
+      async findByAdmin(adminId: string) {
+        const { rows } = await pool.query(
+          "SELECT * FROM audit_log WHERE admin_id = $1 ORDER BY created_at DESC LIMIT 200",
+          [adminId],
+        );
+        return rows.map((r: Row): AuditLogEntry => ({
+          id: r.id as string, adminId: r.admin_id as string,
+          action: r.action as string, target: (r.target as string) ?? undefined,
+          reason: (r.reason as string) ?? undefined, createdAt: ts(r.created_at),
+        }));
+      },
       async create(entry: AuditLogEntry) {
         await pool.query(
           `INSERT INTO audit_log (id, admin_id, action, target, reason, created_at)
@@ -683,6 +747,41 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
             entry.target ?? null, entry.reason ?? null, entry.createdAt,
           ],
         );
+      },
+    },
+
+    // ── verification tokens ───────────────────────────────────────────────
+    verificationTokens: {
+      async create(t) {
+        await pool.query(
+          `INSERT INTO verification_tokens (id, user_id, type, token, identifier, expires_at)
+           VALUES ($1,$2,$3,$4,$5, to_timestamp($6 / 1000.0))`,
+          [t.id, t.userId, t.type, t.token, t.identifier ?? null, t.expiresAt],
+        );
+      },
+      async findByToken(token, type) {
+        const { rows } = await pool.query(
+          "SELECT * FROM verification_tokens WHERE token = $1 AND type = $2 LIMIT 1",
+          [token, type],
+        );
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, userId: r.user_id as string, type: r.type as string, token: r.token as string, identifier: (r.identifier as string) ?? undefined, expiresAt: new Date(r.expires_at as string).getTime() };
+      },
+      async findByIdentifier(identifier, type) {
+        const { rows } = await pool.query(
+          "SELECT * FROM verification_tokens WHERE identifier = $1 AND type = $2 ORDER BY expires_at DESC LIMIT 1",
+          [identifier, type],
+        );
+        if (!rows[0]) return null;
+        const r = rows[0] as Row;
+        return { id: r.id as string, userId: r.user_id as string, type: r.type as string, token: r.token as string, identifier: (r.identifier as string) ?? undefined, expiresAt: new Date(r.expires_at as string).getTime() };
+      },
+      async delete(id) {
+        await pool.query("DELETE FROM verification_tokens WHERE id = $1", [id]);
+      },
+      async deleteExpired() {
+        await pool.query("DELETE FROM verification_tokens WHERE expires_at < now()");
       },
     },
 
@@ -755,12 +854,22 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
     advancements: {
       async save(roundId, entries) {
         if (entries.length === 0) return;
-        await pool.query("DELETE FROM round_advancements WHERE round_id = $1", [roundId]);
-        for (const e of entries) {
-          await pool.query(
-            "INSERT INTO round_advancements (round_id, user_id, rank) VALUES ($1,$2,$3)",
-            [e.roundId, e.userId, e.rank],
-          );
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query("DELETE FROM round_advancements WHERE round_id = $1", [roundId]);
+          for (const e of entries) {
+            await client.query(
+              "INSERT INTO round_advancements (round_id, user_id, rank) VALUES ($1,$2,$3)",
+              [e.roundId, e.userId, e.rank],
+            );
+          }
+          await client.query("COMMIT");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw err;
+        } finally {
+          client.release();
         }
       },
       async isAdvanced(roundId, userId) {
@@ -898,6 +1007,17 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           ],
         );
       },
+      async findSolve(id) {
+        const { rows } = await pool.query("SELECT * FROM practice_solves WHERE id = $1", [id]);
+        if (!rows[0]) return null;
+        const r: Row = rows[0];
+        return {
+          id: r.id as string, sessionId: r.session_id as string,
+          timeMs: r.time_ms as number, scramble: r.scramble as string,
+          penalty: r.penalty as PracticeSolve["penalty"],
+          note: (r.note as string) ?? undefined, createdAt: ts(r.created_at),
+        };
+      },
       async findSolvesBySession(sessionId) {
         const { rows } = await pool.query(
           "SELECT * FROM practice_solves WHERE session_id = $1 ORDER BY created_at",
@@ -938,9 +1058,9 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
       async submitResult(result) {
         await pool.query(
-          `INSERT INTO daily_challenge_results (id, challenge_id, user_id, time_ms, submitted_at)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [result.id, result.challengeId, result.userId, result.timeMs, result.submittedAt],
+          `INSERT INTO daily_challenge_results (id, challenge_id, user_id, time_ms, penalty, submitted_at)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [result.id, result.challengeId, result.userId, result.timeMs, result.penalty ?? "none", result.submittedAt],
         );
       },
       async findResultByUserAndChallenge(userId, challengeId) {
@@ -953,6 +1073,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         return {
           id: r.id as string, challengeId: r.challenge_id as string,
           userId: r.user_id as string, timeMs: r.time_ms as number,
+          penalty: (r.penalty as DailyChallengeResult["penalty"]) ?? "none",
           submittedAt: ts(r.submitted_at),
         } satisfies DailyChallengeResult;
       },
@@ -966,6 +1087,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         return rows.map((r: Row): DailyChallengeResult & { clId: string; name: string } => ({
           id: r.id as string, challengeId: r.challenge_id as string,
           userId: r.user_id as string, timeMs: r.time_ms as number,
+          penalty: (r.penalty as DailyChallengeResult["penalty"]) ?? "none",
           submittedAt: ts(r.submitted_at),
           clId: r.cl_id as string, name: r.name as string,
         }));
@@ -981,7 +1103,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const dates = (rows as Row[]).map((r) => (r.date as string).slice(0, 10));
         let streak = 0;
         const d = new Date();
-        while (true) {
+        const MAX_LOOKBACK = 365;
+        for (let i = 0; i < MAX_LOOKBACK; i++) {
           const dateStr = d.toISOString().slice(0, 10);
           if (dates.includes(dateStr)) {
             streak++;
@@ -1005,7 +1128,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
           reason: r.reason as string, status: r.status as Appeal["status"],
           adminResponse: (r.admin_response as string) ?? undefined,
-          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined,
+          createdAt: ts(r.created_at), resolvedAt: r.resolved_at ? ts(r.resolved_at) : undefined,
         }));
       },
       async findById(id: string) {
@@ -1015,7 +1138,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         return { id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
           reason: r.reason as string, status: r.status as Appeal["status"],
           adminResponse: (r.admin_response as string) ?? undefined,
-          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined };
+          createdAt: ts(r.created_at), resolvedAt: r.resolved_at ? ts(r.resolved_at) : undefined };
       },
       async findByResult(resultId: string) {
         const { rows } = await pool.query("SELECT * FROM appeals WHERE result_id = $1", [resultId]);
@@ -1024,7 +1147,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         return { id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
           reason: r.reason as string, status: r.status as Appeal["status"],
           adminResponse: (r.admin_response as string) ?? undefined,
-          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined };
+          createdAt: ts(r.created_at), resolvedAt: r.resolved_at ? ts(r.resolved_at) : undefined };
       },
       async findByUser(userId: string) {
         const { rows } = await pool.query("SELECT * FROM appeals WHERE user_id = $1 ORDER BY created_at DESC", [userId]);
@@ -1032,7 +1155,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
           reason: r.reason as string, status: r.status as Appeal["status"],
           adminResponse: (r.admin_response as string) ?? undefined,
-          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined,
+          createdAt: ts(r.created_at), resolvedAt: r.resolved_at ? ts(r.resolved_at) : undefined,
         }));
       },
       async create(appeal: Appeal) {
@@ -1046,18 +1169,25 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const COL: Record<string, string> = { status: "status", adminResponse: "admin_response" };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
-        sets.push(`updated_at = $${next}`);
+        let idx = next;
+        sets.push(`updated_at = $${idx}`);
         vals.push(new Date().toISOString());
+        idx++;
+        if (fields.status === "accepted" || fields.status === "rejected") {
+          sets.push(`resolved_at = $${idx}`);
+          vals.push(new Date().toISOString());
+          idx++;
+        }
         vals.push(id);
         const { rows } = await pool.query(
-          `UPDATE appeals SET ${sets.join(", ")} WHERE id = $${next + 1} RETURNING *`, vals,
+          `UPDATE appeals SET ${sets.join(", ")} WHERE id = $${idx} RETURNING *`, vals,
         );
         if (!rows[0]) return null;
         const r = rows[0] as Row;
         return { id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
           reason: r.reason as string, status: r.status as Appeal["status"],
           adminResponse: (r.admin_response as string) ?? undefined,
-          createdAt: ts(r.created_at), resolvedAt: r.updated_at ? ts(r.updated_at) : undefined };
+          createdAt: ts(r.created_at), resolvedAt: r.resolved_at ? ts(r.resolved_at) : undefined };
       },
     },
 
@@ -1170,7 +1300,11 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         await pool.query("DELETE FROM promo_codes WHERE id = $1", [id]);
       },
       async incrementUsed(id: string) {
-        await pool.query("UPDATE promo_codes SET used_count = used_count + 1 WHERE id = $1", [id]);
+        const { rowCount } = await pool.query(
+          "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = $1 AND used_count < max_uses",
+          [id],
+        );
+        return (rowCount ?? 0) > 0;
       },
     },
 
@@ -1181,7 +1315,9 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         return rows.map((r: Row): Banner => ({
           id: r.id as string, title: r.title as string,
           imageUrl: (r.image_url as string) ?? undefined,
+          ctaText: (r.cta_text as string) ?? undefined,
           ctaLink: (r.link_url as string) ?? undefined,
+          expiresAt: r.expires_at ? ts(r.expires_at) : undefined,
           active: r.active as boolean, order: r.order as number, createdAt: ts(r.created_at),
         }));
       },
@@ -1191,17 +1327,19 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const r = rows[0] as Row;
         return { id: r.id as string, title: r.title as string,
           imageUrl: (r.image_url as string) ?? undefined,
+          ctaText: (r.cta_text as string) ?? undefined,
           ctaLink: (r.link_url as string) ?? undefined,
+          expiresAt: r.expires_at ? ts(r.expires_at) : undefined,
           active: r.active as boolean, order: r.order as number, createdAt: ts(r.created_at) };
       },
       async create(banner: Banner) {
         await pool.query(
-          'INSERT INTO banners (id, title, image_url, link_url, "order", active, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-          [banner.id, banner.title, banner.imageUrl ?? null, banner.ctaLink ?? null, banner.order, banner.active, banner.createdAt],
+          'INSERT INTO banners (id, title, image_url, cta_text, link_url, "order", active, expires_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+          [banner.id, banner.title, banner.imageUrl ?? null, banner.ctaText ?? null, banner.ctaLink ?? null, banner.order, banner.active, banner.expiresAt ?? null, banner.createdAt],
         );
       },
       async update(id: string, fields: Partial<Banner>) {
-        const COL: Record<string, string> = { title: "title", imageUrl: "image_url", ctaLink: "link_url", active: "active", order: '"order"' };
+        const COL: Record<string, string> = { title: "title", imageUrl: "image_url", ctaText: "cta_text", ctaLink: "link_url", active: "active", order: '"order"', expiresAt: "expires_at" };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
         vals.push(id);
@@ -1339,14 +1477,25 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
 
     // ── roster (always in-memory) ──────────────────────────────────────────
     roster: {
-      join(roundId, userId, name) {
+      async join(roundId, userId, name) {
         if (!roster.has(roundId)) roster.set(roundId, new Map());
         roster.get(roundId)!.set(userId, name);
+        const redis = await getRedis();
+        if (redis) await redis.hset(`roster:${roundId}`, userId, name).catch(() => {});
       },
-      leave(roundId, userId) {
+      async leave(roundId, userId) {
         roster.get(roundId)?.delete(userId);
+        const redis = await getRedis();
+        if (redis) await redis.hdel(`roster:${roundId}`, userId).catch(() => {});
       },
-      snapshot(roundId) {
+      async snapshot(roundId) {
+        const redis = await getRedis();
+        if (redis) {
+          const data = await redis.hgetall(`roster:${roundId}`).catch(() => null);
+          if (data && Object.keys(data).length > 0) {
+            return Object.entries(data).map(([userId, name]) => ({ userId, name }));
+          }
+        }
         const r = roster.get(roundId);
         if (!r) return [];
         return [...r.entries()].map(([userId, name]) => ({ userId, name }));

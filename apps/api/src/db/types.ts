@@ -9,6 +9,11 @@ import type {
   UserRole,
 } from "@cubers/types";
 
+export function sanitizeUser<T extends { passwordHash?: unknown }>(u: T): Omit<T, "passwordHash"> {
+  const { passwordHash: _, ...safe } = u;
+  return safe;
+}
+
 export interface User {
   id: string;
   clId: string;
@@ -134,6 +139,7 @@ export interface Payment {
   currency: string;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
+  promoCodeId?: string;
   status: PaymentStatus;
   createdAt: string;
 }
@@ -210,6 +216,7 @@ export interface DailyChallengeResult {
   challengeId: string;
   userId: string;
   timeMs: number;
+  penalty?: "none" | "plus2" | "dnf";
   submittedAt: string;
 }
 

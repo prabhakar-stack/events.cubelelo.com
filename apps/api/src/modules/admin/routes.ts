@@ -3,14 +3,15 @@ import type { FastifyInstance } from "fastify";
 import { isEventId } from "@cubers/scramble-core";
 import type { CompStatus, CompType, FlagStatus } from "@cubers/types";
 import type { Repository } from "../../db/repo";
-import type { Competition, CompetitionEvent, Round, AuditLogEntry, Announcement, PromoCode, Appeal, RankTier, Banner, FaqEntry, ContentPage } from "../../db/types";
+import { type Competition, type CompetitionEvent, type Round, type AuditLogEntry, type Announcement, type PromoCode, type Appeal, type RankTier, type Banner, type FaqEntry, type ContentPage, sanitizeUser } from "../../db/types";
 import type { Realtime } from "../../sockets/realtime";
 import { requireRole } from "../../auth/plugin";
 import { effectiveCompStatus, effectiveRoundStatus } from "../../lib/statusUtils";
 import { shortlistRound } from "../../lib/roundLifecycle";
 import { validateCompetitionSchedule, validateScheduleFields } from "../../lib/scheduleValidation";
 import { collectCertificateData, generateCertificatePDF } from "../../lib/certificate";
-import { emailService, roundNotificationEmail, bulkEmail, migrationEmail } from "../../lib/email";
+import { emailService, sendBulk, roundNotificationEmail, bulkEmail, migrationEmail, staffWelcomeEmail } from "../../lib/email";
+import { recomputeRanks } from "../results/routes";
 import { ZipArchive } from "archiver";
 
 const COMP_TYPES: CompType[] = ["paid", "free", "practice"];
@@ -423,35 +424,52 @@ export async function registerAdminRoutes(
         minx: 25000, "333oh": 6000, "333bf": 12000, sq1: 5000, clock: 3000,
       };
 
-      return Promise.all(
-        flagged.map(async (r) => {
-          const round = await repo.rounds.findById(r.roundId);
-          const event = round ? await repo.competitionEvents.findByRound(round.id) : undefined;
-          const eventType = event?.eventType ?? "unknown";
-          const user = await repo.users.findById(r.userId);
-          const allUserResults = await repo.results.findByUser(r.userId);
+      const userIds = [...new Set(flagged.map((r) => r.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
 
-          const reasons: string[] = [];
-          const threshold = thresholds[eventType];
-          if (threshold && r.ao5Ms !== null && r.ao5Ms < threshold) {
-            reasons.push(
-              `ao5 (${(r.ao5Ms / 1000).toFixed(2)}s) below ${eventType} threshold (${(threshold / 1000).toFixed(1)}s)`,
-            );
-          }
-          if (allUserResults.length <= 1) {
-            reasons.push("New user with no prior competition history");
-          }
+      const roundsMap = new Map<string, typeof rounds[0]>();
+      for (const r of rounds) roundsMap.set(r.id, r);
 
-          return {
-            id: r.id, roundId: r.roundId, userId: r.userId,
-            userName: user?.name ?? r.userId, userClId: user?.clId ?? r.userId,
-            eventType, roundNumber: round?.roundNumber ?? null,
-            ao5Ms: r.ao5Ms, bestSingleMs: r.bestSingleMs,
-            solves: r.solves, videoUrl: r.videoUrl, flagStatus: r.flagStatus,
-            suspicionReasons: reasons, submittedAt: r.submittedAt,
-          };
-        }),
-      );
+      const eventsByRound = new Map<string, string>();
+      for (const r of rounds) {
+        if (eventsByRound.has(r.id)) continue;
+        const ev = await repo.competitionEvents.findByRound(r.id);
+        if (ev) eventsByRound.set(r.id, ev.eventType);
+      }
+
+      const userResultCounts = new Map<string, number>();
+      for (const uid of userIds) {
+        if (userResultCounts.has(uid)) continue;
+        const all = await repo.results.findByUser(uid);
+        userResultCounts.set(uid, all.length);
+      }
+
+      return flagged.map((r) => {
+        const round = roundsMap.get(r.roundId);
+        const eventType = eventsByRound.get(r.roundId) ?? "unknown";
+        const user = usersMap.get(r.userId);
+        const resultCount = userResultCounts.get(r.userId) ?? 0;
+
+        const reasons: string[] = [];
+        const threshold = thresholds[eventType];
+        if (threshold && r.ao5Ms !== null && r.ao5Ms < threshold) {
+          reasons.push(
+            `ao5 (${(r.ao5Ms / 1000).toFixed(2)}s) below ${eventType} threshold (${(threshold / 1000).toFixed(1)}s)`,
+          );
+        }
+        if (resultCount <= 1) {
+          reasons.push("New user with no prior competition history");
+        }
+
+        return {
+          id: r.id, roundId: r.roundId, userId: r.userId,
+          userName: user?.name ?? r.userId, userClId: user?.clId ?? r.userId,
+          eventType, roundNumber: round?.roundNumber ?? null,
+          ao5Ms: r.ao5Ms, bestSingleMs: r.bestSingleMs,
+          solves: r.solves, videoUrl: r.videoUrl, flagStatus: r.flagStatus,
+          suspicionReasons: reasons, submittedAt: r.submittedAt,
+        };
+      });
     },
   );
 
@@ -492,6 +510,11 @@ export async function registerAdminRoutes(
     };
     await repo.auditLog.create(entry);
 
+    // Recompute ranks when a penalty or disqualification changes rankings
+    if (["plus2", "dnf", "disqualified"].includes(action)) {
+      await recomputeRanks(repo, result.roundId);
+    }
+
     // Check if shortlisting should trigger (no more flagged results in this round)
     const round = await repo.rounds.findById(result.roundId);
     if (round && round.status === "closed" && (round.advancementCriteria || round.advancementCount)) {
@@ -518,29 +541,30 @@ export async function registerAdminRoutes(
       const results = await repo.results.findByRound(round.id);
       const event = await repo.competitionEvents.findByRound(round.id);
 
-      return Promise.all(
-        results.map(async (r) => {
-          const user = await repo.users.findById(r.userId);
-          return {
-            id: r.id,
-            userId: r.userId,
-            userName: user?.name ?? r.userId,
-            userClId: user?.clId ?? r.userId,
-            eventType: event?.eventType ?? "unknown",
-            roundNumber: round.roundNumber,
-            solves: r.solves,
-            bestSingleMs: r.bestSingleMs,
-            ao5Ms: r.ao5Ms,
-            videoUrl: r.videoUrl,
-            flagStatus: r.flagStatus,
-            verifiedBy: r.verifiedBy,
-            verifiedAt: r.verifiedAt,
-            verificationComment: r.verificationComment,
-            submittedAt: r.submittedAt,
-            rank: r.rank,
-          };
-        }),
-      );
+      const userIds = [...new Set(results.map((r) => r.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
+
+      return results.map((r) => {
+        const user = usersMap.get(r.userId);
+        return {
+          id: r.id,
+          userId: r.userId,
+          userName: user?.name ?? r.userId,
+          userClId: user?.clId ?? r.userId,
+          eventType: event?.eventType ?? "unknown",
+          roundNumber: round.roundNumber,
+          solves: r.solves,
+          bestSingleMs: r.bestSingleMs,
+          ao5Ms: r.ao5Ms,
+          videoUrl: r.videoUrl,
+          flagStatus: r.flagStatus,
+          verifiedBy: r.verifiedBy,
+          verifiedAt: r.verifiedAt,
+          verificationComment: r.verificationComment,
+          submittedAt: r.submittedAt,
+          rank: r.rank,
+        };
+      });
     },
   );
 
@@ -618,16 +642,56 @@ export async function registerAdminRoutes(
       .map((u) => ({ id: u.id, name: u.name, clId: u.clId, role: u.role }));
   });
 
+  // ── Competition Events (admin) ────────────────────────────────────────────
+
+  app.patch<{
+    Params: { id: string };
+    Body: { cutoffMs?: number; timeLimitMs?: number; roundCount?: number };
+  }>("/api/v1/admin/competition-events/:id", adminOnly, async (req, reply) => {
+    const { cutoffMs, timeLimitMs, roundCount } = req.body ?? {};
+    const fields: Partial<CompetitionEvent> = {};
+    if (cutoffMs !== undefined) fields.cutoffMs = cutoffMs;
+    if (timeLimitMs !== undefined) fields.timeLimitMs = timeLimitMs;
+    if (roundCount !== undefined) fields.roundCount = roundCount;
+    if (Object.keys(fields).length === 0) return reply.code(400).send({ error: "no_valid_fields" });
+    const updated = await repo.competitionEvents.update(req.params.id, fields);
+    if (!updated) return reply.code(404).send({ error: "event_not_found" });
+    return updated;
+  });
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/competition-events/:id",
+    adminOnly,
+    async (req, reply) => {
+      const ev = await repo.competitionEvents.findById(req.params.id);
+      if (!ev) return reply.code(404).send({ error: "event_not_found" });
+      const rounds = await repo.rounds.findByCompetition(ev.competitionId);
+      const eventRounds = rounds.filter((r) => r.competitionEventId === ev.id);
+      for (const r of eventRounds) {
+        const results = await repo.results.findByRound(r.id);
+        if (results.length > 0) {
+          return reply.code(409).send({ error: "event_has_results" });
+        }
+      }
+      await repo.competitionEvents.delete(ev.id);
+      return reply.code(204).send();
+    },
+  );
+
   // ── Users (admin) ────────────────────────────────────────────────────────
 
-  app.get<{ Querystring: { search?: string; role?: string; stage?: string } }>(
+  app.get<{ Querystring: { search?: string; role?: string; stage?: string; page?: string; limit?: string } }>(
     "/api/v1/admin/users",
     adminOnly,
     async (req) => {
       let users = await repo.users.findAll(req.query.search);
       if (req.query.role) users = users.filter((u) => u.role === req.query.role);
       if (req.query.stage) users = users.filter((u) => u.accountStage === req.query.stage);
-      return users;
+      const total = users.length;
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+      const paginated = users.slice((page - 1) * limit, page * limit);
+      return { data: paginated.map(sanitizeUser), total, page, limit };
     },
   );
 
@@ -636,8 +700,12 @@ export async function registerAdminRoutes(
     Body: { role?: string; accountStage?: string };
   }>("/api/v1/admin/users/:id", adminOnly, async (req, reply) => {
     const { role, accountStage } = req.body ?? {};
-    const ROLES = ["user", "judge", "moderator", "admin"];
-    const STAGES = ["active", "migrated_stub", "suspended", "banned"];
+    const admin = await repo.users.findById(req.authClaims!.sub);
+    const isSuperAdmin = admin?.role === "super_admin";
+    const ROLES = isSuperAdmin
+      ? ["user", "judge", "moderator", "admin", "super_admin"]
+      : ["user", "judge", "moderator", "admin"];
+    const STAGES = ["active", "migrated_stub", "suspended", "banned", "deleted"];
 
     const fields: Record<string, string> = {};
     if (role && ROLES.includes(role)) fields.role = role;
@@ -648,7 +716,6 @@ export async function registerAdminRoutes(
     const updated = await repo.users.update(req.params.id, fields as never);
     if (!updated) return reply.code(404).send({ error: "user_not_found" });
 
-    const admin = await repo.users.findById(req.authClaims!.sub);
     await repo.auditLog.create({
       id: randomUUID(),
       adminId: admin?.id ?? req.authClaims!.sub,
@@ -658,7 +725,7 @@ export async function registerAdminRoutes(
       createdAt: new Date().toISOString(),
     });
 
-    return updated;
+    return sanitizeUser(updated);
   });
 
   // Delete a user (admin)
@@ -673,7 +740,16 @@ export async function registerAdminRoutes(
         return reply.code(400).send({ error: "cannot_delete_self" });
       }
 
-      await repo.users.delete(req.params.id);
+      await repo.users.update(req.params.id, {
+        email: `deleted-${req.params.id}@deleted.local`,
+        name: "Deleted User",
+        lastName: undefined,
+        mobileNo: undefined,
+        avatarUrl: undefined,
+        instagram: undefined,
+        passwordHash: undefined,
+        accountStage: "deleted",
+      });
 
       const admin = await repo.users.findById(req.authClaims!.sub);
       await repo.auditLog.create({
@@ -681,7 +757,7 @@ export async function registerAdminRoutes(
         adminId: admin?.id ?? req.authClaims!.sub,
         action: "user_delete",
         target: req.params.id,
-        reason: `Permanently deleted user ${target.email} (${target.clId})`,
+        reason: `Soft-deleted user ${target.email} (${target.clId})`,
         createdAt: new Date().toISOString(),
       });
 
@@ -696,6 +772,15 @@ export async function registerAdminRoutes(
     async (req, reply) => {
       const comp = await repo.competitions.findById(req.params.id);
       if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      if (comp.status !== "draft" && comp.status !== "cancelled") {
+        return reply.code(409).send({ error: "only_draft_or_cancelled_competitions_can_be_deleted" });
+      }
+
+      const regs = await repo.registrations.findByCompetition(req.params.id);
+      if (regs.length > 0) {
+        return reply.code(409).send({ error: "competition_has_registrations" });
+      }
 
       await repo.competitions.delete(req.params.id);
 
@@ -715,27 +800,43 @@ export async function registerAdminRoutes(
 
   // ── Payments (admin) ──────────────────────────────────────────────────────
 
-  app.get<{ Querystring: { status?: string } }>(
+  app.get<{ Querystring: { status?: string; page?: string; limit?: string } }>(
     "/api/v1/admin/payments",
     adminOnly,
     async (req) => {
       let payments = await repo.payments.findAll();
       if (req.query.status) payments = payments.filter((p) => p.status === req.query.status);
 
-      return Promise.all(
-        payments.map(async (p) => {
-          const user = await repo.users.findById(p.userId);
-          const reg = await repo.registrations.findById(p.registrationId);
-          const comp = reg ? await repo.competitions.findById(reg.competitionId) : null;
+      const total = payments.length;
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+      const paginated = payments.slice((page - 1) * limit, page * limit);
+
+      const userIds = [...new Set(paginated.map((p) => p.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
+      const compsMap = new Map<string, string>();
+      for (const p of paginated) {
+        if (compsMap.has(p.registrationId)) continue;
+        const reg = await repo.registrations.findById(p.registrationId);
+        if (reg && !compsMap.has(reg.competitionId)) {
+          const comp = await repo.competitions.findById(reg.competitionId);
+          compsMap.set(p.registrationId, comp?.title ?? "Unknown");
+        }
+      }
+
+      return {
+        data: paginated.map((p) => {
+          const user = usersMap.get(p.userId);
           return {
             ...p,
             userName: user?.name ?? p.userId,
             userClId: user?.clId ?? p.userId,
             userEmail: user?.email ?? "",
-            competitionTitle: comp?.title ?? "Unknown",
+            competitionTitle: compsMap.get(p.registrationId) ?? "Unknown",
           };
         }),
-      );
+        total, page, limit,
+      };
     },
   );
 
@@ -758,17 +859,22 @@ export async function registerAdminRoutes(
         "Flag Status", "Video URL",
       ]);
 
+      // Prefetch all results and users for this competition
+      const allResults = (await Promise.all(rounds.map((r) => repo.results.findByRound(r.id)))).flat();
+      const allUserIds = [...new Set(allResults.map((r) => r.userId))];
+      const usersMap = await repo.users.findByIds(allUserIds);
+
       for (const ev of events) {
         const evRounds = rounds
           .filter((r) => r.competitionEventId === ev.id)
           .sort((a, b) => a.roundNumber - b.roundNumber);
 
         for (const round of evRounds) {
-          const results = await repo.results.findByRound(round.id);
+          const results = allResults.filter((r) => r.roundId === round.id);
           const sorted = results.sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
 
           for (const r of sorted) {
-            const user = await repo.users.findById(r.userId);
+            const user = usersMap.get(r.userId);
             const fmtMs = (ms: number | null) =>
               ms === null ? "DNF" : (ms / 1000).toFixed(2);
             const fmtSolve = (s: { time_ms: number; inspectionPenalty?: string; penalty: string }) => {
@@ -842,12 +948,11 @@ export async function registerAdminRoutes(
       if (recipients.length === 0)
         return reply.code(409).send({ error: "no_recipients" });
 
-      let sentCount = 0;
-      for (const r of recipients) {
+      const messages = recipients.map((r) => {
         const msg = bulkEmail(r.name, subject, bodyHtml);
-        const ok = await emailService.send({ to: r.email, subject: msg.subject, html: msg.html });
-        if (ok) sentCount++;
-      }
+        return { to: r.email, subject: msg.subject, html: msg.html };
+      });
+      const sentCount = await sendBulk(messages);
 
       const admin = await repo.users.findById(req.authClaims!.sub);
       await repo.auditLog.create({
@@ -906,10 +1011,40 @@ export async function registerAdminRoutes(
       const archive = new ZipArchive({ zlib: { level: 5 } });
       archive.on("error", (err: Error) => reply.log.error(err, "archive error"));
 
-      for (const reg of regs) {
-        const data = await collectCertificateData(repo, comp.id, reg.userId);
-        if (!data) continue;
+      const events = await repo.competitionEvents.findByCompetition(comp.id);
+      const rounds = await repo.rounds.findByCompetition(comp.id);
+      const allResults = (await Promise.all(rounds.map((r) => repo.results.findByRound(r.id)))).flat();
+      const userIds = [...new Set(regs.map((r) => r.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
 
+      for (const reg of regs) {
+        const user = usersMap.get(reg.userId);
+        if (!user) continue;
+
+        const eventResults: { eventType: string; rank: number | null; bestSingleMs: number | null; ao5Ms: number | null }[] = [];
+        let bestRank: number | null = null;
+        for (const ev of events) {
+          const evRounds = rounds.filter((r) => r.competitionEventId === ev.id).sort((a, b) => b.roundNumber - a.roundNumber);
+          for (const round of evRounds) {
+            const userResult = allResults.find((r) => r.roundId === round.id && r.userId === reg.userId);
+            if (userResult) {
+              eventResults.push({ eventType: ev.eventType, rank: userResult.rank, bestSingleMs: userResult.bestSingleMs, ao5Ms: userResult.ao5Ms });
+              if (userResult.rank !== null && (bestRank === null || userResult.rank < bestRank)) bestRank = userResult.rank;
+              break;
+            }
+          }
+        }
+        if (eventResults.length === 0) continue;
+
+        const data = {
+          competitionTitle: comp.title,
+          competitionDate: comp.startsAt ?? comp.createdAt,
+          participantName: user.name,
+          clId: user.clId,
+          events: eventResults,
+          isPodium: bestRank !== null && bestRank <= 3,
+          podiumRank: bestRank !== null && bestRank <= 3 ? bestRank : undefined,
+        };
         const pdf = generateCertificatePDF(data);
         const pdfName = `${data.participantName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${data.clId}.pdf`;
         archive.append(pdf as never, { name: pdfName });
@@ -1036,12 +1171,11 @@ export async function registerAdminRoutes(
   app.post("/api/v1/admin/migration/send-emails", adminOnly, async (req) => {
     const users = await repo.users.findAll();
     const stubs = users.filter((u) => u.accountStage === "migrated_stub" && u.email);
-    let sentCount = 0;
-    for (const stub of stubs) {
+    const messages = stubs.map((stub) => {
       const msg = migrationEmail(stub.name, stub.clId);
-      const ok = await emailService.send({ to: stub.email, subject: msg.subject, html: msg.html });
-      if (ok) sentCount++;
-    }
+      return { to: stub.email, subject: msg.subject, html: msg.html };
+    });
+    const sentCount = await sendBulk(messages);
 
     const admin = await repo.users.findById((req as { authClaims?: { sub: string } }).authClaims!.sub);
     await repo.auditLog.create({
@@ -1128,15 +1262,21 @@ export async function registerAdminRoutes(
   });
 
   // Admin: list all appeals
-  app.get("/api/v1/admin/appeals", adminOrMod, async () => {
-    const all = await repo.appeals.findAll();
-    return Promise.all(
-      all.map(async (a) => {
+  app.get<{ Querystring: { page?: string; limit?: string; status?: string } }>("/api/v1/admin/appeals", adminOrMod, async (req) => {
+    let all = await repo.appeals.findAll();
+    if (req.query.status) all = all.filter((a) => a.status === req.query.status);
+    const total = all.length;
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    const paginated = all.slice((page - 1) * limit, page * limit);
+    const data = await Promise.all(
+      paginated.map(async (a) => {
         const user = await repo.users.findById(a.userId);
         const result = await repo.results.findById(a.resultId);
         return { ...a, userName: user?.name, userClId: user?.clId, flagStatus: result?.flagStatus };
       }),
     );
+    return { data, total, page, limit };
   });
 
   // Admin: resolve appeal
@@ -1264,6 +1404,19 @@ export async function registerAdminRoutes(
     },
   );
 
+  // ── Audit log (admin) ─────────────────────────────────────────────────
+
+  app.get<{ Querystring: { page?: string; limit?: string } }>(
+    "/api/v1/admin/audit-log",
+    adminOnly,
+    async (req) => {
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const entries = await repo.auditLog.findAll(limit, (page - 1) * limit);
+      return { data: entries, page, limit };
+    },
+  );
+
   // ── Account merge (admin) ──────────────────────────────────────────────
 
   app.post<{
@@ -1292,6 +1445,13 @@ export async function registerAdminRoutes(
       await repo.results.update(result.id, { userId: keepUserId });
     }
 
+    // Move all payments from mergeUser to keepUser
+    const allPayments = await repo.payments.findAll();
+    const mergePayments = allPayments.filter((p) => p.userId === mergeUserId);
+    for (const payment of mergePayments) {
+      await repo.payments.update(payment.id, { userId: keepUserId });
+    }
+
     // Deactivate the merged account
     await repo.users.update(mergeUserId, {
       accountStage: "suspended" as never,
@@ -1304,7 +1464,7 @@ export async function registerAdminRoutes(
       adminId: admin?.id ?? req.authClaims!.sub,
       action: "account_merge",
       target: `${mergeUser.clId} → ${keepUser.clId}`,
-      reason: `Merged ${mergeRegs.length} registrations, ${mergeResults.length} results`,
+      reason: `Merged ${mergeRegs.length} registrations, ${mergeResults.length} results, ${mergePayments.length} payments`,
       createdAt: new Date().toISOString(),
     });
 
@@ -1313,6 +1473,7 @@ export async function registerAdminRoutes(
       merged: { id: mergeUser.id, clId: mergeUser.clId, name: mergeUser.name },
       movedRegistrations: mergeRegs.length,
       movedResults: mergeResults.length,
+      movedPayments: mergePayments.length,
     };
   });
 
@@ -1338,12 +1499,11 @@ export async function registerAdminRoutes(
       }
 
       const compTitle = comp?.title ?? "Competition";
-      let sentCount = 0;
-      for (const r of recipients) {
+      const messages = recipients.map((r) => {
         const msg = roundNotificationEmail(r.name, compTitle, round.roundNumber, "opened");
-        const ok = await emailService.send({ to: r.email, subject: msg.subject, html: msg.html });
-        if (ok) sentCount++;
-      }
+        return { to: r.email, subject: msg.subject, html: msg.html };
+      });
+      const sentCount = await sendBulk(messages);
 
       return {
         sent: sentCount > 0,
@@ -1377,12 +1537,11 @@ export async function registerAdminRoutes(
       }
 
       const compTitle = comp?.title ?? "Competition";
-      let sentCount = 0;
-      for (const r of recipients) {
+      const messages = recipients.map((r) => {
         const msg = roundNotificationEmail(r.name, compTitle, round.roundNumber, "results_published");
-        const ok = await emailService.send({ to: r.email, subject: msg.subject, html: msg.html });
-        if (ok) sentCount++;
-      }
+        return { to: r.email, subject: msg.subject, html: msg.html };
+      });
+      const sentCount = await sendBulk(messages);
 
       // Auto-complete: if this is the last round of the event, check completion
       const allRounds = await repo.rounds.findByCompetition(event.competitionId);
@@ -1504,8 +1663,8 @@ export async function registerAdminRoutes(
   // Public: active banners
   app.get("/api/v1/banners", async () => {
     const all = await repo.banners.findAll();
-    const now = new Date().toISOString();
-    return all.filter((b) => b.active && (!b.expiresAt || b.expiresAt > now));
+    const now = Date.now();
+    return all.filter((b) => b.active && (!b.expiresAt || new Date(b.expiresAt).getTime() > now));
   });
 
   // ── FAQ (admin CRUD) ──────────────────────────────────────────────────────
@@ -1672,6 +1831,9 @@ export async function registerAdminRoutes(
       reason: `Created ${role} account for ${email}`,
       createdAt: now,
     });
+
+    const welcome = staffWelcomeEmail(newUser.name, role);
+    emailService.send({ to: newUser.email, subject: welcome.subject, html: welcome.html }).catch(() => {});
 
     return reply.code(201).send({ id: newUser.id, clId, name: newUser.name, email: newUser.email, role });
   });

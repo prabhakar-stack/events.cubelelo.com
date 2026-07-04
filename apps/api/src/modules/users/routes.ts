@@ -30,13 +30,16 @@ export async function registerUserRoutes(
       if (!q || q.length < 2)
         return reply.code(400).send({ error: "query_too_short" });
       const all = await repo.users.findAll(q);
-      return all.slice(0, 20).map((u) => ({
-        clId: u.clId,
-        name: u.name,
-        avatarUrl: u.avatarUrl,
-        city: u.city,
-        country: u.country,
-      }));
+      return all
+        .filter((u) => u.profilePrivacy !== "private")
+        .slice(0, 20)
+        .map((u) => ({
+          clId: u.clId,
+          name: u.name,
+          avatarUrl: u.avatarUrl,
+          city: u.city,
+          country: u.country,
+        }));
     },
   );
 
@@ -62,11 +65,21 @@ export async function registerUserRoutes(
 
       const userResults = await repo.results.findByUser(user.id);
 
+      // Precompute roundId → event mapping (1 query instead of N)
+      const roundIds = [...new Set(userResults.map((r) => r.roundId))];
+      const eventByRound = new Map<string, { eventType: string; competitionId: string }>();
+      for (const rid of roundIds) {
+        if (eventByRound.has(rid)) continue;
+        const ev = await repo.competitionEvents.findByRound(rid);
+        if (ev) eventByRound.set(rid, { eventType: ev.eventType, competitionId: ev.competitionId });
+      }
+
+      const getEventType = (roundId: string) => eventByRound.get(roundId)?.eventType ?? "unknown";
+
       // ── Personal bests ──
       const pbs: Record<string, { bestSingle: number | null; bestAo5: number | null }> = {};
       for (const result of userResults) {
-        const event = await repo.competitionEvents.findByRound(result.roundId);
-        const eventType = event?.eventType ?? "unknown";
+        const eventType = getEventType(result.roundId);
         if (!pbs[eventType]) pbs[eventType] = { bestSingle: null, bestAo5: null };
         const pb = pbs[eventType];
         if (result.bestSingleMs !== null) {
@@ -83,11 +96,12 @@ export async function registerUserRoutes(
 
       // ── Stats ──
       const eventAo5s: Record<string, number[]> = {};
+      const eventSolveCounts: Record<string, number> = {};
       let totalSolves = 0;
       for (const result of userResults) {
-        const event = await repo.competitionEvents.findByRound(result.roundId);
-        const eventType = event?.eventType ?? "unknown";
+        const eventType = getEventType(result.roundId);
         totalSolves += result.solves.length;
+        eventSolveCounts[eventType] = (eventSolveCounts[eventType] ?? 0) + result.solves.length;
         if (result.ao5Ms !== null) {
           if (!eventAo5s[eventType]) eventAo5s[eventType] = [];
           eventAo5s[eventType].push(result.ao5Ms);
@@ -102,17 +116,22 @@ export async function registerUserRoutes(
         const n = ao5s.length;
         const mean = ao5s.reduce((a, b) => a + b, 0) / n;
         const variance = ao5s.reduce((sum, v) => sum + (v - mean) ** 2, 0) / n;
-        const solveCount = userResults
-          .filter(async (r) => {
-            const ev = await repo.competitionEvents.findByRound(r.roundId);
-            return ev?.eventType === et;
-          })
-          .reduce((s, r) => s + r.solves.length, 0);
         eventStats[et] = {
           mean: Math.round(mean),
           stdDev: Math.round(Math.sqrt(variance)),
-          solveCount,
+          solveCount: eventSolveCounts[et] ?? 0,
         };
+      }
+
+      // Precompute competitionId → title map
+      const compIds = new Set<string>();
+      for (const e of eventByRound.values()) compIds.add(e.competitionId);
+      const regs = await repo.registrations.findByUser(user.id);
+      for (const r of regs) compIds.add(r.competitionId);
+      const compTitles = new Map<string, string>();
+      for (const cid of compIds) {
+        const comp = await repo.competitions.findById(cid);
+        if (comp) compTitles.set(cid, comp.title);
       }
 
       // ── Solve timeline ──
@@ -121,12 +140,10 @@ export async function registerUserRoutes(
         Array<{ timeMs: number; ao5Ms: number | null; date: string; compTitle: string }>
       > = {};
       for (const result of userResults) {
-        const event = await repo.competitionEvents.findByRound(result.roundId);
-        const eventType = event?.eventType ?? "unknown";
+        const eventType = getEventType(result.roundId);
         if (!timelineByEvent[eventType]) timelineByEvent[eventType] = [];
-        const comp = event
-          ? await repo.competitions.findById(event.competitionId)
-          : undefined;
+        const compId = eventByRound.get(result.roundId)?.competitionId;
+        const compTitle = compId ? (compTitles.get(compId) ?? "Unknown") : "Unknown";
         for (const solve of result.solves) {
           const timeMs =
             solve.penalty === "dnf"
@@ -139,20 +156,14 @@ export async function registerUserRoutes(
               timeMs,
               ao5Ms: result.ao5Ms,
               date: result.submittedAt,
-              compTitle: comp?.title ?? "Unknown",
+              compTitle,
             });
           }
         }
       }
 
       // ── Competition IDs from registrations + results ──
-      const competitionIds = new Set<string>();
-      const regs = await repo.registrations.findByUser(user.id);
-      for (const r of regs) competitionIds.add(r.competitionId);
-      for (const result of userResults) {
-        const event = await repo.competitionEvents.findByRound(result.roundId);
-        if (event) competitionIds.add(event.competitionId);
-      }
+      const competitionIds = new Set(compIds);
 
       // ── Detailed competition history ──
       const history = await Promise.all(
@@ -244,11 +255,11 @@ export async function registerUserRoutes(
 
       const updated = await repo.users.update(req.authClaims!.sub, {
         wcaId: formatted,
-        wcaVerified: true,
+        wcaVerified: false,
       });
       if (!updated) return reply.code(404).send({ error: "not_synced" });
 
-      return { wcaId: updated.wcaId, wcaVerified: updated.wcaVerified };
+      return { wcaId: updated.wcaId, wcaVerified: updated.wcaVerified, pendingReview: true };
     },
   );
 
@@ -310,7 +321,6 @@ export async function registerUserRoutes(
       if (!q || q.length < 2)
         return reply.code(400).send({ error: "query_too_short" });
 
-      const isAdmin = false; // default
       let userRole: string | undefined;
       try {
         if (req.authClaims?.sub) {
@@ -321,12 +331,12 @@ export async function registerUserRoutes(
 
       const [users, competitions, announcements, pages] = await Promise.all([
         repo.users.findAll(q),
-        repo.competitions.findAll(),
+        repo.competitions.findAll(q),
         repo.announcements.findAll(true),
         repo.contentPages.findAll(true),
       ]);
 
-      const matchedUsers = users.slice(0, 10).map((u) => ({
+      const matchedUsers = users.filter((u) => u.profilePrivacy !== "private").slice(0, 10).map((u) => ({
         type: "user" as const,
         id: u.clId,
         title: u.name,
@@ -334,16 +344,13 @@ export async function registerUserRoutes(
         href: `/profile/${u.clId}`,
       }));
 
-      const matchedComps = competitions
-        .filter((c) => c.title.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q))
-        .slice(0, 10)
-        .map((c) => ({
-          type: "competition" as const,
-          id: c.id,
-          title: c.title,
-          subtitle: c.type,
-          href: `/competitions/${c.id}`,
-        }));
+      const matchedComps = competitions.slice(0, 10).map((c) => ({
+        type: "competition" as const,
+        id: c.id,
+        title: c.title,
+        subtitle: c.type,
+        href: `/competitions/${c.id}`,
+      }));
 
       const matchedAnnouncements = announcements
         .filter((a) => a.title.toLowerCase().includes(q) || a.bodyMd.toLowerCase().includes(q))
@@ -399,7 +406,7 @@ export async function registerUserRoutes(
     },
   );
 
-  // Delete own account
+  // Delete own account (soft-delete: anonymize PII, set stage to deleted)
   app.delete(
     "/api/v1/me",
     { preHandler: [requireAuth] },
@@ -408,7 +415,16 @@ export async function registerUserRoutes(
       const user = await repo.users.findById(userId);
       if (!user) return reply.code(404).send({ error: "user_not_found" });
 
-      await repo.users.delete(userId);
+      await repo.users.update(userId, {
+        email: `deleted-${userId}@deleted.local`,
+        name: "Deleted User",
+        lastName: undefined,
+        mobileNo: undefined,
+        avatarUrl: undefined,
+        instagram: undefined,
+        passwordHash: undefined,
+        accountStage: "deleted",
+      });
       return reply.code(204).send();
     },
   );

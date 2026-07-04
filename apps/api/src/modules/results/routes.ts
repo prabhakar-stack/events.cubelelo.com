@@ -8,11 +8,16 @@ import type { Realtime } from "../../sockets/realtime";
 import { requireAuth } from "../../auth/plugin";
 import { effectiveRoundStatus } from "../../lib/statusUtils";
 import { getScrambleFetchTime } from "../../lib/scrambleTiming";
+import { submitLimiter } from "../../lib/rateLimiter";
 
 const PENALTIES: SolvePenalty[] = ["none", "plus2", "dnf"];
 
+const MIN_SOLVE_MS = 300;
+const EXPECTED_SOLVE_COUNT = 5;
+
 function parseSolves(input: unknown): Solve[] | null {
   if (!Array.isArray(input)) return null;
+  if (input.length !== EXPECTED_SOLVE_COUNT) return null;
   const solves: Solve[] = [];
   for (const raw of input) {
     if (
@@ -23,26 +28,34 @@ function parseSolves(input: unknown): Solve[] | null {
     ) {
       return null;
     }
+    const timeMs = (raw as Solve).time_ms;
+    const penalty = (raw as Solve).penalty;
+    if (penalty !== "dnf" && timeMs < MIN_SOLVE_MS) return null;
+    if (timeMs < 0) return null;
     const r = raw as Record<string, unknown>;
     const inspPenalty = typeof r.inspectionPenalty === "string" && PENALTIES.includes(r.inspectionPenalty as SolvePenalty)
       ? (r.inspectionPenalty as SolvePenalty)
       : "none";
     solves.push({
-      time_ms: (raw as Solve).time_ms,
+      time_ms: timeMs,
       inspectionPenalty: inspPenalty,
-      penalty: (raw as Solve).penalty,
+      penalty,
     });
   }
   return solves;
 }
 
-async function recomputeRanks(repo: Repository, roundId: string): Promise<void> {
+export async function recomputeRanks(repo: Repository, roundId: string): Promise<void> {
   const all = await repo.results.findByRound(roundId);
+  const eligible = all.filter((r) => r.flagStatus !== "disqualified");
+  const disqualified = all.filter((r) => r.flagStatus === "disqualified");
   const key = (n: number | null) => (n === null ? Number.POSITIVE_INFINITY : n);
-  const ranked = [...all].sort(
+  const ranked = [...eligible].sort(
     (a, b) => key(a.ao5Ms) - key(b.ao5Ms) || key(a.bestSingleMs) - key(b.bestSingleMs),
   );
-  await repo.results.updateRanks(ranked.map((r, i) => ({ id: r.id, rank: i + 1 })));
+  const updates = ranked.map((r, i) => ({ id: r.id, rank: i + 1 }));
+  for (const r of disqualified) updates.push({ id: r.id, rank: 0 });
+  await repo.results.updateRanks(updates);
 }
 
 export async function registerResultRoutes(
@@ -55,7 +68,7 @@ export async function registerResultRoutes(
     Body: { solves?: unknown; videoUrl?: string };
   }>(
     "/api/v1/rounds/:id/results",
-    { preHandler: requireAuth },
+    { preHandler: [submitLimiter, requireAuth] },
     async (req, reply) => {
       const round = await repo.rounds.findById(req.params.id);
       if (!round) return reply.code(404).send({ error: "round_not_found" });
@@ -81,6 +94,9 @@ export async function registerResultRoutes(
       if (!solves) return reply.code(400).send({ error: "invalid_solves" });
 
       const videoUrl = req.body?.videoUrl?.trim() || null;
+      if (videoUrl && !videoUrl.startsWith("https://")) {
+        return reply.code(400).send({ error: "invalid_video_url" });
+      }
 
       // Anti-cheat: validate submission falls within round open/close window
       const now = Date.now();
@@ -92,7 +108,7 @@ export async function registerResultRoutes(
       }
 
       // Anti-cheat: total claimed solve time must not exceed wall-clock time since scramble fetch
-      const fetchedAt = getScrambleFetchTime(round.id, user.id);
+      const fetchedAt = await getScrambleFetchTime(round.id, user.id);
       if (fetchedAt) {
         const totalClaimedMs = solves.reduce((sum, s) => sum + s.time_ms, 0);
         const wallClockMs = now - fetchedAt;
@@ -207,6 +223,9 @@ export async function registerResultRoutes(
 
       const videoUrl = req.body?.videoUrl?.trim() || null;
       if (!videoUrl) return reply.code(400).send({ error: "video_url_required" });
+      if (!videoUrl.startsWith("https://")) {
+        return reply.code(400).send({ error: "invalid_video_url" });
+      }
 
       await repo.results.update(req.params.id, { videoUrl });
       return { ok: true, videoUrl };
