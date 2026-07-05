@@ -11,6 +11,7 @@ import { emailService, verificationEmail, passwordResetEmail, otpEmail } from ".
 import { smsService } from "../../lib/sms";
 import { authLimiter, loginLimiter, passwordResetLimiter } from "../../lib/rateLimiter";
 import { blockToken } from "../../lib/tokenBlocklist";
+import { transferUserData } from "../../lib/accountTransfer";
 
 function generateOtp(): string {
   return String(randomInt(100000, 999999));
@@ -496,7 +497,20 @@ export async function registerAuthRoutes(
         wcaVerified: stub.wcaVerified || current.wcaVerified,
       });
 
+      // Transfer the stub's competition history (results, registrations,
+      // payments) and rebuild PBs, so the claimer keeps their legacy record.
+      const transferred = await transferUserData(repo, stub.id, current.id);
+
       await repo.users.update(stub.id, { accountStage: "banned" });
+
+      await repo.auditLog.create({
+        id: randomUUID(),
+        adminId: current.id,
+        action: "migrate_claim",
+        target: `${stub.clId} → ${current.clId}`,
+        reason: `Moved ${transferred.movedResults} results, ${transferred.movedRegistrations} registrations, ${transferred.movedPayments} payments`,
+        createdAt: new Date().toISOString(),
+      });
 
       return sanitizeUser(claimed!);
     },

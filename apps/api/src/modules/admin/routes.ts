@@ -12,6 +12,7 @@ import { validateCompetitionSchedule, validateScheduleFields } from "../../lib/s
 import { collectCertificateData, generateCertificatePDF } from "../../lib/certificate";
 import { emailService, sendBulk, roundNotificationEmail, bulkEmail, migrationEmail, staffWelcomeEmail } from "../../lib/email";
 import { applyResultOverride } from "../../lib/resultStats";
+import { transferUserData } from "../../lib/accountTransfer";
 import { ZipArchive } from "archiver";
 
 const COMP_TYPES: CompType[] = ["paid", "free", "practice"];
@@ -1433,24 +1434,9 @@ export async function registerAdminRoutes(
     if (!keepUser) return reply.code(404).send({ error: "keep_user_not_found" });
     if (!mergeUser) return reply.code(404).send({ error: "merge_user_not_found" });
 
-    // Move all registrations from mergeUser to keepUser
-    const mergeRegs = await repo.registrations.findByUser(mergeUserId);
-    for (const reg of mergeRegs) {
-      await repo.registrations.update(reg.id, { userId: keepUserId } as never);
-    }
-
-    // Move all results from mergeUser to keepUser
-    const mergeResults = await repo.results.findByUser(mergeUserId);
-    for (const result of mergeResults) {
-      await repo.results.update(result.id, { userId: keepUserId });
-    }
-
-    // Move all payments from mergeUser to keepUser
-    const allPayments = await repo.payments.findAll();
-    const mergePayments = allPayments.filter((p) => p.userId === mergeUserId);
-    for (const payment of mergePayments) {
-      await repo.payments.update(payment.id, { userId: keepUserId });
-    }
+    // Move results, registrations, and payments; rebuild PBs. Rows that
+    // would collide with the kept account's own history are skipped.
+    const transferred = await transferUserData(repo, mergeUserId, keepUserId);
 
     // Deactivate the merged account
     await repo.users.update(mergeUserId, {
@@ -1464,16 +1450,18 @@ export async function registerAdminRoutes(
       adminId: admin?.id ?? req.authClaims!.sub,
       action: "account_merge",
       target: `${mergeUser.clId} → ${keepUser.clId}`,
-      reason: `Merged ${mergeRegs.length} registrations, ${mergeResults.length} results, ${mergePayments.length} payments`,
+      reason: `Merged ${transferred.movedRegistrations} registrations, ${transferred.movedResults} results, ${transferred.movedPayments} payments (skipped ${transferred.skippedRegistrations} registrations, ${transferred.skippedResults} results already on kept account)`,
       createdAt: new Date().toISOString(),
     });
 
     return {
       kept: { id: keepUser.id, clId: keepUser.clId, name: keepUser.name },
       merged: { id: mergeUser.id, clId: mergeUser.clId, name: mergeUser.name },
-      movedRegistrations: mergeRegs.length,
-      movedResults: mergeResults.length,
-      movedPayments: mergePayments.length,
+      movedRegistrations: transferred.movedRegistrations,
+      movedResults: transferred.movedResults,
+      movedPayments: transferred.movedPayments,
+      skippedRegistrations: transferred.skippedRegistrations,
+      skippedResults: transferred.skippedResults,
     };
   });
 

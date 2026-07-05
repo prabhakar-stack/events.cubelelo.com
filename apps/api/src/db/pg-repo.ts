@@ -567,7 +567,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const COL: Record<string, string> = {
           flagStatus: "flag_status", verifiedBy: "verified_by", verifiedAt: "verified_at",
           verificationComment: "verification_comment",
-          rank: "rank", videoUrl: "video_url",
+          rank: "rank", videoUrl: "video_url", userId: "user_id",
           bestSingleMs: "best_single_ms", ao5Ms: "ao5_ms",
           meanMs: "mean_ms", medianMs: "median_ms", stdMs: "std_ms",
         };
