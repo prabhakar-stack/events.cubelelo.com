@@ -141,6 +141,15 @@ export interface Repository {
   personalBests: {
     findAll(): Promise<PersonalBest[]>;
     findByUser(userId: string): Promise<PersonalBest[]>;
+    /**
+     * One page of rankable PBs (ao5, falling back to best single, ascending),
+     * optionally filtered by event. Pagination happens at the DB level.
+     */
+    findRanked(
+      eventType: string | undefined,
+      limit: number,
+      offset: number,
+    ): Promise<{ rows: PersonalBest[]; total: number }>;
     /** Min-merge: only ever improves stored bests. */
     upsert(pb: PersonalBest): Promise<void>;
     /** Overwrite: used when rebuilding a PB after a judge override. */

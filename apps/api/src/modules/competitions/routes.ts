@@ -471,24 +471,14 @@ export async function registerCompetitionRoutes(
   app.get<{ Querystring: { event?: string; page?: string; limit?: string } }>(
     "/api/v1/rankings",
     async (req) => {
-      const allPbs = await repo.personalBests.findAll();
-
-      const eventFilter = req.query.event;
-      const filtered = eventFilter
-        ? allPbs.filter((pb) => pb.eventType === eventFilter)
-        : allPbs;
-
-      const withValues = filtered.filter((pb) => pb.bestAo5Ms !== null || pb.bestSingleMs !== null);
-      withValues.sort((a, b) => {
-        const aVal = a.bestAo5Ms ?? a.bestSingleMs ?? Infinity;
-        const bVal = b.bestAo5Ms ?? b.bestSingleMs ?? Infinity;
-        return aVal - bVal;
-      });
-
       const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
       const page = Math.max(Number(req.query.page) || 1, 1);
-      const offset = (page - 1) * limit;
-      const paged = withValues.slice(offset, offset + limit);
+
+      const { rows: paged, total } = await repo.personalBests.findRanked(
+        req.query.event,
+        limit,
+        (page - 1) * limit,
+      );
 
       const userIds = [...new Set(paged.map((pb) => pb.userId))];
       const usersMap = await repo.users.findByIds(userIds);
@@ -505,7 +495,7 @@ export async function registerCompetitionRoutes(
         };
       });
 
-      return { rankings: entries, total: withValues.length, page, limit };
+      return { rankings: entries, total, page, limit };
     },
   );
 }

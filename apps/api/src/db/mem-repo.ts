@@ -357,6 +357,16 @@ export function createMemRepo(): Repository {
       async findByUser(userId) {
         return [...personalBests.values()].filter((pb) => pb.userId === userId);
       },
+      async findRanked(eventType, limit, offset) {
+        const ranked = [...personalBests.values()]
+          .filter((pb) =>
+            (pb.bestAo5Ms !== null || pb.bestSingleMs !== null) &&
+            (!eventType || pb.eventType === eventType))
+          .sort((a, b) =>
+            (a.bestAo5Ms ?? a.bestSingleMs ?? Infinity) -
+            (b.bestAo5Ms ?? b.bestSingleMs ?? Infinity));
+        return { rows: ranked.slice(offset, offset + limit), total: ranked.length };
+      },
       async upsert(pb) {
         // Min-merge, matching the PG backend's LEAST() semantics.
         const key = `${pb.userId}:${pb.eventType}`;

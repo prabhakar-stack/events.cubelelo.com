@@ -127,6 +127,19 @@ describe("result submission + ranking", () => {
     expect(board[1].rank).toBe(2);
   });
 
+  it("serves rankings with DB-level pagination", async () => {
+    const p1 = await getJson("/api/v1/rankings?event=333&limit=1&page=1");
+    expect(p1.status).toBe(200);
+    expect(p1.body.rankings).toHaveLength(1);
+    expect(p1.body.total).toBeGreaterThanOrEqual(2);
+
+    const p2 = await getJson("/api/v1/rankings?event=333&limit=1&page=2");
+    expect(p2.body.rankings).toHaveLength(1);
+    expect(p2.body.total).toBe(p1.body.total);
+    // Ascending by ao5: page 2 entry is no faster than page 1
+    expect(p2.body.rankings[0].bestAo5Ms).toBeGreaterThanOrEqual(p1.body.rankings[0].bestAo5Ms);
+  });
+
   it("rejects malformed solves", async () => {
     const { token } = await loginSync("bad@x.com");
     const res = await postJson(

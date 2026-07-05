@@ -88,6 +88,20 @@ function toComp(r: Row): Competition {
   };
 }
 
+function toPB(r: Row): PersonalBest {
+  return {
+    id: r.id as string,
+    userId: r.user_id as string,
+    eventType: r.event_type as string,
+    bestSingleMs: (r.best_single_ms as number) ?? null,
+    bestAo5Ms: (r.best_ao5_ms as number) ?? null,
+    bestMeanMs: (r.best_mean_ms as number) ?? null,
+    bestMedianMs: (r.best_median_ms as number) ?? null,
+    bestRank: (r.best_rank as number) ?? null,
+    updatedAt: ts(r.updated_at),
+  };
+}
+
 function toEvent(r: Row): CompetitionEvent {
   return {
     id: r.id as string,
@@ -958,34 +972,35 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
     personalBests: {
       async findAll() {
         const { rows } = await pool.query("SELECT * FROM personal_bests");
-        return rows.map((r: Row): PersonalBest => ({
-          id: r.id as string,
-          userId: r.user_id as string,
-          eventType: r.event_type as string,
-          bestSingleMs: (r.best_single_ms as number) ?? null,
-          bestAo5Ms: (r.best_ao5_ms as number) ?? null,
-          bestMeanMs: (r.best_mean_ms as number) ?? null,
-          bestMedianMs: (r.best_median_ms as number) ?? null,
-          bestRank: (r.best_rank as number) ?? null,
-          updatedAt: (r.updated_at as Date).toISOString(),
-        }));
+        return rows.map(toPB);
       },
       async findByUser(userId) {
         const { rows } = await pool.query(
           "SELECT * FROM personal_bests WHERE user_id = $1",
           [userId],
         );
-        return rows.map((r: Row): PersonalBest => ({
-          id: r.id as string,
-          userId: r.user_id as string,
-          eventType: r.event_type as string,
-          bestSingleMs: (r.best_single_ms as number) ?? null,
-          bestAo5Ms: (r.best_ao5_ms as number) ?? null,
-          bestMeanMs: (r.best_mean_ms as number) ?? null,
-          bestMedianMs: (r.best_median_ms as number) ?? null,
-          bestRank: (r.best_rank as number) ?? null,
-          updatedAt: ts(r.updated_at),
-        }));
+        return rows.map(toPB);
+      },
+      async findRanked(eventType, limit, offset) {
+        const { rows } = await pool.query(
+          `SELECT *, COUNT(*) OVER() AS total_count FROM personal_bests
+           WHERE (best_ao5_ms IS NOT NULL OR best_single_ms IS NOT NULL)
+             AND ($1::text IS NULL OR event_type = $1)
+           ORDER BY COALESCE(best_ao5_ms, best_single_ms) ASC
+           LIMIT $2 OFFSET $3`,
+          [eventType ?? null, limit, offset],
+        );
+        if (rows.length > 0) {
+          return { rows: rows.map(toPB), total: Number(rows[0].total_count) };
+        }
+        // Page past the end — still report the true total
+        const { rows: count } = await pool.query(
+          `SELECT COUNT(*) AS cnt FROM personal_bests
+           WHERE (best_ao5_ms IS NOT NULL OR best_single_ms IS NOT NULL)
+             AND ($1::text IS NULL OR event_type = $1)`,
+          [eventType ?? null],
+        );
+        return { rows: [], total: Number(count[0].cnt) };
       },
       async upsert(pb) {
         await pool.query(
