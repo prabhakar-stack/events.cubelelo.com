@@ -75,33 +75,34 @@ export async function registerJudgeRoutes(
       const results = await repo.results.findByRound(round.id);
       const event = await repo.competitionEvents.findByRound(round.id);
 
-      return Promise.all(
-        results.map(async (r) => {
-          const user = await repo.users.findById(r.userId);
-          const verifier = r.verifiedBy
-            ? await repo.users.findById(r.verifiedBy)
-            : null;
-          return {
-            id: r.id,
-            userId: r.userId,
-            userName: user?.name ?? r.userId,
-            userClId: user?.clId ?? r.userId,
-            eventType: event?.eventType ?? "unknown",
-            roundNumber: round.roundNumber,
-            solves: r.solves,
-            bestSingleMs: r.bestSingleMs,
-            ao5Ms: r.ao5Ms,
-            videoUrl: r.videoUrl,
-            flagStatus: r.flagStatus,
-            verifiedBy: r.verifiedBy,
-            verifiedByName: verifier?.name ?? null,
-            verifiedAt: r.verifiedAt,
-            verificationComment: r.verificationComment,
-            submittedAt: r.submittedAt,
-            rank: r.rank,
-          };
-        }),
-      );
+      const peopleIds = [...new Set(results.flatMap((r) =>
+        r.verifiedBy ? [r.userId, r.verifiedBy] : [r.userId],
+      ))];
+      const peopleMap = await repo.users.findByIds(peopleIds);
+
+      return results.map((r) => {
+        const user = peopleMap.get(r.userId);
+        const verifier = r.verifiedBy ? peopleMap.get(r.verifiedBy) ?? null : null;
+        return {
+          id: r.id,
+          userId: r.userId,
+          userName: user?.name ?? r.userId,
+          userClId: user?.clId ?? r.userId,
+          eventType: event?.eventType ?? "unknown",
+          roundNumber: round.roundNumber,
+          solves: r.solves,
+          bestSingleMs: r.bestSingleMs,
+          ao5Ms: r.ao5Ms,
+          videoUrl: r.videoUrl,
+          flagStatus: r.flagStatus,
+          verifiedBy: r.verifiedBy,
+          verifiedByName: verifier?.name ?? null,
+          verifiedAt: r.verifiedAt,
+          verificationComment: r.verificationComment,
+          submittedAt: r.submittedAt,
+          rank: r.rank,
+        };
+      });
     },
   );
 

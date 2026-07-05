@@ -413,10 +413,7 @@ export async function registerAdminRoutes(
       if (!comp) return reply.code(404).send({ error: "competition_not_found" });
 
       const rounds = await repo.rounds.findByCompetition(comp.id);
-      const flagged = (
-        await Promise.all(rounds.map((r) => repo.results.findByRound(r.id)))
-      )
-        .flat()
+      const flagged = (await repo.results.findByRounds(rounds.map((r) => r.id)))
         .filter((r) => r.flagStatus === "flagged");
 
       const thresholds: Record<string, number> = {
@@ -426,23 +423,20 @@ export async function registerAdminRoutes(
       };
 
       const userIds = [...new Set(flagged.map((r) => r.userId))];
-      const usersMap = await repo.users.findByIds(userIds);
+      const [usersMap, userResultCounts, events] = await Promise.all([
+        repo.users.findByIds(userIds),
+        repo.results.countByUsers(userIds),
+        repo.competitionEvents.findByCompetition(comp.id),
+      ]);
 
       const roundsMap = new Map<string, typeof rounds[0]>();
       for (const r of rounds) roundsMap.set(r.id, r);
 
+      const eventTypeById = new Map(events.map((e) => [e.id, e.eventType]));
       const eventsByRound = new Map<string, string>();
       for (const r of rounds) {
-        if (eventsByRound.has(r.id)) continue;
-        const ev = await repo.competitionEvents.findByRound(r.id);
-        if (ev) eventsByRound.set(r.id, ev.eventType);
-      }
-
-      const userResultCounts = new Map<string, number>();
-      for (const uid of userIds) {
-        if (userResultCounts.has(uid)) continue;
-        const all = await repo.results.findByUser(uid);
-        userResultCounts.set(uid, all.length);
+        const eventType = eventTypeById.get(r.competitionEventId);
+        if (eventType) eventsByRound.set(r.id, eventType);
       }
 
       return flagged.map((r) => {
@@ -814,15 +808,18 @@ export async function registerAdminRoutes(
       const paginated = payments.slice((page - 1) * limit, page * limit);
 
       const userIds = [...new Set(paginated.map((p) => p.userId))];
-      const usersMap = await repo.users.findByIds(userIds);
+      const regIds = [...new Set(paginated.map((p) => p.registrationId))];
+      const [usersMap, regsMap] = await Promise.all([
+        repo.users.findByIds(userIds),
+        repo.registrations.findByIds(regIds),
+      ]);
+      const compIds = [...new Set([...regsMap.values()].map((r) => r.competitionId))];
+      const compsById = await repo.competitions.findByIds(compIds);
       const compsMap = new Map<string, string>();
       for (const p of paginated) {
-        if (compsMap.has(p.registrationId)) continue;
-        const reg = await repo.registrations.findById(p.registrationId);
-        if (reg && !compsMap.has(reg.competitionId)) {
-          const comp = await repo.competitions.findById(reg.competitionId);
-          compsMap.set(p.registrationId, comp?.title ?? "Unknown");
-        }
+        const reg = regsMap.get(p.registrationId);
+        const comp = reg ? compsById.get(reg.competitionId) : undefined;
+        compsMap.set(p.registrationId, comp?.title ?? "Unknown");
       }
 
       return {

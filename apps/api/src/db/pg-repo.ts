@@ -357,6 +357,19 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           ],
         );
       },
+      async findByIds(ids) {
+        const map = new Map<string, Competition>();
+        if (ids.length === 0) return map;
+        const { rows } = await pool.query(
+          "SELECT * FROM competitions WHERE id = ANY($1::uuid[])",
+          [ids],
+        );
+        for (const r of rows) {
+          const c = toComp(r);
+          map.set(c.id, c);
+        }
+        return map;
+      },
       async update(id, fields) {
         const COL: Record<string, string> = {
           title: "title", status: "status", description: "description",
@@ -545,6 +558,25 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
         return rows.map(toResult);
       },
+      async findByRounds(roundIds) {
+        if (roundIds.length === 0) return [];
+        const { rows } = await pool.query(
+          "SELECT * FROM results WHERE round_id = ANY($1::uuid[])",
+          [roundIds],
+        );
+        return rows.map(toResult);
+      },
+      async countByUsers(userIds) {
+        const map = new Map<string, number>();
+        if (userIds.length === 0) return map;
+        const { rows } = await pool.query(
+          `SELECT user_id, COUNT(*) AS cnt FROM results
+           WHERE user_id = ANY($1::uuid[]) GROUP BY user_id`,
+          [userIds],
+        );
+        for (const r of rows) map.set(r.user_id, Number(r.cnt));
+        return map;
+      },
       async create(result) {
         await pool.query(
           `INSERT INTO results
@@ -598,6 +630,19 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       async findById(id) {
         const { rows } = await pool.query("SELECT * FROM registrations WHERE id = $1", [id]);
         return rows[0] ? toRegistration(rows[0]) : null;
+      },
+      async findByIds(ids) {
+        const map = new Map<string, Registration>();
+        if (ids.length === 0) return map;
+        const { rows } = await pool.query(
+          "SELECT * FROM registrations WHERE id = ANY($1::uuid[])",
+          [ids],
+        );
+        for (const r of rows) {
+          const reg = toRegistration(r);
+          map.set(reg.id, reg);
+        }
+        return map;
       },
       async findByUser(userId) {
         const { rows } = await pool.query(
@@ -663,6 +708,22 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           [registrationId],
         );
         return rows.map(toEvent);
+      },
+      async findEventsForAll(registrationIds) {
+        const map = new Map<string, CompetitionEvent[]>();
+        if (registrationIds.length === 0) return map;
+        const { rows } = await pool.query(
+          `SELECT re.registration_id, ce.* FROM competition_events ce
+           JOIN registration_events re ON re.competition_event_id = ce.id
+           WHERE re.registration_id = ANY($1::uuid[])`,
+          [registrationIds],
+        );
+        for (const r of rows) {
+          const list = map.get(r.registration_id) ?? [];
+          list.push(toEvent(r));
+          map.set(r.registration_id, list);
+        }
+        return map;
       },
     },
 

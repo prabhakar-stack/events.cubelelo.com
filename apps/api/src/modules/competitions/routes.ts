@@ -315,16 +315,12 @@ export async function registerCompetitionRoutes(
         .sort((a, b) => a.roundNumber - b.roundNumber);
 
       // Count participants for R1 = registrations for this event
-      const regs = await repo.registrations.findByCompetition(competition.id);
-      const eventRegChecks = await Promise.all(
-        regs
-          .filter((r) => r.paymentStatus === "paid" || competition.type === "free" || competition.type === "practice")
-          .map(async (r) => {
-            const evts = await repo.registrations.findEvents(r.id);
-            return evts.some((e) => e.id === event.id);
-          }),
-      );
-      const r1Participants = eventRegChecks.filter(Boolean).length;
+      const regs = (await repo.registrations.findByCompetition(competition.id))
+        .filter((r) => r.paymentStatus === "paid" || competition.type === "free" || competition.type === "practice");
+      const eventsByReg = await repo.registrations.findEventsForAll(regs.map((r) => r.id));
+      const r1Participants = regs.filter((r) =>
+        (eventsByReg.get(r.id) ?? []).some((e) => e.id === event.id),
+      ).length;
 
       const rounds = await Promise.all(
         eventRounds.map(async (r) => {
@@ -446,24 +442,26 @@ export async function registerCompetitionRoutes(
       const competition = await repo.competitions.findById(req.params.id);
       if (!competition) return reply.code(404).send({ error: "competition_not_found" });
 
-      const regs = await repo.registrations.findByCompetition(competition.id);
-      const participants = await Promise.all(
-        regs
-          .filter((r) => r.paymentStatus === "paid" || competition.type === "free" || competition.type === "practice")
-          .map(async (reg) => {
-            const u = await repo.users.findById(reg.userId);
-            const events = await repo.registrations.findEvents(reg.id);
-            return {
-              userId: reg.userId,
-              clId: u?.clId ?? reg.userId,
-              name: u?.name ?? "Unknown",
-              city: u?.city ?? null,
-              country: u?.country ?? null,
-              eventTypes: events.map((e) => e.eventType),
-              registeredAt: reg.createdAt,
-            };
-          }),
-      );
+      const regs = (await repo.registrations.findByCompetition(competition.id))
+        .filter((r) => r.paymentStatus === "paid" || competition.type === "free" || competition.type === "practice");
+
+      const [usersMap, eventsByReg] = await Promise.all([
+        repo.users.findByIds([...new Set(regs.map((r) => r.userId))]),
+        repo.registrations.findEventsForAll(regs.map((r) => r.id)),
+      ]);
+
+      const participants = regs.map((reg) => {
+        const u = usersMap.get(reg.userId);
+        return {
+          userId: reg.userId,
+          clId: u?.clId ?? reg.userId,
+          name: u?.name ?? "Unknown",
+          city: u?.city ?? null,
+          country: u?.country ?? null,
+          eventTypes: (eventsByReg.get(reg.id) ?? []).map((e) => e.eventType),
+          registeredAt: reg.createdAt,
+        };
+      });
 
       return { count: participants.length, participants };
     },

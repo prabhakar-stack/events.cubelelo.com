@@ -114,6 +114,14 @@ export function createMemRepo(): Repository {
         return all.filter((c) => c.title.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q));
       },
       async findById(id) { return competitions.get(id) ?? null; },
+      async findByIds(ids) {
+        const map = new Map<string, Competition>();
+        for (const id of ids) {
+          const c = competitions.get(id);
+          if (c) map.set(id, c);
+        }
+        return map;
+      },
       async create(comp) { competitions.set(comp.id, comp); },
       async update(id, fields) {
         const comp = competitions.get(id);
@@ -182,6 +190,18 @@ export function createMemRepo(): Repository {
       async findByUser(userId) {
         return [...results.values()].filter((r) => r.userId === userId);
       },
+      async findByRounds(roundIds) {
+        const wanted = new Set(roundIds);
+        return [...results.values()].filter((r) => wanted.has(r.roundId));
+      },
+      async countByUsers(userIds) {
+        const map = new Map<string, number>();
+        const wanted = new Set(userIds);
+        for (const r of results.values()) {
+          if (wanted.has(r.userId)) map.set(r.userId, (map.get(r.userId) ?? 0) + 1);
+        }
+        return map;
+      },
       async create(result) { results.set(result.id, result); },
       async update(id, fields) {
         const result = results.get(id);
@@ -199,6 +219,14 @@ export function createMemRepo(): Repository {
 
     registrations: {
       async findById(id) { return registrations.get(id) ?? null; },
+      async findByIds(ids) {
+        const map = new Map<string, Registration>();
+        for (const id of ids) {
+          const r = registrations.get(id);
+          if (r) map.set(id, r);
+        }
+        return map;
+      },
       async findByUser(userId) {
         return [...registrations.values()].filter((r) => r.userId === userId);
       },
@@ -236,6 +264,19 @@ export function createMemRepo(): Repository {
         return eventIds
           .map((id) => competitionEvents.get(id))
           .filter((e): e is CompetitionEvent => e !== undefined);
+      },
+      async findEventsForAll(registrationIds) {
+        const map = new Map<string, CompetitionEvent[]>();
+        const wanted = new Set(registrationIds);
+        for (const re of registrationEvents) {
+          if (!wanted.has(re.registrationId)) continue;
+          const event = competitionEvents.get(re.competitionEventId);
+          if (!event) continue;
+          const list = map.get(re.registrationId) ?? [];
+          list.push(event);
+          map.set(re.registrationId, list);
+        }
+        return map;
       },
     },
 

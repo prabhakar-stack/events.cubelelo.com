@@ -41,6 +41,7 @@ export interface Repository {
   competitions: {
     findAll(search?: string): Promise<Competition[]>;
     findById(id: string): Promise<Competition | null>;
+    findByIds(ids: string[]): Promise<Map<string, Competition>>;
     create(comp: Competition): Promise<void>;
     update(id: string, fields: Partial<Competition>): Promise<Competition | null>;
     delete(id: string): Promise<void>;
@@ -72,8 +73,11 @@ export interface Repository {
   results: {
     findById(id: string): Promise<Result | null>;
     findByRound(roundId: string): Promise<Result[]>;
+    findByRounds(roundIds: string[]): Promise<Result[]>;
     /** userId is the user UUID (users.id). */
     findByUser(userId: string): Promise<Result[]>;
+    /** Result counts per user, one query (verification queue context). */
+    countByUsers(userIds: string[]): Promise<Map<string, number>>;
     create(result: Result): Promise<void>;
     update(id: string, fields: Partial<Result>): Promise<Result | null>;
     updateRanks(rankings: { id: string; rank: number }[]): Promise<void>;
@@ -81,6 +85,7 @@ export interface Repository {
 
   registrations: {
     findById(id: string): Promise<Registration | null>;
+    findByIds(ids: string[]): Promise<Map<string, Registration>>;
     findByUser(userId: string): Promise<Registration[]>;
     findByCompetition(compId: string): Promise<Registration[]>;
     findByUserAndComp(userId: string, compId: string): Promise<Registration | null>;
@@ -91,6 +96,8 @@ export interface Repository {
     removeEvents(registrationId: string): Promise<void>;
     countEvents(registrationId: string): Promise<number>;
     findEvents(registrationId: string): Promise<CompetitionEvent[]>;
+    /** Events for many registrations at once, keyed by registration id. */
+    findEventsForAll(registrationIds: string[]): Promise<Map<string, CompetitionEvent[]>>;
   };
 
   payments: {
