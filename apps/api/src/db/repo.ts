@@ -34,6 +34,10 @@ export interface Repository {
     findByClId(clId: string): Promise<User | null>;
     create(user: User): Promise<void>;
     update(id: string, fields: Partial<User>): Promise<User | null>;
+    /** Stores the Supabase UUID in supabase_id — used to link a local account on first Google login. */
+    migrateId(oldId: string, newId: string): Promise<void>;
+    /** Look up a user by their Supabase Auth UUID (set on first Google sign-in). */
+    findBySupabaseId(supabaseId: string): Promise<User | null>;
     delete(id: string): Promise<void>;
     nextClId(): Promise<string>;
   };

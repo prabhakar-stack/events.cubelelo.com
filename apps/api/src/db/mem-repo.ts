@@ -102,6 +102,15 @@ export function createMemRepo(): Repository {
         Object.assign(user, fields);
         return user;
       },
+      async migrateId(oldId, newId) {
+        const user = users.get(oldId);
+        if (user) {
+          user.supabaseId = newId;
+        }
+      },
+      async findBySupabaseId(supabaseId) {
+        return [...users.values()].find((u) => u.supabaseId === supabaseId) ?? null;
+      },
       async delete(id) { users.delete(id); },
       async nextClId() { return nextClIdSync(); },
     },

@@ -42,7 +42,7 @@ export async function buildApp(
     prefix: "/uploads/",
     decorateReply: false,
   });
-  registerAuth(app, verifier);
+  registerAuth(app, repo, verifier);
 
   app.get("/health", async (_req, reply) => {
     try {

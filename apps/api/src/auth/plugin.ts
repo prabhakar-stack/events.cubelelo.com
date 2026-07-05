@@ -14,7 +14,7 @@ declare module "fastify" {
  * onRequest hook: if a Bearer token is present and valid, attach the claims.
  * Invalid/absent tokens leave `authClaims` undefined — guards enforce access.
  */
-export function registerAuth(app: FastifyInstance, verifier: Verifier): void {
+export function registerAuth(app: FastifyInstance, repo: Repository, verifier: Verifier): void {
   app.decorateRequest("authClaims", undefined);
   app.addHook("onRequest", async (req) => {
     const header = req.headers.authorization;
@@ -25,6 +25,10 @@ export function registerAuth(app: FastifyInstance, verifier: Verifier): void {
         req.log.debug("Token blocklisted (signed out)");
         return;
       }
+      // Resolve Supabase UUID → internal user id so every downstream
+      // route sees the correct id in req.authClaims.sub.
+      const linked = await repo.users.findBySupabaseId(claims.sub);
+      if (linked) claims.sub = linked.id;
       req.authClaims = claims;
     } catch (err) {
       req.log.debug({ err }, "JWT verification failed");

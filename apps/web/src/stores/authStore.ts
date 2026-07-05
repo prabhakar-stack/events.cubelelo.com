@@ -91,15 +91,26 @@ export const useAuthStore = create<AuthState>((set) => ({
           if (data.session) {
             resolved = true;
             setAuthToken(data.session.access_token);
-            const u = await syncUser();
-            if (active) set({ user: u });
+            try {
+              const u = await syncUser();
+              if (active) set({ user: u });
+            } catch (err) {
+              console.error("[auth] syncUser failed after getSession:", err);
+            }
           }
-        } catch {}
+        } catch (err) {
+          console.error("[auth] getSession failed:", err);
+        }
 
-        sb.auth.onAuthStateChange(async (_event, session) => {
+        sb.auth.onAuthStateChange(async (event, session) => {
+          console.log("[auth] onAuthStateChange event:", event, !!session);
           if (session) {
             setAuthToken(session.access_token);
-            try { set({ user: await syncUser() }); } catch {}
+            try {
+              set({ user: await syncUser() });
+            } catch (err) {
+              console.error("[auth] syncUser failed in onAuthStateChange:", err);
+            }
           } else if (!localStorage.getItem(TOKEN_KEY)) {
             setAuthToken(null);
             set({ user: null });

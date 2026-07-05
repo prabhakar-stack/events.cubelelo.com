@@ -36,6 +36,8 @@ export interface User {
   profilePrivacy: "public" | "private";
   role: UserRole;
   accountStage: AccountStage;
+  /** Supabase Auth UUID — set on first Google/OAuth sign-in to link the account. */
+  supabaseId?: string;
   createdAt: string;
 }
 

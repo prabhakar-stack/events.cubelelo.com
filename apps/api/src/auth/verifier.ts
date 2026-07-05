@@ -34,31 +34,42 @@ function toClaims(payload: JWTPayload): AuthClaims {
 }
 
 /**
- * Production: verify Supabase's RS256 JWT against its remote JWKS.
+ * Production: verify Supabase's ES256 JWT against its remote JWKS.
  * Development: when Supabase is configured, accept both HS256 dev tokens AND
  * real Supabase tokens so you can use dev-login without touching .env.
  * No Supabase: HS256 dev tokens only.
  */
 export function createVerifier(): Verifier {
   const devSecret = new TextEncoder().encode(env.DEV_AUTH_SECRET);
-  const isDev = process.env.NODE_ENV !== "production";
+  const supabaseSecret = env.SUPABASE_JWT_SECRET
+    ? new TextEncoder().encode(env.SUPABASE_JWT_SECRET)
+    : null;
 
   if (env.authMode === "supabase") {
     const jwks = createRemoteJWKSet(new URL(env.SUPABASE_JWKS_URL));
 
-    // Accept both HS256 tokens (email/password auth) and RS256 Supabase tokens
-    // (Google OAuth). Try HS256 first since it's a local check (faster); fall
-    // back to the remote JWKS verification for Supabase tokens.
+    // Verification order:
+    // 1. Supabase HS256 (Google OAuth, email/password via Supabase) — uses Supabase JWT secret
+    // 2. Local dev HS256 (email/password via local auth route)
+    // 3. ES256 JWKS (Supabase uses ECDSA P-256)
     return {
       mode: "supabase",
       async verify(token) {
+        // Try Supabase's own JWT secret first (handles Google OAuth tokens)
+        if (supabaseSecret) {
+          try {
+            const { payload } = await jwtVerify(token, supabaseSecret, { algorithms: ["HS256"] });
+            return toClaims(payload);
+          } catch { /* not a Supabase HS256 token */ }
+        }
+        // Try local dev HS256 secret
         try {
           const { payload } = await jwtVerify(token, devSecret, { algorithms: ["HS256"] });
           return toClaims(payload);
-        } catch {
-          const { payload } = await jwtVerify(token, jwks, { algorithms: ["RS256"] });
-          return toClaims(payload);
-        }
+        } catch { /* not a dev HS256 token */ }
+        // Fall back to JWKS (Supabase uses ES256 / ECDSA P-256)
+        const { payload } = await jwtVerify(token, jwks, { algorithms: ["ES256"] });
+        return toClaims(payload);
       },
     };
   }

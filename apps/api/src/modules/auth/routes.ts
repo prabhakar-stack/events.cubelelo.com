@@ -40,10 +40,19 @@ export async function registerAuthRoutes(
     { preHandler: requireAuth },
     async (req, reply): Promise<User> => {
       const claims = req.authClaims!;
+
+      // Auth hook already resolves supabaseId → internal id for linked users.
       let user = await repo.users.findById(claims.sub);
+
+      // First Google sign-in for an existing email+password account — link it.
       if (!user && claims.email) {
         user = await repo.users.findByEmail(claims.email);
+        if (user) {
+          await repo.users.migrateId(user.id, claims.sub);
+          user = { ...user, supabaseId: claims.sub };
+        }
       }
+
       if (!user) {
         const email = claims.email?.trim().toLowerCase() || "";
         const mobileNo = claims.phone;

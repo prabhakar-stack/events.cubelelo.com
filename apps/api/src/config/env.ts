@@ -20,6 +20,8 @@ export const env = {
   SUPABASE_JWKS_URL,
   /** HS256 secret for the local dev sign-in path (no Supabase needed). */
   DEV_AUTH_SECRET: process.env.DEV_AUTH_SECRET ?? "dev-secret-change-me",
+  /** Supabase project JWT secret — used to verify Supabase HS256 tokens (Google OAuth etc). */
+  SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET ?? "",
   /** "supabase" once a JWKS URL is configured, otherwise the dev fallback. */
   authMode: (SUPABASE_JWKS_URL ? "supabase" : "dev") as "supabase" | "dev",
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID ?? "",

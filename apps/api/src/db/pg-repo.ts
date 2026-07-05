@@ -58,6 +58,7 @@ function toUser(r: Row): User {
     profilePrivacy: (r.profile_privacy as User["profilePrivacy"]) ?? "public",
     role: r.role as User["role"],
     accountStage: r.account_stage as User["accountStage"],
+    supabaseId: (r.supabase_id as string) ?? undefined,
     createdAt: ts(r.created_at),
   };
 }
@@ -284,13 +285,23 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           ],
         );
       },
+      async migrateId(oldId, newId) {
+        // Store the Supabase UUID in supabase_id so Google logins resolve correctly.
+        // We do NOT rename the PK because FK constraints don’t have ON UPDATE CASCADE.
+        await pool.query("UPDATE users SET supabase_id = $1 WHERE id = $2", [newId, oldId]);
+      },
+      async findBySupabaseId(supabaseId) {
+        const { rows } = await pool.query("SELECT * FROM users WHERE supabase_id = $1", [supabaseId]);
+        return rows[0] ? toUser(rows[0]) : null;
+      },
       async update(id, fields) {
         const COL: Record<string, string> = {
           name: "name", lastName: "last_name", gender: "gender", dob: "dob",
           mobileNo: "mobile_no", city: "city", state: "state", country: "country",
           avatarUrl: "avatar_url", instagram: "instagram", wcaId: "wca_id",
           wcaVerified: "wca_verified", role: "role", accountStage: "account_stage",
-          emailVerified: "email_verified", mobileVerified: "mobile_verified", passwordHash: "password_hash",
+          emailVerified: "email_verified", mobileVerified: "mobile_verified",
+          passwordHash: "password_hash", supabaseId: "supabase_id",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
