@@ -2,14 +2,16 @@ import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 import { createMemRepo } from "../src/db/mem-repo";
+import type { Repository } from "../src/db/repo";
 import { seed, SEED_DEMO_COMP_ID } from "../src/db/seed";
 import { adminToken, bearer, devToken } from "./helpers";
 
 let app: FastifyInstance;
+let repo: Repository;
 let admin: string;
 
 beforeAll(async () => {
-  const repo = createMemRepo();
+  repo = createMemRepo();
   await seed(repo);
   app = await buildApp(repo);
   admin = await adminToken(app);
@@ -83,5 +85,103 @@ describe("admin verification queue", () => {
       headers: bearer(admin),
     });
     expect(queue.json()).toEqual([]);
+  });
+});
+
+describe("judge override recalculates stats and personal bests (HIGH-009)", () => {
+  let resultId: string;
+  let userId: string;
+
+  async function override(action: string) {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/results/${resultId}/verify`,
+      payload: { action, reason: "test override" },
+      headers: bearer(admin),
+    });
+    expect(res.statusCode).toBe(200);
+  }
+
+  async function currentResult() {
+    return (await repo.results.findById(resultId))!;
+  }
+
+  async function currentPb() {
+    return (await repo.personalBests.findByUser(userId)).find((pb) => pb.eventType === "333");
+  }
+
+  it("sets stats and PB on submission", async () => {
+    const tok = await devToken(app, "override@test.com", "Override Target");
+    const sync = await app.inject({ method: "POST", url: "/api/v1/auth/sync", headers: bearer(tok) });
+    userId = sync.json().id;
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/v1/competitions/${SEED_DEMO_COMP_ID}`,
+    });
+    const roundId = detail.json().events[0].rounds[0].id;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/rounds/${roundId}/results`,
+      payload: {
+        solves: [8000, 9000, 7000, 10000, 8500].map((t) => ({
+          time_ms: t, inspectionPenalty: "none", penalty: "none",
+        })),
+      },
+      headers: bearer(tok),
+    });
+    expect(res.statusCode).toBe(201);
+    resultId = res.json().id;
+    expect(res.json().ao5Ms).toBe(8500);
+    expect(res.json().bestSingleMs).toBe(7000);
+
+    const pb = await currentPb();
+    expect(pb?.bestAo5Ms).toBe(8500);
+    expect(pb?.bestSingleMs).toBe(7000);
+  });
+
+  it("plus2 adds 2s to the result stats and rebuilds the PB", async () => {
+    await override("plus2");
+    const result = await currentResult();
+    expect(result.ao5Ms).toBe(10500);
+    expect(result.bestSingleMs).toBe(9000);
+
+    const pb = await currentPb();
+    expect(pb?.bestAo5Ms).toBe(10500);
+    expect(pb?.bestSingleMs).toBe(9000);
+  });
+
+  it("dnf clears the result stats and the PB no longer counts it", async () => {
+    await override("dnf");
+    const result = await currentResult();
+    expect(result.ao5Ms).toBeNull();
+    expect(result.bestSingleMs).toBeNull();
+
+    // Only result for this user/event → PB has nothing left to count
+    const pb = await currentPb();
+    expect(pb?.bestAo5Ms).toBeNull();
+    expect(pb?.bestSingleMs).toBeNull();
+  });
+
+  it("verified restores the original stats and PB", async () => {
+    await override("verified");
+    const result = await currentResult();
+    expect(result.ao5Ms).toBe(8500);
+    expect(result.bestSingleMs).toBe(7000);
+
+    const pb = await currentPb();
+    expect(pb?.bestAo5Ms).toBe(8500);
+    expect(pb?.bestSingleMs).toBe(7000);
+  });
+
+  it("disqualified excludes the result from ranks and PBs", async () => {
+    await override("disqualified");
+    const result = await currentResult();
+    expect(result.rank).toBe(0);
+
+    const pb = await currentPb();
+    expect(pb?.bestAo5Ms).toBeNull();
+    expect(pb?.bestSingleMs).toBeNull();
   });
 });

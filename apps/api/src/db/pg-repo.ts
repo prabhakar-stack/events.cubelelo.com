@@ -569,6 +569,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           verificationComment: "verification_comment",
           rank: "rank", videoUrl: "video_url",
           bestSingleMs: "best_single_ms", ao5Ms: "ao5_ms",
+          meanMs: "mean_ms", medianMs: "median_ms", stdMs: "std_ms",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -937,6 +938,26 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
              best_mean_ms   = LEAST(EXCLUDED.best_mean_ms,   personal_bests.best_mean_ms),
              best_median_ms = LEAST(EXCLUDED.best_median_ms, personal_bests.best_median_ms),
              best_rank      = LEAST(EXCLUDED.best_rank,      personal_bests.best_rank),
+             updated_at     = now()`,
+          [
+            pb.id, pb.userId, pb.eventType,
+            pb.bestSingleMs, pb.bestAo5Ms, pb.bestMeanMs,
+            pb.bestMedianMs, pb.bestRank,
+          ],
+        );
+      },
+      async replace(pb) {
+        await pool.query(
+          `INSERT INTO personal_bests
+             (id, user_id, event_type, best_single_ms, best_ao5_ms, best_mean_ms,
+              best_median_ms, best_rank, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
+           ON CONFLICT (user_id, event_type) DO UPDATE SET
+             best_single_ms = EXCLUDED.best_single_ms,
+             best_ao5_ms    = EXCLUDED.best_ao5_ms,
+             best_mean_ms   = EXCLUDED.best_mean_ms,
+             best_median_ms = EXCLUDED.best_median_ms,
+             best_rank      = EXCLUDED.best_rank,
              updated_at     = now()`,
           [
             pb.id, pb.userId, pb.eventType,

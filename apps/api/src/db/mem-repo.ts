@@ -317,8 +317,25 @@ export function createMemRepo(): Repository {
         return [...personalBests.values()].filter((pb) => pb.userId === userId);
       },
       async upsert(pb) {
+        // Min-merge, matching the PG backend's LEAST() semantics.
         const key = `${pb.userId}:${pb.eventType}`;
-        personalBests.set(key, pb);
+        const prev = personalBests.get(key);
+        const least = (a: number | null, b: number | null) =>
+          a === null ? b : b === null ? a : Math.min(a, b);
+        personalBests.set(key, prev ? {
+          ...prev,
+          bestSingleMs: least(prev.bestSingleMs, pb.bestSingleMs),
+          bestAo5Ms: least(prev.bestAo5Ms, pb.bestAo5Ms),
+          bestMeanMs: least(prev.bestMeanMs, pb.bestMeanMs),
+          bestMedianMs: least(prev.bestMedianMs, pb.bestMedianMs),
+          bestRank: least(prev.bestRank, pb.bestRank),
+          updatedAt: pb.updatedAt,
+        } : pb);
+      },
+      async replace(pb) {
+        const key = `${pb.userId}:${pb.eventType}`;
+        const prev = personalBests.get(key);
+        personalBests.set(key, prev ? { ...pb, id: prev.id } : pb);
       },
     },
 

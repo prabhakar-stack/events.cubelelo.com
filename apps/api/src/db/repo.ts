@@ -134,7 +134,10 @@ export interface Repository {
   personalBests: {
     findAll(): Promise<PersonalBest[]>;
     findByUser(userId: string): Promise<PersonalBest[]>;
+    /** Min-merge: only ever improves stored bests. */
     upsert(pb: PersonalBest): Promise<void>;
+    /** Overwrite: used when rebuilding a PB after a judge override. */
+    replace(pb: PersonalBest): Promise<void>;
   };
 
   practice: {

@@ -5,6 +5,7 @@ import type { Repository } from "../../db/repo";
 import type { AuditLogEntry } from "../../db/types";
 import { requireRole } from "../../auth/plugin";
 import { shortlistRound } from "../../lib/roundLifecycle";
+import { applyResultOverride } from "../../lib/resultStats";
 import type { Realtime } from "../../sockets/realtime";
 
 const FLAG_ACTIONS: FlagStatus[] = ["verified", "plus2", "dnf", "disqualified"];
@@ -148,6 +149,10 @@ export async function registerJudgeRoutes(
       createdAt: now,
     };
     await repo.auditLog.create(entry);
+
+    // Re-derive stats under the action, re-rank, rebuild the user's PB,
+    // and broadcast the corrected leaderboard (HIGH-009).
+    await applyResultOverride(repo, realtime, result, action);
 
     // Auto-shortlist if no more flagged results
     const round = await repo.rounds.findById(result.roundId);

@@ -9,6 +9,7 @@ import { requireAuth } from "../../auth/plugin";
 import { effectiveRoundStatus } from "../../lib/statusUtils";
 import { getScrambleFetchTime } from "../../lib/scrambleTiming";
 import { submitLimiter } from "../../lib/rateLimiter";
+import { recomputeRanks } from "../../lib/resultStats";
 
 const PENALTIES: SolvePenalty[] = ["none", "plus2", "dnf"];
 
@@ -43,19 +44,6 @@ function parseSolves(input: unknown): Solve[] | null {
     });
   }
   return solves;
-}
-
-export async function recomputeRanks(repo: Repository, roundId: string): Promise<void> {
-  const all = await repo.results.findByRound(roundId);
-  const eligible = all.filter((r) => r.flagStatus !== "disqualified");
-  const disqualified = all.filter((r) => r.flagStatus === "disqualified");
-  const key = (n: number | null) => (n === null ? Number.POSITIVE_INFINITY : n);
-  const ranked = [...eligible].sort(
-    (a, b) => key(a.ao5Ms) - key(b.ao5Ms) || key(a.bestSingleMs) - key(b.bestSingleMs),
-  );
-  const updates = ranked.map((r, i) => ({ id: r.id, rank: i + 1 }));
-  for (const r of disqualified) updates.push({ id: r.id, rank: 0 });
-  await repo.results.updateRanks(updates);
 }
 
 export async function registerResultRoutes(

@@ -11,7 +11,7 @@ import { shortlistRound } from "../../lib/roundLifecycle";
 import { validateCompetitionSchedule, validateScheduleFields } from "../../lib/scheduleValidation";
 import { collectCertificateData, generateCertificatePDF } from "../../lib/certificate";
 import { emailService, sendBulk, roundNotificationEmail, bulkEmail, migrationEmail, staffWelcomeEmail } from "../../lib/email";
-import { recomputeRanks } from "../results/routes";
+import { applyResultOverride } from "../../lib/resultStats";
 import { ZipArchive } from "archiver";
 
 const COMP_TYPES: CompType[] = ["paid", "free", "practice"];
@@ -510,10 +510,10 @@ export async function registerAdminRoutes(
     };
     await repo.auditLog.create(entry);
 
-    // Recompute ranks when a penalty or disqualification changes rankings
-    if (["plus2", "dnf", "disqualified"].includes(action)) {
-      await recomputeRanks(repo, result.roundId);
-    }
+    // Re-derive stats under the action, re-rank, rebuild the user's PB,
+    // and broadcast the corrected leaderboard. Runs for every action so a
+    // "verified" verdict also restores stats from a previous penalty.
+    await applyResultOverride(repo, realtime, result, action);
 
     // Check if shortlisting should trigger (no more flagged results in this round)
     const round = await repo.rounds.findById(result.roundId);
