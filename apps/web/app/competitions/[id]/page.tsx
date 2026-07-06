@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { eventDisplayName } from "@/lib/eventNames";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
 import {
   fetchCompetition,
   fetchMyRegistrations,
@@ -213,7 +213,7 @@ function OverviewTab({ comp }: { comp: CompetitionDetail }) {
               <div className="shimmer-sweep pointer-events-none absolute inset-0" />
               <div className="relative mb-2 flex items-center justify-between">
                 <span className="flex items-center gap-2 text-lg font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
-                  <span>{eventIcon(ev.eventType).emoji}</span>
+                  <EventIcon eventId={ev.eventType} size={18} />
                   {eventDisplayName(ev.eventType)}
                 </span>
                 {latestRound && <StatusBadge status={latestRound.status} />}
@@ -299,7 +299,7 @@ function ParticipantsTab({ compId }: { compId: string }) {
                         title={eventDisplayName(e)}
                         className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
                       >
-                        {eventIcon(e).emoji} {eventDisplayName(e)}
+                        <EventIcon eventId={e} size={16} /> {eventDisplayName(e)}
                       </span>
                     ))}
                   </div>
@@ -349,7 +349,7 @@ function RankingsTab({ comp }: { comp: CompetitionDetail }) {
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
               }`}
             >
-              <span>{eventIcon(e).emoji}</span>
+              <span><EventIcon eventId={e} size={16} /></span>
               {eventDisplayName(e)}
             </button>
           ))}

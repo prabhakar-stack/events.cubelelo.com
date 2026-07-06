@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchPublicFaq, type FaqDto } from "@/lib/api";
+import { Markdown } from "@/components/Markdown";
 
 export default function FaqPage() {
   const [faqs, setFaqs] = useState<FaqDto[]>([]);
@@ -55,9 +56,7 @@ export default function FaqPage() {
               </button>
               {open === faq.id && (
                 <div className="border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                    {faq.answerMd}
-                  </div>
+                  <Markdown>{faq.answerMd}</Markdown>
                 </div>
               )}
             </div>

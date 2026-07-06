@@ -10,7 +10,7 @@ import { StatusBadge } from "@/features/competitions/StatusBadge";
 import { GradientAvatar } from "@/components/GradientAvatar";
 import { CountUp } from "@/components/CountUp";
 import { Skeleton } from "@/components/Skeleton";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
 
 export default function ProfilePage() {
   const params = useParams<{ clid: string }>();
@@ -191,7 +191,7 @@ export default function ProfilePage() {
                   <tr key={event} className="border-b border-zinc-800/40">
                     <td className="py-2.5 pr-4 font-mono font-semibold text-zinc-200">
                       <span className="inline-flex items-center gap-1.5">
-                        <span>{eventIcon(event).emoji}</span>
+                        <EventIcon eventId={event} size={16} />
                         {event}
                       </span>
                     </td>

@@ -11,11 +11,6 @@ const DETAIL_LINKS = [
   { label: "Contact Us", href: "/pages/contact-us" },
 ];
 
-const SOCIAL_LINKS = [
-  { label: "Instagram", href: "https://instagram.com/cubelelo" },
-  { label: "YouTube", href: "https://youtube.com/@cubelelo" },
-  { label: "Discord", href: "https://discord.gg/cubelelo" },
-];
 
 export function Footer() {
   const pathname = usePathname();
@@ -29,19 +24,6 @@ export function Footer() {
           <Link key={link.href} href={link.href} className="transition hover:text-zinc-900 dark:hover:text-zinc-300">
             {link.label}
           </Link>
-        ))}
-      </div>
-      <div className="mt-3 flex flex-wrap justify-center gap-4">
-        {SOCIAL_LINKS.map((link) => (
-          <a
-            key={link.href}
-            href={link.href}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="text-zinc-400 transition hover:text-accent-primary dark:text-zinc-600"
-          >
-            {link.label}
-          </a>
         ))}
       </div>
       <p className="mt-4">© {new Date().getFullYear()} Cubelelo Events. All rights reserved.</p>

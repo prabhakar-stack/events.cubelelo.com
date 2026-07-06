@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { fetchCompetition, fetchLeaderboard, submitAppeal, type CompetitionDetail, type ResultDto } from "@/lib/api";
 import { eventDisplayName } from "@/lib/eventNames";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { formatTime } from "@cubers/timer-core";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
@@ -113,7 +113,7 @@ export default function ResultsPage() {
                     : "bg-zinc-900/40 text-zinc-600 cursor-not-allowed"
               }`}
             >
-              <span>{eventIcon(r.eventType).emoji}</span>
+              <EventIcon eventId={r.eventType} size={16} />
               {eventDisplayName(r.eventType)} R{r.roundNumber}
             </button>
           );

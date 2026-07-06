@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchPublicPage } from "@/lib/api";
+import { Markdown } from "@/components/Markdown";
 
 export default function ContentPage({
   params,
@@ -45,9 +46,7 @@ export default function ContentPage({
         &larr; Home
       </Link>
       <h1 className="mb-6 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{page.title}</h1>
-      <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-        {page.bodyMd}
-      </div>
+      <Markdown>{page.bodyMd}</Markdown>
     </main>
   );
 }

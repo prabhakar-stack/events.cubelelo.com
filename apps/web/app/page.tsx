@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { fetchCompetitions, fetchPublicBanners, assetUrl, type CompetitionSummary, type BannerDto } from "@/lib/api";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
 import { SkeletonCard, Skeleton } from "@/components/Skeleton";
 import { Hero } from "@/features/competitions/Hero";
 
@@ -250,7 +250,7 @@ function ScrollCard({ comp }: { comp: CompetitionSummary }) {
               title={et}
               className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800"
             >
-              {eventIcon(et).emoji}
+              <EventIcon eventId={et} size={14} />
             </span>
           ))}
         </div>

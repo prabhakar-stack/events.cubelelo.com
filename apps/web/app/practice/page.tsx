@@ -14,7 +14,7 @@ import {
 import { EVENT_IDS, EVENTS, type EventId } from "@cubers/scramble-core";
 import { formatTime } from "@cubers/timer-core";
 import { eventDisplayName } from "@/lib/eventNames";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
 import { CountUp } from "@/components/CountUp";
 import { Skeleton } from "@/components/Skeleton";
 import { Button } from "@/components/ui/Button";
@@ -113,7 +113,7 @@ export default function PracticePage() {
                     : "border-zinc-200 text-zinc-500 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
                 }`}
               >
-                <span className="text-lg">{eventIcon(id).emoji}</span>
+                <EventIcon eventId={id} size={20} />
                 {eventDisplayName(id)}
               </button>
             ))}
@@ -160,7 +160,7 @@ export default function PracticePage() {
                   className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-center dark:border-zinc-800 dark:bg-zinc-900/40"
                 >
                   <div className="text-xs text-zinc-500">
-                    {eventIcon(event).emoji} {eventDisplayName(event)}
+                    <EventIcon eventId={event} size={14} className="mr-1" /> {eventDisplayName(event)}
                   </div>
                   <div className="font-mono text-lg font-bold text-emerald-600 dark:text-emerald-400">
                     {formatTime(time)}
@@ -206,7 +206,7 @@ export default function PracticePage() {
                     href={`/practice/${s.id}`}
                     className="font-medium hover:text-emerald-600 dark:hover:text-emerald-400"
                   >
-                    {eventIcon(s.eventType).emoji} {s.name || "Untitled Session"}
+                    <EventIcon eventId={s.eventType} size={16} className="mr-1" /> {s.name || "Untitled Session"}
                   </Link>
                   <div className="flex gap-3 text-xs text-zinc-500">
                     <span>{eventDisplayName(s.eventType)}</span>

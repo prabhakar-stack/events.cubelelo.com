@@ -4,15 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchRankings, type RankingEntry } from "@/lib/api";
 import { eventDisplayName } from "@/lib/eventNames";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
+import { EVENT_IDS } from "@cubers/scramble-core";
 import { formatTime } from "@cubers/timer-core";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { Skeleton, SkeletonRow } from "@/components/Skeleton";
-
-const EVENT_TYPES = [
-  "333", "222", "444", "555", "666", "777",
-  "333oh", "333bf", "pyram", "skewb", "minx", "sq1", "clock",
-];
 
 const PODIUM_STYLE = [
   { border: "border-accent-gold/50", bg: "bg-accent-gold/10", text: "text-accent-gold", medal: "🥇", order: "md:order-2", height: "md:h-40" },
@@ -81,22 +77,30 @@ export default function RankingsPage() {
     <main className="mx-auto max-w-4xl px-6 py-10">
       <h1 className="mb-6 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Rankings</h1>
 
-      {/* Event filter — icon pill tabs */}
-      <div className="mb-8 flex flex-wrap gap-2">
-        {EVENT_TYPES.map((e) => (
-          <button
-            key={e}
-            onClick={() => setEvent(e)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
-              event === e
-                ? "bg-accent-primary text-zinc-950"
-                : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-            }`}
+      {/* Event filter dropdown */}
+      <div className="mb-8 flex items-center gap-3">
+        <label htmlFor="event-select" className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+          Event
+        </label>
+        <div className="relative">
+          <select
+            id="event-select"
+            value={event}
+            onChange={(e) => setEvent(e.target.value)}
+            className="appearance-none rounded-lg border border-zinc-200 bg-white py-2 pl-3 pr-10 text-sm font-semibold text-zinc-800 shadow-sm transition hover:border-zinc-300 focus:border-accent-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/30 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-600"
           >
-            <span>{eventIcon(e).emoji}</span>
-            {eventDisplayName(e)}
-          </button>
-        ))}
+            {EVENT_IDS.map((id) => (
+              <option key={id} value={id}>
+                {eventDisplayName(id)}
+              </option>
+            ))}
+          </select>
+          <EventIcon
+            eventId={event}
+            size={16}
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"
+          />
+        </div>
       </div>
 
       {loading ? (

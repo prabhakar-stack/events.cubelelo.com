@@ -33,6 +33,7 @@ export const EVENTS = {
   "555bf": { id: "555bf", name: "5x5 Blindfolded", wcaEvent: "555", puzzle: "5x5x5", priority: "should" },
   "333mbf": { id: "333mbf", name: "Multi-Blind", wcaEvent: "333", puzzle: "3x3x3", priority: "should" },
   fto: { id: "fto", name: "FTO", wcaEvent: "fto", puzzle: "fto", priority: "should" },
+  "333fm": { id: "333fm", name: "Fewest Moves", wcaEvent: "333", puzzle: "3x3x3", priority: "should" },
 } as const satisfies Record<string, CubeEvent>;
 
 export type EventId = keyof typeof EVENTS;

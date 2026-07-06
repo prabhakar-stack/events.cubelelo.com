@@ -1,84 +1,94 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { Markdown } from "@/components/Markdown";
 import {
-  fetchAdminBanners,
-  createBanner,
-  updateBanner,
-  deleteBanner,
-  uploadBannerImage,
-  uploadBannerMobileImage,
-  type BannerDto,
+  fetchAdminContentPages,
+  createContentPage,
+  updateContentPage,
+  deleteContentPage,
+  type ContentPageDto,
 } from "@/lib/api";
 
-
-const EMPTY = { title: "", linkUrl: "", expiresAt: "", active: true, order: 0 };
+const PAGE_EMPTY = { slug: "", title: "", bodyMd: "", published: false };
 
 export default function AdminContentPage() {
-  const [list, setList] = useState<BannerDto[]>([]);
+  const [pages, setPages] = useState<ContentPageDto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<BannerDto | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState(PAGE_EMPTY);
+  const [preview, setPreview] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [mobileImageFile, setMobileImageFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
-    fetchAdminBanners()
-      .then(setList)
+    fetchAdminContentPages()
+      .then((list) => {
+        setPages(list);
+        setActiveId((prev) => {
+          if (prev && list.some((p) => p.id === prev)) return prev;
+          return list[0]?.id ?? null;
+        });
+      })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const openCreate = () => { setForm(EMPTY); setEditing(null); setCreating(true); setImageFile(null); setMobileImageFile(null); };
-  const openEdit = (b: BannerDto) => {
-    setForm({
-      title: b.title,
-      linkUrl: b.linkUrl ?? b.ctaLink ?? "",
-      expiresAt: b.expiresAt ?? "",
-      active: b.active,
-      order: b.order,
-    });
-    setEditing(b);
-    setCreating(false);
-    setImageFile(null);
-    setMobileImageFile(null);
+  const active = pages.find((p) => p.id === activeId) ?? null;
+
+  const selectTab = (id: string) => {
+    if (creating) { setCreating(false); }
+    setActiveId(id);
+    const page = pages.find((p) => p.id === id);
+    if (page) {
+      setForm({ slug: page.slug, title: page.title, bodyMd: page.bodyMd, published: page.published });
+      setDirty(false);
+      setPreview(false);
+      setError(null);
+    }
   };
-  const closeForm = () => { setCreating(false); setEditing(null); setError(null); setImageFile(null); setMobileImageFile(null); };
+
+  useEffect(() => {
+    if (active && !creating) {
+      setForm({ slug: active.slug, title: active.title, bodyMd: active.bodyMd, published: active.published });
+      setDirty(false);
+      setPreview(false);
+    }
+  }, [activeId]);
+
+  const startCreate = () => {
+    setCreating(true);
+    setForm(PAGE_EMPTY);
+    setDirty(false);
+    setPreview(false);
+    setError(null);
+  };
+
+  const updateForm = (patch: Partial<typeof PAGE_EMPTY>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    setDirty(true);
+  };
 
   const save = async () => {
-    if (!form.title.trim()) { setError("Title is required."); return; }
+    if (!form.slug.trim() || !form.title.trim()) {
+      setError("Slug and title are required.");
+      return;
+    }
     setBusy("save");
     setError(null);
     try {
-      const payload = {
-        title: form.title,
-        linkUrl: form.linkUrl || undefined,
-        expiresAt: form.expiresAt || undefined,
-        active: form.active,
-        order: form.order,
-      };
-      let bannerId: string;
-      if (editing) {
-        await updateBanner(editing.id, payload);
-        bannerId = editing.id;
-      } else {
-        const created = await createBanner(payload);
-        bannerId = created.id;
+      if (creating) {
+        const created = await createContentPage(form);
+        setCreating(false);
+        setActiveId(created.id);
+      } else if (active) {
+        await updateContentPage(active.id, { title: form.title, bodyMd: form.bodyMd, published: form.published });
       }
-      if (imageFile) {
-        await uploadBannerImage(bannerId, imageFile);
-      }
-      if (mobileImageFile) {
-        await uploadBannerMobileImage(bannerId, mobileImageFile);
-      }
-      closeForm();
+      setDirty(false);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -87,169 +97,174 @@ export default function AdminContentPage() {
     }
   };
 
-  const toggleActive = async (b: BannerDto) => {
-    setBusy(b.id);
-    try { await updateBanner(b.id, { active: !b.active }); load(); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(null); }
+  const togglePublish = async () => {
+    if (!active) return;
+    setBusy("publish");
+    try {
+      await updateContentPage(active.id, { published: !active.published });
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   };
 
-  const del = async (b: BannerDto) => {
-    if (!confirm(`Delete announcement "${b.title}"?`)) return;
-    setBusy(`del-${b.id}`);
-    try { await deleteBanner(b.id); load(); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(null); }
+  const del = async () => {
+    if (!active || !confirm(`Delete page "${active.title}"?`)) return;
+    setBusy("del");
+    try {
+      await deleteContentPage(active.id);
+      setActiveId(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        <p className="text-zinc-500">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Announcements</h1>
-          <p className="mt-1 text-sm text-zinc-500">Image announcements shown on the homepage. Set links, expiry dates, and display order.</p>
+          <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Content</h1>
+          <p className="mt-1 text-sm text-zinc-500">Manage footer pages. Select a tab to edit its content.</p>
         </div>
-        {!creating && !editing && (
-          <button onClick={openCreate}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
-            + New Announcement
+      </div>
+
+      {/* Tab bar */}
+      <div className="mb-6 flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+        {pages.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => selectTab(p.id)}
+            className={`relative px-4 py-2.5 text-sm font-medium transition whitespace-nowrap ${
+              !creating && activeId === p.id
+                ? "border-b-2 border-emerald-500 text-emerald-400"
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {p.title}
+            {!p.published && (
+              <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-zinc-500" title="Draft" />
+            )}
           </button>
-        )}
+        ))}
+        <button
+          onClick={startCreate}
+          className={`px-4 py-2.5 text-sm font-medium transition ${
+            creating
+              ? "border-b-2 border-emerald-500 text-emerald-400"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          + New
+        </button>
       </div>
 
       {error && <div className="mb-4 rounded bg-red-100 px-4 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
 
-      {(creating || editing) && (
-        <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/50 p-5">
-          <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-            {editing ? "Edit Announcement" : "New Announcement"}
-          </h2>
-          <div className="space-y-3">
+      {/* Editor */}
+      {(creating || active) && (
+        <div className="space-y-4">
+          {/* Slug + Title row */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Slug (URL path)</label>
+              <input
+                value={form.slug}
+                onChange={(e) => updateForm({ slug: e.target.value })}
+                placeholder="about-us"
+                disabled={!creating}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
+              />
+            </div>
             <div>
               <label className="mb-1 block text-xs text-zinc-500">Title</label>
-              <input value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                placeholder="Banner title"
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
+              <input
+                value={form.title}
+                onChange={(e) => updateForm({ title: e.target.value })}
+                placeholder="About Us"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+              />
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Desktop Image <span className="text-zinc-400">(1200 x 400px recommended, 3:1 ratio)</span></label>
-              {editing?.imageUrl && !imageFile && (
-                <div className="mb-2">
-                  <img src={editing.imageUrl} alt="Current banner" className="h-20 rounded-lg object-cover" />
-                  <p className="mt-1 text-xs text-zinc-500">Current image — upload a new one to replace</p>
-                </div>
-              )}
-              {imageFile && (
-                <p className="mb-2 text-xs text-emerald-500">Selected: {imageFile.name}</p>
-              )}
-              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp"
-                onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 file:mr-3 file:rounded file:border-0 file:bg-emerald-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Mobile Image <span className="text-zinc-400">(600 x 400px recommended, 3:2 ratio)</span></label>
-              {editing?.mobileImageUrl && !mobileImageFile && (
-                <div className="mb-2">
-                  <img src={editing.mobileImageUrl} alt="Current mobile banner" className="h-16 rounded-lg object-cover" />
-                  <p className="mt-1 text-xs text-zinc-500">Current mobile image — upload a new one to replace</p>
-                </div>
-              )}
-              {mobileImageFile && (
-                <p className="mb-2 text-xs text-emerald-500">Selected: {mobileImageFile.name}</p>
-              )}
-              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp"
-                onChange={(e) => setMobileImageFile(e.target.files?.[0] ?? null)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 file:mr-3 file:rounded file:border-0 file:bg-zinc-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Banner Link URL</label>
-              <input value={form.linkUrl}
-                onChange={(e) => setForm((f) => ({ ...f, linkUrl: e.target.value }))}
-                placeholder="/competitions/abc or https://..."
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs text-zinc-500">Expires At</label>
-                <input type="datetime-local" value={form.expiresAt ? (() => { const d = new Date(form.expiresAt); const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; })() : ""}
-                  onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value ? new Date(e.target.value).toISOString() : "" }))}
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 focus:border-zinc-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-zinc-500">Display Order</label>
-                <input type="number" value={form.order}
-                  onChange={(e) => setForm((f) => ({ ...f, order: Number(e.target.value) }))}
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 focus:border-zinc-500 focus:outline-none" />
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer">
-              <input type="checkbox" checked={form.active}
-                onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
-                className="accent-emerald-500" />
-              Active
-            </label>
-            <div className="flex gap-3 pt-1">
-              <button onClick={save} disabled={busy === "save"}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
-                {busy === "save" ? "Saving..." : editing ? "Save Changes" : "Create"}
-              </button>
-              <button onClick={closeForm}
-                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
-                Cancel
+          </div>
+
+          {/* Body */}
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-xs text-zinc-500">Body (Markdown)</label>
+              <button
+                onClick={() => setPreview((p) => !p)}
+                className="text-xs text-emerald-400 hover:text-emerald-300"
+              >
+                {preview ? "Edit" : "Preview"}
               </button>
             </div>
+            {preview ? (
+              <div className="min-h-[300px] rounded-lg border border-zinc-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                {form.bodyMd ? <Markdown>{form.bodyMd}</Markdown> : <p className="text-sm text-zinc-400">(empty)</p>}
+              </div>
+            ) : (
+              <textarea
+                value={form.bodyMd}
+                onChange={(e) => updateForm({ bodyMd: e.target.value })}
+                rows={16}
+                placeholder="Write page content in Markdown..."
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none"
+              />
+            )}
+          </div>
+
+          {/* Actions bar */}
+          <div className="flex flex-wrap items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <button
+              onClick={save}
+              disabled={busy === "save" || (!creating && !dirty)}
+              className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {busy === "save" ? "Saving..." : creating ? "Create Page" : "Save Changes"}
+            </button>
+
+            {!creating && active && (
+              <>
+                <button
+                  onClick={togglePublish}
+                  disabled={busy === "publish"}
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 disabled:opacity-40"
+                >
+                  {active.published ? "Unpublish" : "Publish"}
+                </button>
+                <div className="flex-1" />
+                <span className="text-xs text-zinc-500">
+                  /{active.slug} &middot; Updated {new Date(active.updatedAt).toLocaleDateString()}
+                  {active.published ? " · Published" : " · Draft"}
+                </span>
+                <button
+                  onClick={del}
+                  disabled={busy === "del"}
+                  className="rounded-lg border border-red-900/40 px-3 py-2 text-xs text-red-500 hover:bg-red-950/30 disabled:opacity-40"
+                >
+                  Delete
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {loading ? (
-        <p className="text-zinc-500">Loading...</p>
-      ) : list.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-10 text-center text-zinc-500">
-          No announcements yet. Create one to display on the homepage.
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {list.map((b) => (
-            <div key={b.id} className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-4">
-              <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  {b.active ? (
-                    <span className="rounded-full bg-emerald-900/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Active</span>
-                  ) : (
-                    <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Inactive</span>
-                  )}
-                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">#{b.order}</span>
-                  <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{b.title}</h3>
-                </div>
-                <span className="text-xs text-zinc-600">
-                  {b.expiresAt ? `Expires ${new Date(b.expiresAt).toLocaleDateString()}` : "No expiry"}
-                </span>
-              </div>
-              {b.imageUrl && <p className="mb-1 truncate text-xs text-zinc-500">Desktop: {b.imageUrl}</p>}
-              {b.mobileImageUrl && <p className="mb-1 truncate text-xs text-zinc-500">Mobile: {b.mobileImageUrl}</p>}
-              {(b.linkUrl || b.ctaLink) && (
-                <p className="mb-3 text-xs text-zinc-400">
-                  Link: <span className="text-zinc-700 dark:text-zinc-300">{b.linkUrl || b.ctaLink}</span>
-                </p>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => openEdit(b)}
-                  className="rounded border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200">
-                  Edit
-                </button>
-                <button onClick={() => toggleActive(b)} disabled={busy === b.id}
-                  className="rounded border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 disabled:opacity-40">
-                  {b.active ? "Deactivate" : "Activate"}
-                </button>
-                <button onClick={() => del(b)} disabled={busy === `del-${b.id}`}
-                  className="rounded border border-red-900/40 px-3 py-1 text-xs text-red-500 hover:bg-red-950/30 disabled:opacity-40">
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
+      {!creating && !active && pages.length === 0 && (
+        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
+          No pages yet. Click "+ New" to create your first footer page.
         </div>
       )}
     </div>

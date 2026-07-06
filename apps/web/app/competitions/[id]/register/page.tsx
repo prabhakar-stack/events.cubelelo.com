@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { eventDisplayName } from "@/lib/eventNames";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
 import {
   fetchCompetition,
   registerForCompetition,
@@ -180,7 +180,7 @@ function RegisterContent() {
                 className="h-4 w-4 rounded border-zinc-300 accent-emerald-600 dark:border-zinc-700"
               />
               <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                {eventIcon(ev.eventType).emoji} {eventDisplayName(ev.eventType)}
+                <EventIcon eventId={ev.eventType} size={16} className="mr-1" /> {eventDisplayName(ev.eventType)}
               </span>
               <span className="text-xs text-zinc-500">
                 {ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { CompetitionSummary } from "@/lib/api";
 import { UserStatusBadge } from "./UserStatusBadge";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
 
 export function CompetitionCard({ comp }: { comp: CompetitionSummary }) {
   const feeLabel =
@@ -42,7 +42,7 @@ export function CompetitionCard({ comp }: { comp: CompetitionSummary }) {
               title={et}
               className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800"
             >
-              {eventIcon(et).emoji}
+              <EventIcon eventId={et} size={14} />
             </span>
           ))}
         </div>

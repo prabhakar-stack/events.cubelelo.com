@@ -43,11 +43,10 @@ export async function registerCompetitionRoutes(
 
       let comps = await repo.competitions.findAll();
 
-      // Non-admins cannot see drafts
       if (!isAdmin) {
         comps = comps.filter((c) => {
           const s = effectiveCompStatus(c);
-          return s !== "draft";
+          return s !== "draft" && s !== "cancelled" && s !== "published";
         });
       }
 

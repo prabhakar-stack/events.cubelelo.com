@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import type { CompetitionSummary } from "@/lib/api";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
+import { eventDisplayName } from "@/lib/eventNames";
 
 export function Hero({ comp }: { comp: CompetitionSummary }) {
   const isLive = comp.status === "live";
@@ -25,9 +26,15 @@ export function Hero({ comp }: { comp: CompetitionSummary }) {
         <h1 className="text-3xl font-bold tracking-tight md:text-5xl">{comp.title}</h1>
 
         {events.length > 0 && (
-          <p className="mt-3 font-mono text-sm text-zinc-300 md:text-base">
-            {events.map((et) => `${eventIcon(et).emoji} ${et}`).join("  ·  ")}
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3 font-mono text-sm text-zinc-300 md:text-base">
+            {events.map((et, i) => (
+              <span key={et} className="inline-flex items-center gap-1">
+                {i > 0 && <span className="mr-2 text-zinc-500">·</span>}
+                <EventIcon eventId={et} size={16} />
+                {eventDisplayName(et)}
+              </span>
+            ))}
+          </div>
         )}
 
         {comp.description && (

@@ -14,7 +14,13 @@ interface NavGroup {
 }
 
 const NAV_GROUPS: NavGroup[] = [
-  { label: "Competitions", items: [{ label: "Competitions", href: "/admin" }] },
+  {
+    label: "Competitions",
+    items: [
+      { label: "Competitions", href: "/admin" },
+      { label: "Create Competition", href: "/admin/create-competition" },
+    ],
+  },
   {
     label: "People",
     items: [
@@ -40,8 +46,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Content",
     items: [
-      { label: "Announcements", href: "/admin/content" },
-      { label: "FAQ", href: "/admin/faq" },
+      { label: "Announcements", href: "/admin/announcements" },
+      { label: "Content", href: "/admin/content" },
     ],
   },
   {

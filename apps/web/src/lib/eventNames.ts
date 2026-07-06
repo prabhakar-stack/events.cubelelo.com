@@ -16,6 +16,7 @@ const EVENT_NAMES: Record<string, string> = {
   "555bf": "5x5 BLD",
   "333mbf": "Multi-BLD",
   fto: "FTO",
+  "333fm": "FMC",
 };
 
 export function eventDisplayName(eventType: string): string {

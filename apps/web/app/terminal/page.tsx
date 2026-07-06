@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   EVENTS,
   EVENT_IDS,
   getEvent,
   generateScramble,
+  isEventId,
   type EventId,
 } from "@cubers/scramble-core";
 import {
@@ -98,6 +100,8 @@ function apiSolveToLocal(s: PracticeSolveDto): ExtendedSolve {
 export default function PracticeTerminalPage() {
   const user = useAuthStore((s) => s.user);
   const isLoggedIn = !!user;
+  const searchParams = useSearchParams();
+  const initialSessionId = searchParams.get("session");
 
   const [eventId, setEventId] = useState<EventId>("333");
   const [solves, setSolves] = useState<ExtendedSolve[]>([]);
@@ -109,6 +113,7 @@ export default function PracticeTerminalPage() {
   const [targetTime, setTargetTime] = useState<number | null>(null);
   const [showTargetInput, setShowTargetInput] = useState(false);
   const [targetInput, setTargetInput] = useState("");
+  const initialSessionLoaded = useRef(false);
 
   const apiSessionId = useRef<string | null>(null);
   const apiSessionsCache = useRef<PracticeSessionDto[]>([]);
@@ -136,8 +141,28 @@ export default function PracticeTerminalPage() {
     }
   }, [isLoggedIn]);
 
+  // Load a specific session from ?session= query param
+  useEffect(() => {
+    if (!initialSessionId || !isLoggedIn || initialSessionLoaded.current) return;
+    initialSessionLoaded.current = true;
+    (async () => {
+      try {
+        const { session, solves: apiSolves } = await fetchPracticeSession(initialSessionId);
+        if (isEventId(session.eventType)) {
+          setEventId(session.eventType as EventId);
+        }
+        apiSessionId.current = session.id;
+        setSolves(apiSolves.map(apiSolveToLocal));
+      } catch {
+        // session not found — fall through to normal flow
+      }
+    })();
+  }, [initialSessionId, isLoggedIn]);
+
   // Load solves when event changes
   useEffect(() => {
+    if (initialSessionId && !initialSessionLoaded.current) return;
+    if (initialSessionId && apiSessionId.current === initialSessionId) return;
     let cancelled = false;
     setTargetTime(loadTargetTime(eventId));
 
@@ -164,7 +189,7 @@ export default function PracticeTerminalPage() {
     }
 
     return () => { cancelled = true; };
-  }, [eventId, isLoggedIn, ensureApiSession]);
+  }, [eventId, isLoggedIn, ensureApiSession, initialSessionId]);
 
   const genScramble = useCallback(async () => {
     setScrambleLoading(true);

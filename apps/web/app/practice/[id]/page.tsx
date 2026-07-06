@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import {
   fetchPracticeSession,
   updatePracticeSession,
@@ -12,9 +13,10 @@ import {
 } from "@/lib/api";
 import { formatTime, ao5, ao12, bestSingle, effectiveTime, formatSolve } from "@cubers/timer-core";
 import { eventDisplayName } from "@/lib/eventNames";
-import { eventIcon } from "@/lib/eventIcons";
+import { EventIcon } from "@/components/EventIcon";
 import type { Solve } from "@cubers/types";
 import { Skeleton } from "@/components/Skeleton";
+import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 
@@ -116,7 +118,7 @@ export default function SessionDetailPage() {
           ) : (
             <>
               <h1 className="text-2xl font-bold">
-                {eventIcon(session.eventType).emoji} {session.name || "Untitled Session"}
+                <EventIcon eventId={session.eventType} size={22} className="mr-1" /> {session.name || "Untitled Session"}
               </h1>
               <button onClick={() => { setEditName(session.name || ""); setEditing(true); }} className="text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
                 Rename
@@ -124,11 +126,16 @@ export default function SessionDetailPage() {
             </>
           )}
         </div>
-        <div className="mt-1 flex gap-3 text-sm text-zinc-500">
+        <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
           <span>{eventDisplayName(session.eventType)}</span>
           <span>{new Date(session.createdAt).toLocaleString()}</span>
           {session.endedAt && <span className="text-zinc-400">Ended {new Date(session.endedAt).toLocaleString()}</span>}
         </div>
+        {!session.endedAt && (
+          <Link href={`/terminal?session=${session.id}`} className="mt-3 inline-block">
+            <Button>Continue in Terminal</Button>
+          </Link>
+        )}
       </div>
 
       {/* Stats */}
