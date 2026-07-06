@@ -10,6 +10,9 @@ import {
   type JudgeRoundDto,
   type VerificationResultDto,
 } from "@/lib/api";
+import { StatusBadge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/EmptyState";
+import { Skeleton } from "@/components/Skeleton";
 
 export default function JudgeVerificationsPage() {
   const [assignments, setAssignments] = useState<JudgeRoundDto[]>([]);
@@ -94,13 +97,13 @@ export default function JudgeVerificationsPage() {
       )}
 
       {loading ? (
-        <p className="text-zinc-500">Loading assignments...</p>
-      ) : assignments.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-10 text-center dark:border-zinc-800 dark:bg-zinc-900/30">
-          <p className="text-zinc-500">
-            No rounds assigned to you for verification yet.
-          </p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-28 rounded-xl" />
+          <Skeleton className="h-28 rounded-xl" />
+          <Skeleton className="h-28 rounded-xl" />
         </div>
+      ) : assignments.length === 0 ? (
+        <EmptyState icon="🧑‍⚖️" title="No rounds assigned yet" description="Check back once an admin assigns you to a round for verification." />
       ) : (
         <>
           {/* Assignment cards */}
@@ -180,7 +183,10 @@ export default function JudgeVerificationsPage() {
               </div>
 
               {loadingResults ? (
-                <p className="text-zinc-500">Loading results...</p>
+                <div className="space-y-3">
+                  <Skeleton className="h-24 rounded-xl" />
+                  <Skeleton className="h-24 rounded-xl" />
+                </div>
               ) : results.length === 0 ? (
                 <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-8 text-center dark:border-zinc-800 dark:bg-zinc-900/30">
                   <p className="text-zinc-500">
@@ -219,24 +225,6 @@ export default function JudgeVerificationsPage() {
         </>
       )}
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    clean: "text-zinc-400 bg-zinc-100 dark:bg-zinc-800",
-    flagged: "text-amber-500 bg-amber-100 dark:bg-amber-900/30",
-    verified: "text-emerald-500 bg-emerald-100 dark:bg-emerald-900/30",
-    plus2: "text-orange-500 bg-orange-100 dark:bg-orange-900/30",
-    dnf: "text-red-400 bg-red-100 dark:bg-red-900/30",
-    disqualified: "text-red-600 bg-red-100 dark:bg-red-900/30",
-  };
-  return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${colors[status] ?? colors.clean}`}
-    >
-      {status}
-    </span>
   );
 }
 
@@ -291,7 +279,7 @@ function JudgeResultCard({
           <span className="font-mono text-[11px] text-zinc-500">
             {result.userClId}
           </span>
-          <StatusBadge status={result.flagStatus} />
+          <StatusBadge domain="verification" status={result.flagStatus} />
           {result.rank && (
             <span className="text-xs text-zinc-500">#{result.rank}</span>
           )}

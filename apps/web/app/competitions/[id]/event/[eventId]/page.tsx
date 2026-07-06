@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { eventDisplayName } from "@/lib/eventNames";
@@ -19,6 +19,7 @@ import { useLeaderboard } from "@/features/realtime/useLeaderboard";
 import { useRoundStatus } from "@/features/realtime/useRoundStatus";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 import { formatTime } from "@cubers/timer-core";
+import { Skeleton, SkeletonRow } from "@/components/Skeleton";
 
 type RoundTab = "live" | "verified" | "participants";
 
@@ -51,8 +52,11 @@ export default function EventPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-zinc-500">
-        Loading…
+      <main className="mx-auto max-w-5xl px-6 py-10">
+        <Skeleton className="mb-4 h-4 w-32" />
+        <Skeleton className="mb-6 h-8 w-56" />
+        <Skeleton className="mb-4 h-10 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
       </main>
     );
   }
@@ -279,15 +283,15 @@ function SelectedRoundView({
       />
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-200 px-5 dark:border-zinc-800">
+      <div className="flex flex-wrap gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
         {(["live", "verified", "participants"] as RoundTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setRoundTab(t)}
-            className={`px-4 py-2.5 text-xs font-medium transition ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
               roundTab === t
-                ? "border-b-2 border-emerald-500 text-emerald-400"
-                : "text-zinc-500 hover:text-zinc-300"
+                ? "bg-accent-primary text-zinc-950"
+                : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
             }`}
           >
             {t === "live"
@@ -559,7 +563,7 @@ function LiveRankingsPanel({
     return <p className="text-sm text-zinc-500">No results yet.</p>;
   }
 
-  return <ResultTable results={board} showFlagStatus />;
+  return <ResultTable results={board} showFlagStatus live />;
 }
 
 /* ── Verified Results Panel ── */
@@ -575,7 +579,7 @@ function VerifiedResultsPanel({ roundId }: { roundId: string }) {
       .finally(() => setLoading(false));
   }, [roundId]);
 
-  if (loading) return <p className="text-sm text-zinc-500">Loading verified results…</p>;
+  if (loading) return <ResultTableSkeleton />;
 
   if (results.length === 0) {
     return <p className="text-sm text-zinc-500">No verified results yet.</p>;
@@ -620,7 +624,7 @@ function ParticipantsPanel({
     );
   }
 
-  if (loading) return <p className="text-sm text-zinc-500">Loading participants…</p>;
+  if (loading) return <ResultTableSkeleton />;
 
   if (results.length === 0) {
     return <p className="text-sm text-zinc-500">No participants found.</p>;
@@ -629,15 +633,54 @@ function ParticipantsPanel({
   return <ResultTable results={results} showFlagStatus={false} />;
 }
 
+function ResultTableSkeleton() {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+      <table className="w-full text-sm">
+        <tbody>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <SkeletonRow key={i} cols={4} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ── Shared Result Table ── */
 
 function ResultTable({
   results,
   showFlagStatus,
+  live = false,
 }: {
   results: ResultDto[];
   showFlagStatus: boolean;
+  live?: boolean;
 }) {
+  // Track each competitor's previous rank so a live-updating board can flash
+  // the rows whose position just changed — otherwise a rank change is
+  // invisible until you notice the number itself is different.
+  const prevRanks = useRef<Map<string, number | null>>(new Map());
+  const [justMoved, setJustMoved] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!live) return;
+    const moved = new Set<string>();
+    for (const r of results) {
+      const prev = prevRanks.current.get(r.id);
+      if (prev !== undefined && prev !== r.rank) moved.add(r.id);
+    }
+    if (moved.size > 0) {
+      setJustMoved(moved);
+      const t = setTimeout(() => setJustMoved(new Set()), 1200);
+      prevRanks.current = new Map(results.map((r) => [r.id, r.rank]));
+      return () => clearTimeout(t);
+    }
+    prevRanks.current = new Map(results.map((r) => [r.id, r.rank]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results, live]);
+
   return (
     <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-left text-sm">
@@ -654,8 +697,13 @@ function ResultTable({
         </thead>
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {results.map((r) => (
-            <tr key={r.id} className="bg-white dark:bg-zinc-900/40">
-              <td className="px-4 py-2.5 text-zinc-400">{r.rank ?? "—"}</td>
+            <tr
+              key={r.id}
+              className={`transition-colors duration-700 ${
+                justMoved.has(r.id) ? "bg-accent-primary/15" : "bg-white dark:bg-zinc-900/40"
+              }`}
+            >
+              <td className="px-4 py-2.5 font-mono text-zinc-400">{r.rank ?? "—"}</td>
               <td className="px-4 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
                 {r.userId}
               </td>

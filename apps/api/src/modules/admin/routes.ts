@@ -1574,17 +1574,19 @@ export async function registerAdminRoutes(
   });
 
   app.post<{
-    Body: { title?: string; imageUrl?: string; ctaText?: string; ctaLink?: string; expiresAt?: string; active?: boolean; order?: number };
+    Body: { title?: string; imageUrl?: string; mobileImageUrl?: string; ctaText?: string; ctaLink?: string; linkUrl?: string; expiresAt?: string; active?: boolean; order?: number };
   }>("/api/v1/admin/banners", adminOnly, async (req, reply) => {
-    const { title, imageUrl, ctaText, ctaLink, expiresAt, active, order } = req.body ?? {};
+    const { title, imageUrl, mobileImageUrl, ctaText, ctaLink, linkUrl, expiresAt, active, order } = req.body ?? {};
     if (!title?.trim()) return reply.code(400).send({ error: "title_required" });
 
     const banner: Banner = {
       id: randomUUID(),
       title: title.trim(),
       imageUrl: imageUrl?.trim() || undefined,
+      mobileImageUrl: mobileImageUrl?.trim() || undefined,
       ctaText: ctaText?.trim() || undefined,
       ctaLink: ctaLink?.trim() || undefined,
+      linkUrl: linkUrl?.trim() || ctaLink?.trim() || undefined,
       expiresAt: expiresAt || undefined,
       active: active ?? true,
       order: order ?? 0,
@@ -1596,7 +1598,7 @@ export async function registerAdminRoutes(
 
   app.patch<{
     Params: { id: string };
-    Body: Partial<Pick<Banner, "title" | "imageUrl" | "ctaText" | "ctaLink" | "expiresAt" | "active" | "order">>;
+    Body: Partial<Pick<Banner, "title" | "imageUrl" | "mobileImageUrl" | "ctaText" | "ctaLink" | "linkUrl" | "expiresAt" | "active" | "order">>;
   }>("/api/v1/admin/banners/:id", adminOnly, async (req, reply) => {
     const updated = await repo.banners.update(req.params.id, req.body ?? {});
     if (!updated) return reply.code(404).send({ error: "banner_not_found" });
@@ -1641,6 +1643,37 @@ export async function registerAdminRoutes(
       const imageUrl = await storage.upload(filename, buffer, `image/${ext === "jpg" ? "jpeg" : ext}`);
 
       const updated = await repo.banners.update(banner.id, { imageUrl });
+      return updated;
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/banners/:id/upload-mobile-image",
+    adminOnly,
+    async (req, reply) => {
+      const banner = await repo.banners.findById(req.params.id);
+      if (!banner) return reply.code(404).send({ error: "banner_not_found" });
+
+      const data = await req.file();
+      if (!data) return reply.code(400).send({ error: "no_file" });
+
+      const ext = data.filename.split(".").pop()?.toLowerCase() ?? "png";
+      if (!["jpg", "jpeg", "png", "gif", "webp"].includes(ext))
+        return reply.code(400).send({ error: "invalid_file_type" });
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of data.file) chunks.push(chunk as Buffer);
+      const buffer = Buffer.concat(chunks);
+
+      if (buffer.length > 5 * 1024 * 1024)
+        return reply.code(400).send({ error: "file_too_large_max_5mb" });
+
+      const { getStorage } = await import("../../lib/storage");
+      const filename = `banners/${banner.id}_mobile_${randomUUID().slice(0, 8)}.${ext}`;
+      const storage = getStorage();
+      const mobileImageUrl = await storage.upload(filename, buffer, `image/${ext === "jpg" ? "jpeg" : ext}`);
+
+      const updated = await repo.banners.update(banner.id, { mobileImageUrl });
       return updated;
     },
   );

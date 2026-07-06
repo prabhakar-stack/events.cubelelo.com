@@ -11,11 +11,20 @@ import {
 } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
 import { eventDisplayName } from "@/lib/eventNames";
+import { eventIcon } from "@/lib/eventIcons";
+import { CountUp } from "@/components/CountUp";
+import { Skeleton } from "@/components/Skeleton";
+import { Button } from "@/components/ui/Button";
+import { ConfirmModal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 
 export default function PracticePage() {
+  const toast = useToast();
   const [sessions, setSessions] = useState<PracticeSessionDto[]>([]);
   const [stats, setStats] = useState<PracticeStatsDto | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<PracticeSessionDto | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     Promise.all([fetchPracticeSessions(), fetchPracticeStats()])
@@ -23,10 +32,19 @@ export default function PracticePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this session and all its solves?")) return;
-    await deletePracticeSession(id);
-    setSessions((prev) => prev.filter((s) => s.id !== id));
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deletePracticeSession(deleteTarget.id);
+      setSessions((prev) => prev.filter((s) => s.id !== deleteTarget.id));
+      toast.show("Session deleted", "success");
+      setDeleteTarget(null);
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -39,32 +57,41 @@ export default function PracticePage() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Link
-            href="/daily-challenge"
-            className="rounded-lg border border-amber-500 px-5 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
-          >
-            Daily Challenge
+          <Link href="/daily-challenge">
+            <Button
+              variant="secondary"
+              className="!border-amber-500 !text-amber-600 hover:!bg-amber-50 dark:!text-amber-400 dark:hover:!bg-amber-900/20"
+            >
+              Daily Challenge
+            </Button>
           </Link>
-          <Link
-            href="/terminal"
-            className="rounded-lg bg-emerald-600 px-5 py-2.5 font-semibold text-white transition hover:bg-emerald-500"
-          >
-            Open Terminal
+          <Link href="/terminal">
+            <Button>Open Terminal</Button>
           </Link>
         </div>
       </div>
 
       {/* Stats Overview */}
-      {stats && (
+      {loading ? (
         <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard label="Sessions" value={String(stats.totalSessions)} />
-          <StatCard label="Total Solves" value={String(stats.totalSolves)} />
-          <StatCard
-            label="Total Time"
-            value={stats.totalTimeMs > 0 ? formatTotalTime(stats.totalTimeMs) : "—"}
-          />
-          <StatCard label="Events Practiced" value={String(Object.keys(stats.eventBests).length)} />
+          <Skeleton className="h-16 rounded-lg" />
+          <Skeleton className="h-16 rounded-lg" />
+          <Skeleton className="h-16 rounded-lg" />
+          <Skeleton className="h-16 rounded-lg" />
         </div>
+      ) : (
+        stats && (
+          <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Sessions" value={stats.totalSessions} />
+            <StatCard label="Total Solves" value={stats.totalSolves} />
+            <StatCard
+              label="Total Time"
+              value={null}
+              display={stats.totalTimeMs > 0 ? formatTotalTime(stats.totalTimeMs) : "—"}
+            />
+            <StatCard label="Events Practiced" value={Object.keys(stats.eventBests).length} />
+          </div>
+        )
       )}
 
       {/* PB Grid */}
@@ -79,7 +106,9 @@ export default function PracticePage() {
                   key={event}
                   className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-center dark:border-zinc-800 dark:bg-zinc-900/40"
                 >
-                  <div className="text-xs text-zinc-500">{eventDisplayName(event)}</div>
+                  <div className="text-xs text-zinc-500">
+                    {eventIcon(event).emoji} {eventDisplayName(event)}
+                  </div>
                   <div className="font-mono text-lg font-bold text-emerald-600 dark:text-emerald-400">
                     {formatTime(time)}
                   </div>
@@ -93,32 +122,38 @@ export default function PracticePage() {
       <div>
         <h2 className="mb-3 text-lg font-semibold">Sessions</h2>
         {loading ? (
-          <p className="py-8 text-center text-zinc-500">Loading...</p>
+          <div className="space-y-2">
+            <Skeleton className="h-16 rounded-lg" />
+            <Skeleton className="h-16 rounded-lg" />
+            <Skeleton className="h-16 rounded-lg" />
+          </div>
         ) : sessions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-300 py-12 text-center dark:border-zinc-700">
+            <div className="mb-2 text-3xl">🧊</div>
             <p className="text-zinc-500 dark:text-zinc-400">
               No saved sessions yet. Open the terminal to start practicing!
             </p>
             <Link
               href="/terminal"
-              className="mt-4 inline-block text-emerald-600 underline hover:text-emerald-500 dark:text-emerald-400"
+              className="mt-4 inline-block text-accent-primary underline hover:brightness-110"
             >
               Go to Terminal
             </Link>
           </div>
         ) : (
           <div className="space-y-2">
-            {sessions.map((s) => (
+            {sessions.map((s, i) => (
               <div
                 key={s.id}
-                className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40"
+                className="row-count-in flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40"
+                style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
               >
                 <div className="min-w-0">
                   <Link
                     href={`/practice/${s.id}`}
                     className="font-medium hover:text-emerald-600 dark:hover:text-emerald-400"
                   >
-                    {s.name || "Untitled Session"}
+                    {eventIcon(s.eventType).emoji} {s.name || "Untitled Session"}
                   </Link>
                   <div className="flex gap-3 text-xs text-zinc-500">
                     <span>{eventDisplayName(s.eventType)}</span>
@@ -133,7 +168,7 @@ export default function PracticePage() {
                     </span>
                   )}
                   <button
-                    onClick={() => handleDelete(s.id)}
+                    onClick={() => setDeleteTarget(s)}
                     className="rounded px-2 py-1 text-xs text-zinc-400 transition hover:text-red-500"
                   >
                     Delete
@@ -144,15 +179,34 @@ export default function PracticePage() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        loading={deleting}
+        title="Delete session?"
+        description={
+          <>
+            This permanently deletes <strong>{deleteTarget?.name || "this session"}</strong> and all of its solves.
+            This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete session"
+      />
     </main>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value, display }: { label: string; value: number | null; display?: string }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
       <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className="font-mono text-xl font-bold">{value}</div>
+      {value !== null ? (
+        <CountUp value={value} className="font-mono text-xl font-bold" />
+      ) : (
+        <div className="font-mono text-xl font-bold">{display}</div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { forgotPassword } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { friendlyAuthError } from "@/lib/errorMessages";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -19,7 +22,7 @@ export default function ForgotPasswordPage() {
       await forgotPassword(email.trim());
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(friendlyAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -49,22 +52,19 @@ export default function ForgotPasswordPage() {
               Enter your email and we'll send you a reset link.
             </p>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <input
+              <Input
                 type="email"
                 placeholder="Email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                autoComplete="email"
+                autoFocus
+                error={error ?? undefined}
               />
-              {error && <p className="text-sm text-red-400">{error}</p>}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-lg bg-emerald-600 py-2.5 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-              >
-                {loading ? "Sending..." : "Send Reset Link"}
-              </button>
+              <Button type="submit" fullWidth loading={loading} size="lg">
+                {loading ? "Sending…" : "Send Reset Link"}
+              </Button>
             </form>
             <p className="mt-4 text-center text-sm text-zinc-500">
               <Link href="/login" className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400">

@@ -1,0 +1,3 @@
+ALTER TABLE users ADD COLUMN IF NOT EXISTS address text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS landmark text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pincode varchar(10);

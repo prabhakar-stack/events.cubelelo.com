@@ -4,22 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchMigrationStats, sendMigrationEmails, type MigrationStats } from "@/lib/api";
 
-const TABS = [
-  { label: "Competitions", href: "/admin" },
-  { label: "Users", href: "/admin/users" },
-  { label: "Payments", href: "/admin/payments" },
-  { label: "Promo Codes", href: "/admin/promo-codes" },
-  { label: "Appeals", href: "/admin/appeals" },
-  { label: "WCA Queue", href: "/admin/wca-queue" },
-  { label: "Rank Tiers", href: "/admin/rank-tiers" },
-  { label: "Merge", href: "/admin/merge" },
-  { label: "CMS", href: "/admin/cms" },
-  { label: "Migration", href: "/admin/migration" },
-  { label: "Content", href: "/admin/content" },
-  { label: "Details", href: "/admin/faq" },
-  { label: "Staff", href: "/admin/staff" },
-  { label: "Verification", href: "/admin/verification" },
-];
 
 export default function AdminMigrationPage() {
   const [stats, setStats] = useState<MigrationStats | null>(null);
@@ -36,17 +20,6 @@ export default function AdminMigrationPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       {/* Sub-nav */}
-      <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
-        {TABS.map((tab) => (
-          <Link key={tab.label} href={tab.href}
-            className={`rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200 ${
-              tab.href === "/admin/migration" ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
-            }`}>
-            {tab.label}
-          </Link>
-        ))}
-      </div>
-
       <h1 className="mb-2 text-xl font-bold text-zinc-900 dark:text-zinc-100">Legacy Migration</h1>
       <p className="mb-6 text-sm text-zinc-500">
         Manage the import of historical cubelelo-event data. The ETL script populates

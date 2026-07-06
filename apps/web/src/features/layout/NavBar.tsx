@@ -1,16 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useTheme } from "@/features/theme/ThemeProvider";
 import { globalSearch, type GlobalSearchResult } from "@/lib/api";
 
+const NAV_LINKS = [
+  { href: "/competitions", label: "Competitions" },
+  { href: "/practice", label: "Practice" },
+  { href: "/rankings", label: "Rankings" },
+];
+
 export function NavBar() {
   const { user, loading, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
+  const pathname = usePathname();
 
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<GlobalSearchResult[]>([]);
@@ -21,6 +28,20 @@ export function NavBar() {
 
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const [scrolled, setScrolled] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    const fn = () => setScrolled(window.scrollY > 20);
+    fn();
+    window.addEventListener("scroll", fn);
+    return () => window.removeEventListener("scroll", fn);
+  }, []);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   const doSearch = useCallback(async (q: string) => {
     if (q.length < 2) {
@@ -63,16 +84,33 @@ export function NavBar() {
   }, []);
 
   return (
-    <nav data-layout="navbar" className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <>
+    <nav
+      data-layout="navbar"
+      className={`sticky top-0 z-40 flex items-center justify-between border-b px-6 py-3 text-sm transition-all duration-200 ${
+        scrolled
+          ? "border-zinc-200 bg-white/80 shadow-sm backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80"
+          : "border-transparent bg-white dark:bg-zinc-950"
+      }`}
+    >
       {/* Left — logo + nav links */}
       <div className="flex items-center gap-5">
+        <button
+          onClick={() => setMobileOpen((v) => !v)}
+          className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 md:hidden"
+          aria-label="Toggle menu"
+        >
+          {mobileOpen ? <CloseIcon /> : <MenuIcon />}
+        </button>
         <Link href="/" className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
           Cubelelo
         </Link>
         <div className="hidden items-center gap-1 md:flex">
-          <NavLink href="/competitions">Competitions</NavLink>
-          <NavLink href="/practice">Practice</NavLink>
-          <NavLink href="/rankings">Rankings</NavLink>
+          {NAV_LINKS.map((l) => (
+            <NavLink key={l.href} href={l.href} active={pathname === l.href}>
+              {l.label}
+            </NavLink>
+          ))}
         </div>
       </div>
 
@@ -247,6 +285,27 @@ export function NavBar() {
         )}
       </div>
     </nav>
+
+    {mobileOpen && (
+      <div className="border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
+        <div className="flex flex-col gap-1">
+          {NAV_LINKS.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              className={`rounded-lg px-3 py-2 text-sm transition ${
+                pathname === l.href
+                  ? "bg-accent-primary/10 font-semibold text-accent-primary"
+                  : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+              }`}
+            >
+              {l.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -270,14 +329,48 @@ function DropdownItem({
   );
 }
 
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
+function NavLink({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <Link
       href={href}
-      className="rounded-lg px-3 py-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+      className={`relative rounded-lg px-3 py-1.5 transition ${
+        active
+          ? "text-zinc-900 dark:text-zinc-100"
+          : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+      }`}
     >
       {children}
+      {active && (
+        <span className="absolute inset-x-2 -bottom-[13px] h-0.5 rounded-full bg-accent-primary" />
+      )}
     </Link>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
   );
 }
 

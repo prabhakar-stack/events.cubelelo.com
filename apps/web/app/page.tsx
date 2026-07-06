@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { fetchCompetitions, fetchPublicAnnouncements, assetUrl, type CompetitionSummary, type AnnouncementDto } from "@/lib/api";
+import { fetchCompetitions, fetchPublicAnnouncements, fetchPublicBanners, assetUrl, type CompetitionSummary, type AnnouncementDto, type BannerDto } from "@/lib/api";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
+import { eventIcon } from "@/lib/eventIcons";
+import { SkeletonCard, Skeleton } from "@/components/Skeleton";
+import { Hero } from "@/features/competitions/Hero";
 
 export default function Home() {
   const [comps, setComps] = useState<CompetitionSummary[]>([]);
@@ -23,60 +26,30 @@ export default function Home() {
   const past = comps.filter((c) =>
     ["results_pending", "completed"].includes(c.status),
   );
-  const featured = live[0] ?? upcoming[0];
+  const featured = comps.find((c) => c.featured) ?? live[0] ?? upcoming[0];
 
   if (loading) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-zinc-500">
-        Loading…
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <Skeleton className="mb-4 h-40 w-full rounded-xl" />
+        <section className="mt-8">
+          <Skeleton className="mb-3 h-3 w-24" />
+          <div className="flex gap-4 overflow-hidden">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        </section>
       </main>
     );
   }
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
+      <BannerSlider />
       <AnnouncementSlider />
 
-      {featured && (
-        <section className="mt-8">
-          <h2 className="mb-3 text-xs uppercase tracking-wider text-zinc-500">
-            Featured
-          </h2>
-          <Link
-            href={`/competitions/${featured.id}`}
-            className="group block rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-100 to-white p-6 transition hover:border-zinc-300 dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 dark:hover:border-zinc-700 md:p-8"
-          >
-            <div className="mb-3 flex items-center gap-3">
-              <StatusBadge status={featured.status} />
-              {featured.type !== "free" && (
-                <span className="text-xs text-zinc-500">
-                  ₹{((featured.baseFee ?? 0) / 100).toFixed(0)}+
-                </span>
-              )}
-            </div>
-            <h3 className="mb-1 text-2xl font-bold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white md:text-3xl">
-              {featured.title}
-            </h3>
-            {featured.description && (
-              <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
-                {featured.description}
-              </p>
-            )}
-            <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-500">
-              <span>
-                {featured.eventTypes?.length ?? 0} event
-                {(featured.eventTypes?.length ?? 0) !== 1 ? "s" : ""}
-              </span>
-              <span>{featured.registrationCount ?? 0} registered</span>
-              {featured.status === "live" && (
-                <span className="rounded bg-emerald-600/20 px-2 py-0.5 text-emerald-400">
-                  Live now
-                </span>
-              )}
-            </div>
-          </Link>
-        </section>
-      )}
+      {featured && <Hero comp={featured} />}
 
       {upcoming.length > 0 && (
         <HorizontalSection title="Upcoming Competitions" href="/competitions?status=upcoming">
@@ -106,6 +79,66 @@ export default function Home() {
   );
 }
 
+function BannerSlider() {
+  const [banners, setBanners] = useState<BannerDto[]>([]);
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    fetchPublicBanners()
+      .then((b) => setBanners(b.sort((a, z) => a.order - z.order)))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (banners.length <= 1) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % banners.length), 5000);
+    return () => clearInterval(t);
+  }, [banners.length]);
+
+  if (banners.length === 0) return null;
+
+  const current = banners[idx];
+  const href = current.linkUrl || current.ctaLink;
+
+  const img = (
+    <div key={idx} className="fade-slide-in relative w-full overflow-hidden rounded-xl">
+      {current.imageUrl && (
+        <img
+          src={assetUrl(current.imageUrl)}
+          alt={current.title}
+          className={`w-full rounded-xl object-cover ${current.mobileImageUrl ? "hidden sm:block" : ""}`}
+        />
+      )}
+      {current.mobileImageUrl && (
+        <img
+          src={assetUrl(current.mobileImageUrl)}
+          alt={current.title}
+          className="w-full rounded-xl object-cover sm:hidden"
+        />
+      )}
+      {banners.length > 1 && (
+        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+          {banners.map((_, i) => (
+            <button
+              key={i}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIdx(i); }}
+              className={`h-2 rounded-full transition-all ${
+                i === idx ? "w-5 bg-white" : "w-2 bg-white/50"
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="mb-4">
+      {href ? <Link href={href}>{img}</Link> : img}
+    </div>
+  );
+}
+
 function AnnouncementSlider() {
   const [announcements, setAnnouncements] = useState<AnnouncementDto[]>([]);
   const [idx, setIdx] = useState(0);
@@ -125,7 +158,7 @@ function AnnouncementSlider() {
   const current = announcements[idx];
 
   const inner = (
-    <div className="flex flex-1 flex-col items-center gap-2">
+    <div key={idx} className="fade-slide-in flex flex-1 flex-col items-center gap-2">
       {current.imageUrl && (
         <img src={assetUrl(current.imageUrl)} alt={current.title} className="max-h-16 rounded object-contain" />
       )}
@@ -240,22 +273,44 @@ function ScrollCard({ comp }: { comp: CompetitionSummary }) {
   return (
     <Link
       href={`/competitions/${comp.id}`}
-      className="group flex w-72 flex-shrink-0 flex-col rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/60"
+      className="group relative flex w-72 flex-shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white/70 p-5 backdrop-blur-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-accent-primary/40"
       style={{ scrollSnapAlign: "start" }}
     >
-      <div className="mb-3 flex items-center justify-between">
-        <StatusBadge status={comp.status} />
+      <div className="shimmer-sweep pointer-events-none absolute inset-0" />
+      <div className="relative mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {comp.status === "live" && (
+            <span className="live-dot h-2 w-2 rounded-full bg-red-500" />
+          )}
+          <StatusBadge status={comp.status} />
+        </div>
         <span className="text-xs text-zinc-500">{feeLabel}</span>
       </div>
-      <h3 className="mb-1 text-base font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
+      <h3 className="relative mb-1 text-base font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
         {comp.title}
       </h3>
       {comp.description && (
-        <p className="mb-3 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="relative mb-3 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">
           {comp.description}
         </p>
       )}
-      <div className="mt-auto flex items-center justify-between text-xs text-zinc-500">
+      {comp.eventTypes && comp.eventTypes.length > 0 && (
+        <div className="relative mb-3 flex flex-wrap gap-1">
+          {comp.eventTypes.slice(0, 6).map((et) => (
+            <span
+              key={et}
+              title={et}
+              className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800"
+            >
+              {eventIcon(et).emoji}
+            </span>
+          ))}
+        </div>
+      )}
+      {comp.status === "registration_open" && comp.registrationDeadline && (
+        <RegistrationCountdown deadline={comp.registrationDeadline} />
+      )}
+      <div className="relative mt-auto flex items-center justify-between text-xs text-zinc-500">
         <span>
           {comp.eventTypes?.length ?? 0} event
           {(comp.eventTypes?.length ?? 0) !== 1 ? "s" : ""}
@@ -263,6 +318,35 @@ function ScrollCard({ comp }: { comp: CompetitionSummary }) {
         <span>{comp.registrationCount ?? 0} registered</span>
       </div>
     </Link>
+  );
+}
+
+function RegistrationCountdown({ deadline }: { deadline: string }) {
+  const [label, setLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    function update() {
+      const diff = new Date(deadline).getTime() - Date.now();
+      if (diff <= 0) {
+        setLabel("Closing soon");
+        return;
+      }
+      const days = Math.floor(diff / 86_400_000);
+      const hours = Math.floor((diff % 86_400_000) / 3_600_000);
+      const mins = Math.floor((diff % 3_600_000) / 60_000);
+      setLabel(days > 0 ? `${days}d ${hours}h left` : hours > 0 ? `${hours}h ${mins}m left` : `${mins}m left`);
+    }
+    update();
+    const t = setInterval(update, 60_000);
+    return () => clearInterval(t);
+  }, [deadline]);
+
+  if (!label) return null;
+
+  return (
+    <div className="relative mb-3 inline-flex w-fit items-center gap-1 rounded-full bg-accent-warn/10 px-2 py-0.5 text-xs font-medium text-accent-warn">
+      ⏳ {label}
+    </div>
   );
 }
 

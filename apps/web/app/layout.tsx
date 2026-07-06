@@ -1,9 +1,24 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/features/auth/AuthProvider";
 import { ThemeProvider } from "@/features/theme/ThemeProvider";
 import { NavBar } from "@/features/layout/NavBar";
 import { Footer } from "@/features/layout/Footer";
+import { PageProgressBar } from "@/features/layout/PageProgressBar";
+import { ToastProvider } from "@/components/ui/Toast";
+
+const sans = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Cubelelo Events",
@@ -16,13 +31,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`dark ${sans.variable} ${mono.variable}`}>
       <body className="flex min-h-screen flex-col">
         <ThemeProvider>
           <AuthProvider>
-            <NavBar />
-            {children}
-            <Footer />
+            <ToastProvider>
+              <Suspense fallback={null}>
+                <PageProgressBar />
+              </Suspense>
+              <NavBar />
+              {children}
+              <Footer />
+            </ToastProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

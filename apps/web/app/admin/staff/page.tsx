@@ -8,27 +8,15 @@ import {
   createStaff,
   type AdminUserDto,
 } from "@/lib/api";
+import { ConfirmModal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
+import { EmptyState } from "@/components/EmptyState";
 
-const TABS = [
-  { label: "Competitions", href: "/admin" },
-  { label: "Users", href: "/admin/users" },
-  { label: "Payments", href: "/admin/payments" },
-  { label: "Promo Codes", href: "/admin/promo-codes" },
-  { label: "Appeals", href: "/admin/appeals" },
-  { label: "WCA Queue", href: "/admin/wca-queue" },
-  { label: "Rank Tiers", href: "/admin/rank-tiers" },
-  { label: "Merge", href: "/admin/merge" },
-  { label: "CMS", href: "/admin/cms" },
-  { label: "Migration", href: "/admin/migration" },
-  { label: "Content", href: "/admin/content" },
-  { label: "Details", href: "/admin/faq" },
-  { label: "Staff", href: "/admin/staff" },
-  { label: "Verification", href: "/admin/verification" },
-];
 
 const STAFF_ROLES = ["judge", "moderator"] as const;
 
 export default function AdminStaffPage() {
+  const toast = useToast();
   const [staff, setStaff] = useState<AdminUserDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -36,6 +24,9 @@ export default function AdminStaffPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [pendingRoleChange, setPendingRoleChange] = useState<{ user: AdminUserDto; newRole: string } | null>(null);
+  const [demoteTarget, setDemoteTarget] = useState<AdminUserDto | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const load = useCallback(() => {
     fetchAdminUsers()
@@ -67,30 +58,39 @@ export default function AdminStaffPage() {
     }
   };
 
-  const changeRole = async (user: AdminUserDto, newRole: string) => {
+  const requestRoleChange = (user: AdminUserDto, newRole: string) => {
     if (newRole === user.role) return;
-    setBusy(user.id);
-    setError(null);
+    setPendingRoleChange({ user, newRole });
+  };
+
+  const confirmRoleChange = async () => {
+    if (!pendingRoleChange) return;
+    const { user, newRole } = pendingRoleChange;
+    setConfirmBusy(true);
     try {
       await updateAdminUser(user.id, { role: newRole });
+      toast.show(`${user.name} is now a ${newRole}`, "success");
+      setPendingRoleChange(null);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.show(e instanceof Error ? e.message : String(e), "error");
     } finally {
-      setBusy(null);
+      setConfirmBusy(false);
     }
   };
 
-  const demote = async (user: AdminUserDto) => {
-    if (!confirm(`Demote ${user.name} from ${user.role} to regular user?`)) return;
-    setBusy(`demote-${user.id}`);
+  const confirmDemote = async () => {
+    if (!demoteTarget) return;
+    setConfirmBusy(true);
     try {
-      await updateAdminUser(user.id, { role: "user" });
+      await updateAdminUser(demoteTarget.id, { role: "user" });
+      toast.show(`${demoteTarget.name} removed from staff`, "success");
+      setDemoteTarget(null);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.show(e instanceof Error ? e.message : String(e), "error");
     } finally {
-      setBusy(null);
+      setConfirmBusy(false);
     }
   };
 
@@ -105,17 +105,6 @@ export default function AdminStaffPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="mb-6 flex items-center gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
-        {TABS.map((tab) => (
-          <Link key={tab.label} href={tab.href}
-            className={`whitespace-nowrap rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200 ${
-              tab.href === "/admin/staff" ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
-            }`}>
-            {tab.label}
-          </Link>
-        ))}
-      </div>
-
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Staff Management</h1>
@@ -190,9 +179,7 @@ export default function AdminStaffPage() {
       {loading ? (
         <p className="text-zinc-500">Loading...</p>
       ) : staff.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-10 text-center text-zinc-500">
-          No staff accounts found.
-        </div>
+        <EmptyState icon="🧑‍🏫" title="No staff accounts found" description="Create a judge or moderator account to get started." />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-sm">
@@ -221,14 +208,14 @@ export default function AdminStaffPage() {
                       <div className="flex gap-2">
                         <select
                           value={u.role}
-                          onChange={(e) => changeRole(u, e.target.value)}
+                          onChange={(e) => requestRoleChange(u, e.target.value)}
                           disabled={busy === u.id}
                           className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 focus:outline-none disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
                         >
                           <option value="judge">Judge</option>
                           <option value="moderator">Moderator</option>
                         </select>
-                        <button onClick={() => demote(u)} disabled={busy === `demote-${u.id}`}
+                        <button onClick={() => setDemoteTarget(u)} disabled={busy === `demote-${u.id}`}
                           className="rounded border border-red-900/40 px-2 py-1 text-xs text-red-500 hover:bg-red-950/30 disabled:opacity-40">
                           Remove
                         </button>
@@ -244,6 +231,39 @@ export default function AdminStaffPage() {
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!pendingRoleChange}
+        onClose={() => setPendingRoleChange(null)}
+        onConfirm={confirmRoleChange}
+        loading={confirmBusy}
+        destructive={false}
+        title="Change role?"
+        description={
+          <>
+            Change <strong>{pendingRoleChange?.user.name}</strong> from{" "}
+            <strong className="capitalize">{pendingRoleChange?.user.role}</strong> to{" "}
+            <strong className="capitalize">{pendingRoleChange?.newRole}</strong>? This changes what they can access
+            immediately.
+          </>
+        }
+        confirmLabel="Change role"
+      />
+
+      <ConfirmModal
+        open={!!demoteTarget}
+        onClose={() => setDemoteTarget(null)}
+        onConfirm={confirmDemote}
+        loading={confirmBusy}
+        title="Remove from staff?"
+        description={
+          <>
+            <strong>{demoteTarget?.name}</strong> will lose their {demoteTarget?.role} access and become a regular
+            user.
+          </>
+        }
+        confirmLabel="Remove"
+      />
     </div>
   );
 }

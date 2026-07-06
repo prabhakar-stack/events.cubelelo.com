@@ -5,9 +5,20 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { fetchCompetition, fetchLeaderboard, submitAppeal, type CompetitionDetail, type ResultDto } from "@/lib/api";
 import { eventDisplayName } from "@/lib/eventNames";
+import { eventIcon } from "@/lib/eventIcons";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { formatTime } from "@cubers/timer-core";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { Textarea } from "@/components/ui/Input";
+import { Skeleton } from "@/components/Skeleton";
+
+const PODIUM_STYLE = [
+  { border: "border-accent-gold/50", bg: "bg-accent-gold/10", text: "text-accent-gold", medal: "🥇", order: "md:order-2", height: "md:h-40" },
+  { border: "border-accent-silver/50", bg: "bg-accent-silver/10", text: "text-accent-silver", medal: "🥈", order: "md:order-1", height: "md:h-32" },
+  { border: "border-accent-bronze/50", bg: "bg-accent-bronze/10", text: "text-accent-bronze", medal: "🥉", order: "md:order-3", height: "md:h-28" },
+];
 
 export default function ResultsPage() {
   const params = useParams<{ id: string }>();
@@ -48,8 +59,15 @@ export default function ResultsPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-zinc-500">
-        Loading results…
+      <main className="mx-auto max-w-4xl px-6 py-10">
+        <Skeleton className="mb-2 h-8 w-64" />
+        <Skeleton className="mb-6 h-4 w-32" />
+        <div className="mb-8 grid grid-cols-3 gap-3">
+          <Skeleton className="h-32 rounded-xl" />
+          <Skeleton className="h-40 rounded-xl" />
+          <Skeleton className="h-28 rounded-xl" />
+        </div>
+        <Skeleton className="h-64 w-full rounded-xl" />
       </main>
     );
   }
@@ -67,6 +85,7 @@ export default function ResultsPage() {
   );
 
   const results = activeRound ? boards.get(activeRound) ?? [] : [];
+  const podium = results.slice(0, 3);
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-10">
@@ -78,7 +97,7 @@ export default function ResultsPage() {
       </p>
 
       {/* Round tabs */}
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-8 flex flex-wrap gap-2">
         {allRounds.map((r) => {
           const hasResults = boards.has(r.id);
           return (
@@ -86,135 +105,178 @@ export default function ResultsPage() {
               key={r.id}
               onClick={() => hasResults && setActiveRound(r.id)}
               disabled={!hasResults}
-              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
                 activeRound === r.id
-                  ? "bg-emerald-600 text-white"
+                  ? "bg-accent-primary text-zinc-950"
                   : hasResults
                     ? "bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
                     : "bg-zinc-900/40 text-zinc-600 cursor-not-allowed"
               }`}
             >
+              <span>{eventIcon(r.eventType).emoji}</span>
               {eventDisplayName(r.eventType)} R{r.roundNumber}
             </button>
           );
         })}
       </div>
 
-      {/* Leaderboard table */}
       {results.length === 0 ? (
-        <p className="text-zinc-500">No results yet for this round.</p>
+        <div className="rounded-xl border border-dashed border-zinc-700 p-10 text-center text-zinc-500">
+          No results yet for this round.
+        </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-zinc-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500">
-                <th className="px-4 py-3">Rank</th>
-                <th className="px-4 py-3">Competitor</th>
-                <th className="px-4 py-3 text-right">Average (ao5)</th>
-                <th className="px-4 py-3 text-right">Best Single</th>
-                {user && <th className="px-4 py-3" />}
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-b border-zinc-800/50 hover:bg-zinc-900/40"
-                >
-                  <td className="px-4 py-2.5 font-mono text-zinc-300">
-                    {r.rank ?? "—"}
-                  </td>
-                  <td className="px-4 py-2.5">
+        <>
+          {/* Podium — top 3 */}
+          {podium.length > 0 && (
+            <div className="mb-10 grid grid-cols-3 items-end gap-3">
+              {podium.map((r, i) => {
+                const style = PODIUM_STYLE[i];
+                const isMe = user?.id === r.userId;
+                return (
+                  <div
+                    key={r.id}
+                    className={`fade-slide-in flex flex-col items-center justify-end rounded-xl border ${style.border} ${style.bg} ${style.height} p-4 text-center ${style.order} ${
+                      isMe ? "ring-2 ring-accent-primary" : ""
+                    }`}
+                    style={{ animationDelay: `${i * 80}ms` }}
+                  >
+                    <span className="mb-1 text-2xl">{style.medal}</span>
                     <Link
                       href={`/profile/${r.userId}`}
-                      className="font-mono text-emerald-400 hover:text-emerald-300"
+                      className="max-w-full truncate font-mono text-sm font-semibold text-zinc-100 hover:underline"
                     >
                       {r.userId}
                     </Link>
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono text-zinc-200">
-                    {r.ao5Ms !== null && r.ao5Ms !== Infinity
-                      ? formatTime(r.ao5Ms)
-                      : "DNF"}
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono text-zinc-200">
-                    {r.bestSingleMs !== null && r.bestSingleMs !== Infinity
-                      ? formatTime(r.bestSingleMs)
-                      : "DNF"}
-                  </td>
-                  {user && (
-                    <td className="px-4 py-2.5">
-                      {r.userId === user.id && (
-                        <button
-                          onClick={() => {
-                            setAppealModal({ resultId: r.id, open: true });
-                            setAppealReason("");
-                            setAppealStatus("idle");
-                          }}
-                          className="rounded bg-amber-900/30 px-2 py-1 text-xs text-amber-400 hover:bg-amber-900/50"
-                        >
-                          Appeal
-                        </button>
-                      )}
-                    </td>
-                  )}
+                    <span className={`font-mono text-lg font-bold ${style.text}`}>
+                      {r.ao5Ms !== null && r.ao5Ms !== Infinity ? formatTime(r.ao5Ms) : "DNF"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-xl border border-zinc-800">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-800 bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500">
+                  <th className="px-4 py-3">Rank</th>
+                  <th className="px-4 py-3">Competitor</th>
+                  <th className="px-4 py-3 text-right">Average (ao5)</th>
+                  <th className="px-4 py-3 text-right">Best Single</th>
+                  {user && <th className="px-4 py-3" />}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {results.map((r, i) => {
+                  const isMe = user?.id === r.userId;
+                  return (
+                    <tr
+                      key={r.id}
+                      className={`row-count-in border-b border-zinc-800/50 ${
+                        isMe
+                          ? "bg-accent-primary/10 shadow-[inset_0_0_0_1px_var(--accent-primary)]"
+                          : "hover:bg-zinc-900/40"
+                      }`}
+                      style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
+                    >
+                      <td className="px-4 py-2.5 font-mono text-zinc-300">
+                        {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (r.rank ?? "—")}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Link
+                          href={`/profile/${r.userId}`}
+                          className="font-mono text-emerald-400 hover:text-emerald-300"
+                        >
+                          {r.userId}
+                        </Link>
+                        {isMe && (
+                          <span className="ml-2 rounded-full bg-accent-primary/20 px-1.5 py-0.5 text-[10px] font-semibold text-accent-primary">
+                            YOU
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-zinc-200">
+                        {r.ao5Ms !== null && r.ao5Ms !== Infinity
+                          ? formatTime(r.ao5Ms)
+                          : "DNF"}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-zinc-200">
+                        {r.bestSingleMs !== null && r.bestSingleMs !== Infinity
+                          ? formatTime(r.bestSingleMs)
+                          : "DNF"}
+                      </td>
+                      {user && (
+                        <td className="px-4 py-2.5">
+                          {r.userId === user.id && (
+                            <button
+                              onClick={() => {
+                                setAppealModal({ resultId: r.id, open: true });
+                                setAppealReason("");
+                                setAppealStatus("idle");
+                              }}
+                              className="rounded bg-amber-900/30 px-2 py-1 text-xs text-amber-400 hover:bg-amber-900/50"
+                            >
+                              Appeal
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {/* Appeal modal */}
-      {appealModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-            <h2 className="mb-3 text-lg font-bold text-white">Submit Appeal</h2>
-            <p className="mb-4 text-sm text-zinc-400">
-              Explain why you believe this result should be reviewed.
-            </p>
-            <textarea
-              value={appealReason}
-              onChange={(e) => setAppealReason(e.target.value)}
-              placeholder="Reason for appeal..."
-              rows={4}
-              className="mb-3 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-500"
-            />
-            {appealStatus === "error" && (
-              <p className="mb-3 text-sm text-red-400">{appealError}</p>
-            )}
-            {appealStatus === "sent" && (
-              <p className="mb-3 text-sm text-emerald-400">Appeal submitted successfully!</p>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setAppealModal({ resultId: "", open: false })}
-                className="rounded bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
-              >
-                {appealStatus === "sent" ? "Close" : "Cancel"}
-              </button>
-              {appealStatus !== "sent" && (
-                <button
-                  disabled={!appealReason.trim() || appealStatus === "sending"}
-                  onClick={async () => {
-                    setAppealStatus("sending");
-                    try {
-                      await submitAppeal(appealModal.resultId, appealReason.trim());
-                      setAppealStatus("sent");
-                    } catch (e) {
-                      setAppealError(e instanceof Error ? e.message : String(e));
-                      setAppealStatus("error");
-                    }
-                  }}
-                  className="rounded bg-amber-600 px-4 py-2 text-sm text-white hover:bg-amber-500 disabled:opacity-50"
-                >
-                  {appealStatus === "sending" ? "Submitting..." : "Submit Appeal"}
-                </button>
-              )}
-            </div>
-          </div>
+      <Modal
+        open={appealModal.open}
+        onClose={() => setAppealModal({ resultId: "", open: false })}
+        title="Submit Appeal"
+      >
+        <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+          Explain why you believe this result should be reviewed.
+        </p>
+        <Textarea
+          value={appealReason}
+          onChange={(e) => setAppealReason(e.target.value)}
+          placeholder="Reason for appeal..."
+          rows={4}
+          className="mb-3"
+        />
+        {appealStatus === "error" && (
+          <p className="mb-3 text-sm text-red-600 dark:text-red-400">{appealError}</p>
+        )}
+        {appealStatus === "sent" && (
+          <p className="mb-3 text-sm text-emerald-600 dark:text-emerald-400">Appeal submitted successfully!</p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setAppealModal({ resultId: "", open: false })}>
+            {appealStatus === "sent" ? "Close" : "Cancel"}
+          </Button>
+          {appealStatus !== "sent" && (
+            <Button
+              disabled={!appealReason.trim()}
+              loading={appealStatus === "sending"}
+              onClick={async () => {
+                setAppealStatus("sending");
+                try {
+                  await submitAppeal(appealModal.resultId, appealReason.trim());
+                  setAppealStatus("sent");
+                } catch (e) {
+                  setAppealError(e instanceof Error ? e.message : String(e));
+                  setAppealStatus("error");
+                }
+              }}
+            >
+              Submit Appeal
+            </Button>
+          )}
         </div>
-      )}
+      </Modal>
     </main>
   );
 }

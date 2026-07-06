@@ -7,6 +7,10 @@ import { fetchUserProfile, type UserProfile } from "@/lib/api";
 import { formatTime, formatSolve } from "@cubers/timer-core";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
+import { GradientAvatar } from "@/components/GradientAvatar";
+import { CountUp } from "@/components/CountUp";
+import { Skeleton } from "@/components/Skeleton";
+import { eventIcon } from "@/lib/eventIcons";
 
 export default function ProfilePage() {
   const params = useParams<{ clid: string }>();
@@ -25,8 +29,19 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-zinc-500">
-        Loading profile…
+      <main className="mx-auto max-w-4xl px-6 py-8">
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+          <div className="flex items-start gap-5">
+            <Skeleton className="h-16 w-16 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+          </div>
+        </section>
+        <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+          <Skeleton className="h-32 w-full" />
+        </section>
       </main>
     );
   }
@@ -50,13 +65,20 @@ export default function ProfilePage() {
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-5">
-            <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-emerald-600 text-2xl font-bold text-white">
-              {profile.name.charAt(0).toUpperCase()}
-            </div>
+            {profile.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.avatarUrl}
+                alt={profile.name}
+                className="h-16 w-16 flex-shrink-0 rounded-full object-cover"
+              />
+            ) : (
+              <GradientAvatar name={profile.name} size={64} className="text-2xl" />
+            )}
             <div>
               <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{profile.name}</h1>
               <p className="font-mono text-sm text-emerald-400">{profile.clId}</p>
-              <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                 {(profile.city || profile.state || profile.country) && (
                   <span>
                     {[profile.city, profile.state, profile.country]
@@ -72,6 +94,11 @@ export default function ProfilePage() {
                 )}
                 {profile.instagram && (
                   <span className="text-zinc-400">@{profile.instagram}</span>
+                )}
+                {profile.createdAt && (
+                  <span className="rounded-full bg-accent-primary/10 px-2 py-0.5 font-semibold text-accent-primary">
+                    Cubler since {new Date(profile.createdAt).toLocaleDateString(undefined, { month: "short", year: "numeric" })}
+                  </span>
                 )}
               </div>
             </div>
@@ -104,21 +131,21 @@ export default function ProfilePage() {
         {/* Summary counters */}
         <div className="mb-6 flex gap-6">
           <div className="text-center">
-            <div className="font-mono text-3xl font-bold text-zinc-100">
-              {profile.stats?.totalCompetitions ?? 0}
-            </div>
+            <CountUp
+              value={profile.stats?.totalCompetitions ?? 0}
+              className="font-mono text-3xl font-bold text-zinc-100"
+            />
             <div className="text-xs text-zinc-500">Competitions</div>
           </div>
           <div className="text-center">
-            <div className="font-mono text-3xl font-bold text-zinc-100">
-              {profile.stats?.totalSolves ?? 0}
-            </div>
+            <CountUp
+              value={profile.stats?.totalSolves ?? 0}
+              className="font-mono text-3xl font-bold text-zinc-100"
+            />
             <div className="text-xs text-zinc-500">Total Solves</div>
           </div>
           <div className="text-center">
-            <div className="font-mono text-3xl font-bold text-zinc-100">
-              {pbEntries.length}
-            </div>
+            <CountUp value={pbEntries.length} className="font-mono text-3xl font-bold text-zinc-100" />
             <div className="text-xs text-zinc-500">Events</div>
           </div>
         </div>
@@ -156,7 +183,10 @@ export default function ProfilePage() {
                 {pbEntries.map(([event, pb]) => (
                   <tr key={event} className="border-b border-zinc-800/40">
                     <td className="py-2.5 pr-4 font-mono font-semibold text-zinc-200">
-                      {event}
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>{eventIcon(event).emoji}</span>
+                        {event}
+                      </span>
                     </td>
                     <td className="py-2.5 px-4 text-right font-mono text-zinc-300">
                       {pb.bestSingle !== null ? formatTime(pb.bestSingle) : "—"}

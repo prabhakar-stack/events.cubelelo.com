@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import confetti from "canvas-confetti";
 import {
   fetchDailyChallenge,
   submitDailyChallenge,
@@ -9,8 +10,10 @@ import {
 } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
 import { useTimer } from "@/features/timer/useTimer";
+import { TimerDisplay } from "@/features/timer/TimerDisplay";
 import { TwistyPlayer } from "@/features/scramble/TwistyPlayer";
 import { eventDisplayName } from "@/lib/eventNames";
+import { CountUp } from "@/components/CountUp";
 import Link from "next/link";
 
 export default function DailyChallengePage() {
@@ -18,6 +21,8 @@ export default function DailyChallengePage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [justSubmittedRank, setJustSubmittedRank] = useState<number | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const { snapshot, down, up, reset } = useTimer({ useInspection: true });
 
@@ -32,17 +37,32 @@ export default function DailyChallengePage() {
     if (!snapshot.result || !data) return;
     setSubmitting(true);
     try {
-      const { result, streak } = await submitDailyChallenge(snapshot.result.time_ms);
+      const worstPenalty = snapshot.result.inspectionPenalty === "dnf" || snapshot.result.penalty === "dnf"
+        ? "dnf"
+        : snapshot.result.inspectionPenalty === "plus2" || snapshot.result.penalty === "plus2"
+          ? "plus2"
+          : undefined;
+      const { result, streak } = await submitDailyChallenge(snapshot.result.time_ms, worstPenalty);
+      const newLeaderboard = [...data.leaderboard, result].sort((a, b) => a.timeMs - b.timeMs);
+      const rank = newLeaderboard.findIndex((r) => r.id === result.id) + 1;
+
       setData((prev) =>
         prev
           ? {
             ...prev,
             userResult: result,
             streak,
-            leaderboard: [...prev.leaderboard, result].sort((a, b) => a.timeMs - b.timeMs),
+            leaderboard: newLeaderboard,
           }
           : prev,
       );
+      setJustSubmittedRank(rank);
+
+      if (!worstPenalty) {
+        if (rank === 1) confetti({ colors: ["#fbbf24", "#00d4aa"], particleCount: 150, spread: 80 });
+        else if (rank <= 3) confetti({ particleCount: 90, spread: 65 });
+      }
+
       reset();
     } catch (err: any) {
       if (err?.message?.includes("409")) setError("You already submitted today!");
@@ -51,6 +71,25 @@ export default function DailyChallengePage() {
       setSubmitting(false);
     }
   }, [snapshot.result, data, reset]);
+
+
+  const handleShare = useCallback(async () => {
+    if (!data || !data.userResult) return;
+    const text = `I solved today's ${eventDisplayName(data.challenge.eventType)} in ${formatTime(data.userResult.timeMs)}! #CubeleloDaily`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch {
+        /* user cancelled — fall through to clipboard */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {}
+  }, [data]);
 
   // Keyboard controls
   useEffect(() => {
@@ -99,8 +138,8 @@ export default function DailyChallengePage() {
           {challenge.date} &middot; {eventDisplayName(challenge.eventType)}
         </p>
         {streak > 0 && (
-          <p className="mt-2 text-amber-500 font-semibold">
-            {streak} day streak!
+          <p className="mt-2 font-semibold text-accent-warn">
+            🔥 <CountUp value={streak} duration={600} /> day streak!
           </p>
         )}
       </div>
@@ -120,7 +159,7 @@ export default function DailyChallengePage() {
 
       {/* Timer / Result */}
       {alreadyDone ? (
-        <div className="mb-8 rounded-xl border border-emerald-500/30 bg-emerald-50 p-6 text-center dark:bg-emerald-900/10">
+        <div className="fade-slide-in mb-8 rounded-xl border border-emerald-500/30 bg-emerald-50 p-6 text-center dark:bg-emerald-900/10">
           <p className="text-sm text-zinc-500">Your time today</p>
           <p className="font-mono text-5xl font-bold text-emerald-600 dark:text-emerald-400">
             {formatTime(userResult.timeMs)}
@@ -128,6 +167,17 @@ export default function DailyChallengePage() {
           <p className="mt-2 text-sm text-zinc-500">
             Submitted {new Date(userResult.submittedAt).toLocaleTimeString()}
           </p>
+          {justSubmittedRank !== null && (
+            <p className="mt-3 text-lg font-semibold text-accent-gold">
+              {justSubmittedRank === 1 ? "🏆" : justSubmittedRank <= 3 ? "🎉" : "📍"} You placed #{justSubmittedRank} today!
+            </p>
+          )}
+          <button
+            onClick={handleShare}
+            className="mt-4 inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-600/10 px-4 py-2 text-sm font-semibold text-emerald-600 transition hover:bg-emerald-600/20 dark:text-emerald-400"
+          >
+            {shareCopied ? "Copied to clipboard! ✓" : "Share your time →"}
+          </button>
         </div>
       ) : (
         <div className="mb-8 rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
@@ -176,7 +226,8 @@ export default function DailyChallengePage() {
                 {leaderboard.map((r, i) => (
                   <tr
                     key={r.id}
-                    className={`border-b border-zinc-100 dark:border-zinc-800 ${r.userId === userResult?.userId ? "bg-emerald-50 dark:bg-emerald-900/10" : ""}`}
+                    className={`row-count-in border-b border-zinc-100 dark:border-zinc-800 ${r.userId === userResult?.userId ? "bg-accent-primary/10 shadow-[inset_0_0_0_1px_var(--accent-primary)]" : ""}`}
+                    style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
                   >
                     <td className="px-4 py-2 font-medium">
                       {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
@@ -198,28 +249,6 @@ export default function DailyChallengePage() {
   );
 }
 
-function TimerDisplay({ snapshot }: { snapshot: ReturnType<typeof useTimer>["snapshot"] }) {
-  let text: string;
-  let color = "";
-
-  if (snapshot.phase === "inspection" || snapshot.phase === "ready") {
-    const remaining = snapshot.inspectionRemainingMs ?? 0;
-    if (remaining <= 0) { text = "+2"; color = "text-red-500"; }
-    else { text = Math.ceil(remaining / 1000).toString(); color = "text-amber-400"; }
-    if (snapshot.phase === "ready") color = "text-emerald-500";
-  } else if (snapshot.phase === "solving") {
-    text = formatTime(snapshot.timeMs);
-    color = "text-zinc-900 dark:text-white";
-  } else if (snapshot.phase === "stopped" && snapshot.result) {
-    text = formatTime(snapshot.result.time_ms);
-    color = "text-emerald-600 dark:text-emerald-400";
-  } else {
-    text = "0.00";
-    color = "text-zinc-400 dark:text-zinc-600";
-  }
-
-  return <div className={`font-mono text-6xl font-bold tabular-nums sm:text-7xl ${color}`}>{text}</div>;
-}
 
 function instruction(phase: string): string {
   switch (phase) {

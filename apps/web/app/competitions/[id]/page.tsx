@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { eventDisplayName } from "@/lib/eventNames";
+import { eventIcon } from "@/lib/eventIcons";
 import {
   fetchCompetition,
   fetchMyRegistrations,
@@ -18,6 +19,8 @@ import { useAuth } from "@/features/auth/AuthProvider";
 import { UserStatusBadge } from "@/features/competitions/UserStatusBadge";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 import { formatTime } from "@cubers/timer-core";
+import { Button } from "@/components/ui/Button";
+import { Skeleton, SkeletonRow } from "@/components/Skeleton";
 
 type Tab = "overview" | "participants" | "rankings";
 
@@ -52,15 +55,22 @@ export default function CompetitionDetailPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-zinc-500">
-        Loading…
+      <main className="mx-auto max-w-5xl px-6 py-10">
+        <Skeleton className="mb-4 h-5 w-24" />
+        <Skeleton className="mb-2 h-9 w-2/3" />
+        <Skeleton className="mb-6 h-4 w-1/2" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-28 rounded-xl" />
+          <Skeleton className="h-28 rounded-xl" />
+          <Skeleton className="h-28 rounded-xl" />
+        </div>
       </main>
     );
   }
 
   if (error || !comp) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-red-400">
+      <main className="flex min-h-[60vh] items-center justify-center text-red-500 dark:text-red-400">
         {error ?? "Competition not found"}
       </main>
     );
@@ -68,6 +78,12 @@ export default function CompetitionDetailPage() {
 
   const isRegOpen = comp.status === "registration_open";
   const isLive = comp.status === "live";
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "participants", label: "Participants" },
+    { id: "rankings", label: "Rankings" },
+  ];
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -77,7 +93,7 @@ export default function CompetitionDetailPage() {
         <span className="text-xs text-zinc-500">{comp.type}</span>
       </div>
       <h1 className="mb-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{comp.title}</h1>
-      {comp.description && <p className="mb-4 text-zinc-400">{comp.description}</p>}
+      {comp.description && <p className="mb-4 text-zinc-500 dark:text-zinc-400">{comp.description}</p>}
 
       {comp.status === "cancelled" && comp.cancellationReason && (
         <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
@@ -92,27 +108,21 @@ export default function CompetitionDetailPage() {
       <div className="mb-6">
         {myReg ? (
           <div className="flex items-center gap-3">
-            <span className="text-sm text-emerald-400">Registered</span>
+            <span className="text-sm text-accent-primary">Registered</span>
             <StatusBadge status={myReg.paymentStatus} />
             {isLive && (
-              <Link
-                href={`/competitions/${comp.id}/lobby`}
-                className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
-              >
-                Enter Lobby
+              <Link href={`/competitions/${comp.id}/lobby`}>
+                <Button size="md">Enter Lobby</Button>
               </Link>
             )}
           </div>
         ) : isRegOpen ? (
           user ? (
-            <Link
-              href={`/competitions/${comp.id}/register`}
-              className="inline-block rounded-lg bg-emerald-600 px-6 py-2.5 font-semibold text-white transition hover:bg-emerald-500"
-            >
-              Register Now
+            <Link href={`/competitions/${comp.id}/register`}>
+              <Button size="lg">Register Now</Button>
             </Link>
           ) : (
-            <Link href="/login" className="text-sm text-emerald-400 underline hover:text-emerald-300">
+            <Link href="/login" className="text-sm text-accent-primary underline hover:brightness-110">
               Sign in to register
             </Link>
           )
@@ -120,18 +130,18 @@ export default function CompetitionDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
-        {(["overview", "participants", "rankings"] as Tab[]).map((t) => (
+      <div className="mb-6 flex flex-wrap gap-2">
+        {TABS.map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2.5 text-sm font-medium transition ${
-              tab === t
-                ? "border-b-2 border-emerald-500 text-emerald-400"
-                : "text-zinc-500 hover:text-zinc-300"
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
+              tab === t.id
+                ? "bg-accent-primary text-zinc-950"
+                : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
             }`}
           >
-            {t === "overview" ? "Overview" : t === "participants" ? "Participants" : "Rankings"}
+            {t.label}
           </button>
         ))}
       </div>
@@ -146,7 +156,7 @@ export default function CompetitionDetailPage() {
         <div className="mt-8">
           <Link
             href={`/competitions/${comp.id}/results`}
-            className="text-sm text-emerald-400 underline hover:text-emerald-300"
+            className="text-sm text-accent-primary underline hover:brightness-110"
           >
             View Full Results
           </Link>
@@ -198,15 +208,17 @@ function OverviewTab({ comp }: { comp: CompetitionDetail }) {
             <Link
               key={ev.id}
               href={`/competitions/${comp.id}/event/${ev.id}`}
-              className="group flex flex-col rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/60"
+              className="group relative flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white/70 p-5 backdrop-blur-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-accent-primary/40"
             >
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-lg font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
+              <div className="shimmer-sweep pointer-events-none absolute inset-0" />
+              <div className="relative mb-2 flex items-center justify-between">
+                <span className="flex items-center gap-2 text-lg font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
+                  <span>{eventIcon(ev.eventType).emoji}</span>
                   {eventDisplayName(ev.eventType)}
                 </span>
                 {latestRound && <StatusBadge status={latestRound.status} />}
               </div>
-              <div className="mt-auto flex items-center gap-3 text-xs text-zinc-500">
+              <div className="relative mt-auto flex items-center gap-3 text-xs text-zinc-500">
                 <span>{ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}</span>
                 {ev.cutoffMs && <span>Cutoff: {(ev.cutoffMs / 1000).toFixed(1)}s</span>}
                 {ev.timeLimitMs && <span>Limit: {(ev.timeLimitMs / 1000).toFixed(1)}s</span>}
@@ -236,7 +248,27 @@ function ParticipantsTab({ compId }: { compId: string }) {
       .finally(() => setLoading(false));
   }, [compId]);
 
-  if (loading) return <p className="text-sm text-zinc-500">Loading participants…</p>;
+  if (loading) {
+    return (
+      <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+        <table className="w-full text-sm">
+          <tbody>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonRow key={i} cols={4} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  if (participants.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
+        No participants yet.
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -247,26 +279,27 @@ function ParticipantsTab({ compId }: { compId: string }) {
             <tr>
               <th className="px-4 py-3 font-medium text-zinc-500">#</th>
               <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
-              <th className="px-4 py-3 font-medium text-zinc-500">Location</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">CL ID</th>
               <th className="px-4 py-3 font-medium text-zinc-500">Events</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {participants.map((p, i) => (
-              <tr key={p.userId} className="bg-white dark:bg-zinc-900/40">
+              <tr key={p.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
                 <td className="px-4 py-2.5 text-zinc-400">{i + 1}</td>
                 <td className="px-4 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">{p.name}</td>
-                <td className="px-4 py-2.5 text-zinc-500">
-                  {[p.city, p.country].filter(Boolean).join(", ") || "—"}
+                <td className="px-4 py-2.5 font-mono text-xs text-zinc-500">
+                  {p.clId}
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap gap-1">
                     {p.eventTypes.map((e) => (
                       <span
                         key={e}
+                        title={eventDisplayName(e)}
                         className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
                       >
-                        {eventDisplayName(e)}
+                        {eventIcon(e).emoji} {eventDisplayName(e)}
                       </span>
                     ))}
                   </div>
@@ -310,12 +343,13 @@ function RankingsTab({ comp }: { comp: CompetitionDetail }) {
             <button
               key={e}
               onClick={() => setSelectedEvent(e)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
                 selectedEvent === e
-                  ? "bg-emerald-600 text-white"
+                  ? "bg-accent-primary text-zinc-950"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
               }`}
             >
+              <span>{eventIcon(e).emoji}</span>
               {eventDisplayName(e)}
             </button>
           ))}
@@ -327,9 +361,19 @@ function RankingsTab({ comp }: { comp: CompetitionDetail }) {
       )}
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading rankings…</p>
+        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+          <table className="w-full text-sm">
+            <tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <SkeletonRow key={i} cols={4} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : ranking.length === 0 ? (
-        <p className="text-sm text-zinc-500">No results yet for this event.</p>
+        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
+          No results yet for this event.
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-left text-sm">
@@ -342,9 +386,11 @@ function RankingsTab({ comp }: { comp: CompetitionDetail }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {ranking.map((r) => (
-                <tr key={r.userId} className="bg-white dark:bg-zinc-900/40">
-                  <td className="px-4 py-2.5 text-zinc-400">{r.rank ?? "—"}</td>
+              {ranking.map((r, i) => (
+                <tr key={r.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+                  <td className="px-4 py-2.5 font-mono text-zinc-400">
+                    {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (r.rank ?? "—")}
+                  </td>
                   <td className="px-4 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">{r.name}</td>
                   <td className="px-4 py-2.5 font-mono text-zinc-700 dark:text-zinc-300">
                     {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}

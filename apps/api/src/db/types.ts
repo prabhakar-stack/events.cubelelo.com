@@ -26,6 +26,9 @@ export interface User {
   city?: string;
   state?: string;
   country?: string;
+  address?: string;
+  landmark?: string;
+  pincode?: string;
   avatarUrl?: string;
   instagram?: string;
   wcaId?: string;
@@ -246,8 +249,10 @@ export interface Banner {
   id: string;
   title: string;
   imageUrl?: string;
+  mobileImageUrl?: string;
   ctaText?: string;
   ctaLink?: string;
+  linkUrl?: string;
   expiresAt?: string;
   active: boolean;
   order: number;

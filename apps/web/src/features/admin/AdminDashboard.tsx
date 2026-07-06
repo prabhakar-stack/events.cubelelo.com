@@ -19,58 +19,7 @@ import {
 } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
 import { eventDisplayName } from "@/lib/eventNames";
-
-/* ── Admin sub-navigation tabs ── */
-const ADMIN_TABS: Array<{
-  label: string;
-  href: string;
-  active?: boolean;
-  disabled?: boolean;
-}> = [
-  { label: "Competitions", href: "/admin", active: true },
-  { label: "Users", href: "/admin/users" },
-  { label: "Payments", href: "/admin/payments" },
-  { label: "Promo Codes", href: "/admin/promo-codes" },
-  { label: "Appeals", href: "/admin/appeals" },
-  { label: "WCA Queue", href: "/admin/wca-queue" },
-  { label: "Rank Tiers", href: "/admin/rank-tiers" },
-  { label: "Merge", href: "/admin/merge" },
-  { label: "CMS", href: "/admin/cms" },
-  { label: "Migration", href: "/admin/migration" },
-  { label: "Content", href: "/admin/content" },
-  { label: "Details", href: "/admin/faq" },
-  { label: "Staff", href: "/admin/staff" },
-  { label: "Verification", href: "/admin/verification" },
-];
-
-function AdminSubNav() {
-  return (
-    <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
-      {ADMIN_TABS.map((tab) =>
-        tab.disabled ? (
-          <span
-            key={tab.label}
-            className="cursor-not-allowed rounded-md px-4 py-2 text-xs font-medium text-zinc-600"
-          >
-            {tab.label}
-          </span>
-        ) : (
-          <Link
-            key={tab.label}
-            href={tab.href}
-            className={`rounded-md px-4 py-2 text-xs font-medium transition ${
-              tab.active
-                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
-                : "text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
-            }`}
-          >
-            {tab.label}
-          </Link>
-        ),
-      )}
-    </div>
-  );
-}
+import { ConfirmModal } from "@/components/ui/Modal";
 
 /* ── Main admin dashboard ── */
 export function AdminDashboard() {
@@ -89,8 +38,6 @@ export function AdminDashboard() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <AdminSubNav />
-
       {error && (
         <div className="mb-4 rounded bg-red-100 px-4 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-300">
           {error}
@@ -528,6 +475,7 @@ function ScrambleManager({
     scrambles: string[];
     locked: boolean;
   } | null>(null);
+  const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedId) {
@@ -645,9 +593,7 @@ function ScrambleManager({
                       {r.status !== "cancelled" && r.status !== "advanced" && r.status !== "closed" && (
                         <button
                           disabled={busy === `cancel-${r.id}`}
-                          onClick={() =>
-                            run(`cancel-${r.id}`, () => cancelRound(r.id))
-                          }
+                          onClick={() => setConfirmingCancelId(r.id)}
                           className="rounded border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30 disabled:opacity-40"
                         >
                           {busy === `cancel-${r.id}` ? "Cancelling…" : "Cancel"}
@@ -695,6 +641,19 @@ function ScrambleManager({
           Select a published competition to manage its scrambles.
         </p>
       )}
+
+      <ConfirmModal
+        open={!!confirmingCancelId}
+        onClose={() => setConfirmingCancelId(null)}
+        onConfirm={() => {
+          const id = confirmingCancelId;
+          setConfirmingCancelId(null);
+          if (id) run(`cancel-${id}`, () => cancelRound(id));
+        }}
+        title="Cancel this round?"
+        description="Competitors currently in this round will no longer be able to submit results. This cannot be undone."
+        confirmLabel="Cancel round"
+      />
     </section>
   );
 }

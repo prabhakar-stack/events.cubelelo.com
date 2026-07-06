@@ -15,6 +15,9 @@ const EDITABLE_FIELDS = [
   "city",
   "state",
   "country",
+  "address",
+  "landmark",
+  "pincode",
   "instagram",
   "profilePrivacy",
 ] as const;

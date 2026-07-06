@@ -18,42 +18,10 @@ import {
 } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
 import { StatusBadge } from "./StatusBadge";
+import { ConfirmModal } from "@/components/ui/Modal";
 
 // Only statuses that are manually set — the others are auto-computed from schedule
 const MANUAL_STATUSES = ["draft", "published", "cancelled", "completed"];
-
-const ADMIN_TABS = [
-  { label: "Competitions", href: "/admin" },
-  { label: "Users", href: "/admin/users" },
-  { label: "Payments", href: "/admin/payments" },
-  { label: "Promo Codes", href: "/admin/promo-codes" },
-  { label: "Appeals", href: "/admin/appeals" },
-  { label: "WCA Queue", href: "/admin/wca-queue" },
-  { label: "Rank Tiers", href: "/admin/rank-tiers" },
-  { label: "Merge", href: "/admin/merge" },
-  { label: "CMS", href: "/admin/cms" },
-  { label: "Migration", href: "/admin/migration" },
-  { label: "Content", href: "/admin/content" },
-  { label: "Details", href: "/admin/faq" },
-  { label: "Staff", href: "/admin/staff" },
-  { label: "Verification", href: "/admin/verification" },
-];
-
-function AdminSubNav() {
-  return (
-    <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
-      {ADMIN_TABS.map((tab) => (
-        <Link
-          key={tab.label}
-          href={tab.href}
-          className="rounded-md px-4 py-2 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
-        >
-          {tab.label}
-        </Link>
-      ))}
-    </div>
-  );
-}
 
 function toLocal(iso?: string | null): string {
   if (!iso) return "";
@@ -134,7 +102,6 @@ export function AdminCompetition({ id }: { id: string }) {
   if (error && !detail) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-8">
-        <AdminSubNav />
         <Link href="/admin" className="text-emerald-500 hover:underline">
           ← Back
         </Link>
@@ -145,7 +112,6 @@ export function AdminCompetition({ id }: { id: string }) {
   if (!detail) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-8">
-        <AdminSubNav />
         <p className="text-zinc-500">Loading…</p>
       </div>
     );
@@ -153,8 +119,6 @@ export function AdminCompetition({ id }: { id: string }) {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <AdminSubNav />
-
       {/* ── Competition details banner ── */}
       <section className="mb-6 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/30 p-6">
         <div className="mb-3 flex items-center justify-between">
@@ -189,6 +153,22 @@ export function AdminCompetition({ id }: { id: string }) {
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+            <button
+              disabled={busy === "featured"}
+              onClick={() =>
+                run("featured", () =>
+                  updateCompetition(id, { featured: !detail.featured }),
+                )
+              }
+              className={`rounded px-2 py-1 text-xs font-medium transition ${
+                detail.featured
+                  ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+                  : "bg-zinc-200 text-zinc-500 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+              }`}
+              title="Toggle featured status on homepage"
+            >
+              {detail.featured ? "★ Featured" : "☆ Feature"}
+            </button>
           </div>
         </div>
 
@@ -445,6 +425,7 @@ function RoundRow({
   onRun: (key: string, fn: () => Promise<unknown>) => void;
 }) {
   const [showSchedule, setShowSchedule] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [opensAt, setOpensAt] = useState(toLocal(round.opensAt));
   const [closesAt, setClosesAt] = useState(toLocal(round.closesAt));
   const [duration, setDuration] = useState<string>("");
@@ -540,12 +521,23 @@ function RoundRow({
           {round.status !== "cancelled" && round.status !== "advanced" && round.status !== "closed" && (
             <button
               disabled={busy === `cancel-${round.id}`}
-              onClick={() => onRun(`cancel-${round.id}`, () => cancelRound(round.id))}
+              onClick={() => setConfirmingCancel(true)}
               className="rounded border border-red-800 px-3 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-red-900/30 disabled:opacity-40"
             >
               {busy === `cancel-${round.id}` ? "Cancelling…" : "Cancel"}
             </button>
           )}
+          <ConfirmModal
+            open={confirmingCancel}
+            onClose={() => setConfirmingCancel(false)}
+            onConfirm={() => {
+              setConfirmingCancel(false);
+              onRun(`cancel-${round.id}`, () => cancelRound(round.id));
+            }}
+            title="Cancel this round?"
+            description="Competitors currently in this round will no longer be able to submit results. This cannot be undone."
+            confirmLabel="Cancel round"
+          />
 
           <button
             disabled={busy === `notify-${round.id}`}

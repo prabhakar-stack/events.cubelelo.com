@@ -26,6 +26,9 @@ export interface AuthUser {
   city?: string;
   state?: string;
   country?: string;
+  address?: string;
+  landmark?: string;
+  pincode?: string;
   instagram?: string;
   wcaId?: string;
   mobileNo?: string;
@@ -65,6 +68,7 @@ export interface CompetitionSummary {
   startsAt?: string | null;
   endsAt?: string | null;
   coverUrl?: string;
+  featured?: boolean;
   createdAt?: string;
   eventTypes?: string[];
   registrationCount?: number;
@@ -95,6 +99,7 @@ export interface CompetitionDetail {
   endsAt?: string | null;
   coverUrl?: string;
   bannerUrl?: string;
+  featured?: boolean;
   createdBy?: string;
   createdAt?: string;
   registrationCount?: number;
@@ -540,6 +545,7 @@ export function updateCompetition(
     registrationDeadline?: string | null;
     startsAt?: string | null;
     endsAt?: string | null;
+    featured?: boolean;
     cancellationReason?: string;
   },
 ): Promise<{ id: string; title: string; status: string }> {
@@ -1084,8 +1090,10 @@ export interface BannerDto {
   id: string;
   title: string;
   imageUrl?: string;
+  mobileImageUrl?: string;
   ctaText?: string;
   ctaLink?: string;
+  linkUrl?: string;
   expiresAt?: string;
   active: boolean;
   order: number;
@@ -1103,8 +1111,10 @@ export function fetchPublicBanners(): Promise<BannerDto[]> {
 export function createBanner(body: {
   title: string;
   imageUrl?: string;
+  mobileImageUrl?: string;
   ctaText?: string;
   ctaLink?: string;
+  linkUrl?: string;
   expiresAt?: string;
   active?: boolean;
   order?: number;
@@ -1114,7 +1124,7 @@ export function createBanner(body: {
 
 export function updateBanner(
   id: string,
-  body: Partial<Pick<BannerDto, "title" | "imageUrl" | "ctaText" | "ctaLink" | "expiresAt" | "active" | "order">>,
+  body: Partial<Pick<BannerDto, "title" | "imageUrl" | "mobileImageUrl" | "ctaText" | "ctaLink" | "linkUrl" | "expiresAt" | "active" | "order">>,
 ): Promise<BannerDto> {
   return sendJson("PATCH", `/api/v1/admin/banners/${id}`, body);
 }
@@ -1123,6 +1133,18 @@ export async function uploadBannerImage(id: string, file: File): Promise<BannerD
   const form = new FormData();
   form.append("image", file);
   const res = await fetch(`${BASE_URL}/api/v1/admin/banners/${id}/upload-image`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json();
+}
+
+export async function uploadBannerMobileImage(id: string, file: File): Promise<BannerDto> {
+  const form = new FormData();
+  form.append("image", file);
+  const res = await fetch(`${BASE_URL}/api/v1/admin/banners/${id}/upload-mobile-image`, {
     method: "POST",
     headers: authHeaders(),
     body: form,
@@ -1351,8 +1373,8 @@ export async function fetchDailyChallenge(): Promise<DailyChallengeResponse> {
   return res.json();
 }
 
-export async function submitDailyChallenge(timeMs: number): Promise<{ result: DailyChallengeResultDto; streak: number }> {
-  return sendJson<{ result: DailyChallengeResultDto; streak: number }>("POST", "/api/v1/daily-challenge/submit", { timeMs });
+export async function submitDailyChallenge(timeMs: number, penalty?: string): Promise<{ result: DailyChallengeResultDto; streak: number }> {
+  return sendJson<{ result: DailyChallengeResultDto; streak: number }>("POST", "/api/v1/daily-challenge/submit", { timeMs, penalty });
 }
 
 // ── Verification management ──────────────────────────────────────────────────

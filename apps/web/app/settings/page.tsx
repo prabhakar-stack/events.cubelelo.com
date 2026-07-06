@@ -1,25 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthProvider";
 import Link from "next/link";
 import { RouteGuard } from "@/features/auth/RouteGuard";
-import { updateMyProfile, uploadAvatar, changePassword, deleteMyAccount, verifyEmailWithGoogle, setAuthToken, sendOtp, verifyOtp } from "@/lib/api";
+import { updateMyProfile, uploadAvatar, changePassword, verifyEmailWithGoogle, setAuthToken, sendOtp, verifyOtp } from "@/lib/api";
 import { useTheme } from "@/features/theme/ThemeProvider";
 import { getSupabase } from "@/lib/supabase";
+import { Country, State, City } from "country-state-city";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { GradientAvatar } from "@/components/GradientAvatar";
 
-const FIELDS = [
-  { key: "name", label: "Display Name", type: "text" },
-  { key: "lastName", label: "Last Name", type: "text" },
-  { key: "city", label: "City", type: "text" },
-  { key: "state", label: "State", type: "text" },
-  { key: "country", label: "Country", type: "text" },
-  { key: "instagram", label: "Instagram", type: "text" },
-  { key: "dob", label: "Date of Birth", type: "date" },
-  { key: "mobileNo", label: "Mobile Number", type: "tel" },
-  { key: "gender", label: "Gender", type: "text" },
-] as const;
+const GENDER_OPTIONS = ["Male", "Female", "Other", "Prefer not to say"] as const;
 
 function SettingsContent() {
   const { user, verifyWithGoogle, setUser } = useAuth();
@@ -40,7 +34,14 @@ function SettingsContent() {
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
 
-  // Handle Google OAuth callback for email verification
+  // Country/State/City cascading state
+  const [countryCode, setCountryCode] = useState("");
+  const [stateCode, setStateCode] = useState("");
+
+  const countries = useMemo(() => Country.getAllCountries(), []);
+  const states = useMemo(() => countryCode ? State.getStatesOfCountry(countryCode) : [], [countryCode]);
+  const cities = useMemo(() => countryCode && stateCode ? City.getCitiesOfState(countryCode, stateCode) : [], [countryCode, stateCode]);
+
   useEffect(() => {
     if (searchParams.get("verified") !== "1") return;
     if (!user || user.emailVerified) return;
@@ -72,15 +73,49 @@ function SettingsContent() {
   }, [searchParams, user, setUser]);
 
   useEffect(() => {
-    if (user) {
-      const initial: Record<string, string> = {};
-      for (const f of FIELDS) {
-        const val = (user as unknown as Record<string, unknown>)[f.key];
-        initial[f.key] = typeof val === "string" ? val : "";
-      }
-      setForm(initial);
+    if (!user) return;
+    const u = user as unknown as Record<string, unknown>;
+    const initial: Record<string, string> = {};
+    const textFields = ["name", "lastName", "mobileNo", "dob", "gender", "address", "landmark", "pincode", "instagram"];
+    for (const key of textFields) {
+      const val = u[key];
+      initial[key] = typeof val === "string" ? val : "";
     }
-  }, [user]);
+    initial.country = typeof u.country === "string" ? u.country : "";
+    initial.state = typeof u.state === "string" ? u.state : "";
+    initial.city = typeof u.city === "string" ? u.city : "";
+    setForm(initial);
+
+    // Resolve country/state codes from names for the cascading dropdowns
+    if (initial.country) {
+      const match = countries.find((c) => c.name === initial.country);
+      if (match) {
+        setCountryCode(match.isoCode);
+        if (initial.state) {
+          const statesList = State.getStatesOfCountry(match.isoCode);
+          const sm = statesList.find((s) => s.name === initial.state);
+          if (sm) setStateCode(sm.isoCode);
+        }
+      }
+    }
+  }, [user, countries]);
+
+  const handleCountryChange = (isoCode: string) => {
+    setCountryCode(isoCode);
+    setStateCode("");
+    const c = countries.find((c) => c.isoCode === isoCode);
+    setForm((prev) => ({ ...prev, country: c?.name ?? "", state: "", city: "" }));
+  };
+
+  const handleStateChange = (isoCode: string) => {
+    setStateCode(isoCode);
+    const s = states.find((s) => s.isoCode === isoCode);
+    setForm((prev) => ({ ...prev, state: s?.name ?? "", city: "" }));
+  };
+
+  const handleCityChange = (name: string) => {
+    setForm((prev) => ({ ...prev, city: name }));
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -88,8 +123,9 @@ function SettingsContent() {
     setSaved(false);
     try {
       const updates: Record<string, string> = {};
-      for (const f of FIELDS) {
-        if (form[f.key]?.trim()) updates[f.key] = form[f.key].trim();
+      const allKeys = ["name", "lastName", "mobileNo", "dob", "gender", "country", "state", "city", "address", "landmark", "pincode", "instagram"];
+      for (const key of allKeys) {
+        if (form[key]?.trim()) updates[key] = form[key].trim();
       }
       await updateMyProfile(updates);
       setSaved(true);
@@ -100,17 +136,20 @@ function SettingsContent() {
     }
   };
 
+  const set = (key: string, val: string) => setForm((prev) => ({ ...prev, [key]: val }));
+
   return (
     <main className="mx-auto max-w-lg px-6 py-10">
-      <h1 className="mb-2 text-2xl font-bold">Settings</h1>
+      <h1 className="mb-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Settings</h1>
       <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
         <span className="font-mono text-emerald-600 dark:text-emerald-400">{user!.clId}</span>
         {" · "}
         {user!.email || "No email set"}
       </p>
 
+      {/* Avatar */}
       <div className="mb-6 flex items-center gap-4">
-        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-zinc-200 text-2xl text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full">
           {(user as unknown as Record<string, unknown>).avatarUrl ? (
             <img
               src={String((user as unknown as Record<string, unknown>).avatarUrl)}
@@ -118,7 +157,7 @@ function SettingsContent() {
               className="h-full w-full object-cover"
             />
           ) : (
-            user!.name.charAt(0).toUpperCase()
+            <GradientAvatar name={user!.name} size={64} className="text-2xl" />
           )}
         </div>
         <div>
@@ -152,7 +191,7 @@ function SettingsContent() {
       {/* Theme toggle */}
       <div className="mb-4 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
         <div>
-          <p className="text-sm font-medium">Theme</p>
+          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Theme</p>
           <p className="text-xs text-zinc-500">Switch between dark and light mode</p>
         </div>
         <button
@@ -166,7 +205,7 @@ function SettingsContent() {
       {/* Profile privacy toggle */}
       <div className="mb-6 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
         <div>
-          <p className="text-sm font-medium">Profile Privacy</p>
+          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Profile Privacy</p>
           <p className="text-xs text-zinc-500">Private hides solve history and stats from other users</p>
         </div>
         <button
@@ -183,6 +222,79 @@ function SettingsContent() {
         >
           {(user as unknown as Record<string, unknown>).profilePrivacy === "private" ? "Make Public" : "Make Private"}
         </button>
+      </div>
+
+      {/* Change Password (moved up) */}
+      <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Password</p>
+            <p className="text-xs text-zinc-500">
+              {(user as unknown as Record<string, unknown>).passwordHash
+                ? "Update your account password"
+                : "Set a password (currently using Google sign-in only)"}
+            </p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {Boolean((user as unknown as Record<string, unknown>).passwordHash) && (
+            <Input
+              type="password"
+              placeholder="Current password"
+              value={pwCurrent}
+              onChange={(e) => setPwCurrent(e.target.value)}
+              autoComplete="current-password"
+            />
+          )}
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Input
+                type="password"
+                placeholder="New password"
+                value={pwNew}
+                onChange={(e) => setPwNew(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                type="password"
+                placeholder="Confirm"
+                value={pwConfirm}
+                onChange={(e) => setPwConfirm(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+        </div>
+        {pwError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{pwError}</p>}
+        {pwMsg && <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">{pwMsg}</p>}
+        <Button
+          fullWidth
+          className="mt-3"
+          loading={pwSaving}
+          onClick={async () => {
+            setPwError(null);
+            setPwMsg(null);
+            if (pwNew.length < 6) { setPwError("Password must be at least 6 characters"); return; }
+            if (pwNew !== pwConfirm) { setPwError("Passwords do not match"); return; }
+            setPwSaving(true);
+            try {
+              await changePassword(pwCurrent, pwNew);
+              setPwMsg("Password updated!");
+              setPwCurrent("");
+              setPwNew("");
+              setPwConfirm("");
+            } catch (e) {
+              setPwError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setPwSaving(false);
+            }
+          }}
+          disabled={!pwNew}
+        >
+          Update Password
+        </Button>
       </div>
 
       {/* Email Verification */}
@@ -229,25 +341,128 @@ function SettingsContent() {
         </div>
       )}
 
+      {/* ── Profile Form ── */}
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500">Profile Information</h2>
+
       <div className="space-y-4">
-        {FIELDS.map((f) => (
-          <div key={f.key}>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">
-              {f.label}
-            </label>
-            <input
-              type={f.type}
-              value={form[f.key] ?? ""}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, [f.key]: e.target.value }))
-              }
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            />
+        {/* Name fields */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Display Name</label>
+            <input type="text" value={form.name ?? ""} onChange={(e) => set("name", e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
           </div>
-        ))}
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Last Name</label>
+            <input type="text" value={form.lastName ?? ""} onChange={(e) => set("lastName", e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+          </div>
+        </div>
+
+        {/* Phone */}
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Mobile Number</label>
+          <input type="tel" value={form.mobileNo ?? ""} onChange={(e) => set("mobileNo", e.target.value)}
+            placeholder="+919876543210"
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+        </div>
+
+        {/* DOB + Gender row */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Date of Birth</label>
+            <input type="date" value={form.dob ?? ""} onChange={(e) => set("dob", e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Gender</label>
+            <select value={form.gender ?? ""} onChange={(e) => set("gender", e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+              <option value="">Select…</option>
+              {GENDER_OPTIONS.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Country / State / City — cascading dropdowns */}
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Country</label>
+          <select value={countryCode} onChange={(e) => handleCountryChange(e.target.value)}
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+            <option value="">Select country…</option>
+            {countries.map((c) => (
+              <option key={c.isoCode} value={c.isoCode}>{c.flag} {c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {countryCode && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">State</label>
+              <select value={stateCode} onChange={(e) => handleStateChange(e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+                <option value="">Select state…</option>
+                {states.map((s) => (
+                  <option key={s.isoCode} value={s.isoCode}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">City</label>
+              {cities.length > 0 ? (
+                <select value={form.city ?? ""} onChange={(e) => handleCityChange(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+                  <option value="">Select city…</option>
+                  {cities.map((c) => (
+                    <option key={c.name} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <input type="text" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)}
+                  placeholder="City name"
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Address fields */}
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Address</label>
+          <input type="text" value={form.address ?? ""} onChange={(e) => set("address", e.target.value)}
+            placeholder="Street address"
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Landmark</label>
+            <input type="text" value={form.landmark ?? ""} onChange={(e) => set("landmark", e.target.value)}
+              placeholder="Near…"
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Pincode</label>
+            <input type="text" value={form.pincode ?? ""} onChange={(e) => set("pincode", e.target.value)}
+              placeholder="110001"
+              maxLength={10}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+          </div>
+        </div>
+
+        {/* Social — at the bottom */}
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Instagram</label>
+          <input type="text" value={form.instagram ?? ""} onChange={(e) => set("instagram", e.target.value)}
+            placeholder="@username"
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+        </div>
       </div>
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
       {saved && (
         <p className="mt-4 text-sm text-emerald-600 dark:text-emerald-400">Profile updated!</p>
       )}
@@ -262,7 +477,7 @@ function SettingsContent() {
 
       {/* Legacy Account Claim */}
       <div className="mt-6 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <p className="text-sm font-medium">Legacy Account</p>
+        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Legacy Account</p>
         <p className="text-xs text-zinc-500">Link a legacy cubelelo-event profile to this account</p>
         <Link
           href="/register/migrate"
@@ -270,91 +485,6 @@ function SettingsContent() {
         >
           Claim legacy account →
         </Link>
-      </div>
-
-      {/* Password Change */}
-      <div className="mt-10 border-t border-zinc-200 pt-8 dark:border-zinc-800">
-        <h2 className="mb-4 text-lg font-bold">Change Password</h2>
-        <div className="space-y-4">
-          {Boolean((user as unknown as Record<string, unknown>).passwordHash) && (
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Current Password</label>
-              <input
-                type="password"
-                value={pwCurrent}
-                onChange={(e) => setPwCurrent(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-            </div>
-          )}
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">New Password</label>
-            <input
-              type="password"
-              value={pwNew}
-              onChange={(e) => setPwNew(e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Confirm New Password</label>
-            <input
-              type="password"
-              value={pwConfirm}
-              onChange={(e) => setPwConfirm(e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            />
-          </div>
-        </div>
-        {pwError && <p className="mt-3 text-sm text-red-400">{pwError}</p>}
-        {pwMsg && <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">{pwMsg}</p>}
-        <button
-          onClick={async () => {
-            setPwError(null);
-            setPwMsg(null);
-            if (pwNew.length < 6) { setPwError("Password must be at least 6 characters"); return; }
-            if (pwNew !== pwConfirm) { setPwError("Passwords do not match"); return; }
-            setPwSaving(true);
-            try {
-              await changePassword(pwCurrent, pwNew);
-              setPwMsg("Password updated!");
-              setPwCurrent("");
-              setPwNew("");
-              setPwConfirm("");
-            } catch (e) {
-              setPwError(e instanceof Error ? e.message : String(e));
-            } finally {
-              setPwSaving(false);
-            }
-          }}
-          disabled={pwSaving || !pwNew}
-          className="mt-4 w-full rounded-lg bg-zinc-800 px-6 py-3 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-700 dark:hover:bg-zinc-600"
-        >
-          {pwSaving ? "Updating…" : "Update Password"}
-        </button>
-      </div>
-
-      {/* Delete Account */}
-      <div className="mt-10 border-t border-red-200 pt-8 dark:border-red-900/50">
-        <h2 className="mb-2 text-lg font-bold text-red-500">Delete Account</h2>
-        <p className="mb-4 text-sm text-zinc-500">
-          Permanently delete your account and all associated data. This action cannot be undone.
-        </p>
-        <button
-          onClick={async () => {
-            if (!confirm("Are you sure you want to delete your account? This cannot be undone.")) return;
-            if (!confirm("This will permanently remove all your data including competition results, registrations, and practice sessions. Continue?")) return;
-            try {
-              await deleteMyAccount();
-              window.location.href = "/";
-            } catch (e) {
-              setError(e instanceof Error ? e.message : String(e));
-            }
-          }}
-          className="rounded-lg bg-red-600 px-6 py-3 font-semibold text-white transition hover:bg-red-500"
-        >
-          Delete My Account
-        </button>
       </div>
     </main>
   );

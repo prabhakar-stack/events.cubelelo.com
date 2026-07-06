@@ -48,6 +48,9 @@ function toUser(r: Row): User {
     city: (r.city as string) ?? undefined,
     state: (r.state as string) ?? undefined,
     country: (r.country as string) ?? undefined,
+    address: (r.address as string) ?? undefined,
+    landmark: (r.landmark as string) ?? undefined,
+    pincode: (r.pincode as string) ?? undefined,
     avatarUrl: (r.avatar_url as string) ?? undefined,
     instagram: (r.instagram as string) ?? undefined,
     wcaId: (r.wca_id as string) ?? undefined,
@@ -298,6 +301,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const COL: Record<string, string> = {
           name: "name", lastName: "last_name", gender: "gender", dob: "dob",
           mobileNo: "mobile_no", city: "city", state: "state", country: "country",
+          address: "address", landmark: "landmark", pincode: "pincode",
           avatarUrl: "avatar_url", instagram: "instagram", wcaId: "wca_id",
           wcaVerified: "wca_verified", role: "role", accountStage: "account_stage",
           emailVerified: "email_verified", mobileVerified: "mobile_verified",
@@ -1423,8 +1427,10 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         return rows.map((r: Row): Banner => ({
           id: r.id as string, title: r.title as string,
           imageUrl: (r.image_url as string) ?? undefined,
+          mobileImageUrl: (r.mobile_image_url as string) ?? undefined,
           ctaText: (r.cta_text as string) ?? undefined,
           ctaLink: (r.link_url as string) ?? undefined,
+          linkUrl: (r.link_url as string) ?? undefined,
           expiresAt: r.expires_at ? ts(r.expires_at) : undefined,
           active: r.active as boolean, order: r.order as number, createdAt: ts(r.created_at),
         }));
@@ -1435,19 +1441,21 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const r = rows[0] as Row;
         return { id: r.id as string, title: r.title as string,
           imageUrl: (r.image_url as string) ?? undefined,
+          mobileImageUrl: (r.mobile_image_url as string) ?? undefined,
           ctaText: (r.cta_text as string) ?? undefined,
           ctaLink: (r.link_url as string) ?? undefined,
+          linkUrl: (r.link_url as string) ?? undefined,
           expiresAt: r.expires_at ? ts(r.expires_at) : undefined,
           active: r.active as boolean, order: r.order as number, createdAt: ts(r.created_at) };
       },
       async create(banner: Banner) {
         await pool.query(
-          'INSERT INTO banners (id, title, image_url, cta_text, link_url, "order", active, expires_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-          [banner.id, banner.title, banner.imageUrl ?? null, banner.ctaText ?? null, banner.ctaLink ?? null, banner.order, banner.active, banner.expiresAt ?? null, banner.createdAt],
+          'INSERT INTO banners (id, title, image_url, mobile_image_url, cta_text, link_url, "order", active, expires_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+          [banner.id, banner.title, banner.imageUrl ?? null, banner.mobileImageUrl ?? null, banner.ctaText ?? null, banner.ctaLink ?? banner.linkUrl ?? null, banner.order, banner.active, banner.expiresAt ?? null, banner.createdAt],
         );
       },
       async update(id: string, fields: Partial<Banner>) {
-        const COL: Record<string, string> = { title: "title", imageUrl: "image_url", ctaText: "cta_text", ctaLink: "link_url", active: "active", order: '"order"', expiresAt: "expires_at" };
+        const COL: Record<string, string> = { title: "title", imageUrl: "image_url", mobileImageUrl: "mobile_image_url", ctaText: "cta_text", ctaLink: "link_url", linkUrl: "link_url", active: "active", order: '"order"', expiresAt: "expires_at" };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
         vals.push(id);

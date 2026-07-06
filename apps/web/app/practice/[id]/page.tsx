@@ -12,16 +12,23 @@ import {
 } from "@/lib/api";
 import { formatTime, ao5, ao12, bestSingle, effectiveTime, formatSolve } from "@cubers/timer-core";
 import { eventDisplayName } from "@/lib/eventNames";
+import { eventIcon } from "@/lib/eventIcons";
 import type { Solve } from "@cubers/types";
+import { Skeleton } from "@/components/Skeleton";
+import { ConfirmModal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const toast = useToast();
   const [session, setSession] = useState<PracticeSessionDto | null>(null);
   const [solves, setSolves] = useState<PracticeSolveDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
+  const [confirmingDeleteSession, setConfirmingDeleteSession] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchPracticeSession(id)
@@ -50,10 +57,15 @@ export default function SessionDetailPage() {
     setEditing(false);
   };
 
-  const handleDeleteSession = async () => {
-    if (!confirm("Delete this session and all solves?")) return;
-    await deletePracticeSession(id);
-    router.push("/practice");
+  const confirmDeleteSession = async () => {
+    setDeleting(true);
+    try {
+      await deletePracticeSession(id);
+      router.push("/practice");
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : String(e), "error");
+      setDeleting(false);
+    }
   };
 
   const handleDeleteSolve = async (solveId: string) => {
@@ -62,7 +74,20 @@ export default function SessionDetailPage() {
   };
 
   if (loading) {
-    return <main className="mx-auto max-w-4xl px-4 py-16 text-center text-zinc-500">Loading...</main>;
+    return (
+      <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
+        <Skeleton className="mb-3 h-4 w-32" />
+        <Skeleton className="mb-6 h-8 w-64" />
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <Skeleton className="h-16 rounded-lg" />
+          <Skeleton className="h-16 rounded-lg" />
+          <Skeleton className="h-16 rounded-lg" />
+          <Skeleton className="h-16 rounded-lg" />
+          <Skeleton className="h-16 rounded-lg" />
+        </div>
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </main>
+    );
   }
 
   if (!session) {
@@ -90,7 +115,9 @@ export default function SessionDetailPage() {
             </form>
           ) : (
             <>
-              <h1 className="text-2xl font-bold">{session.name || "Untitled Session"}</h1>
+              <h1 className="text-2xl font-bold">
+                {eventIcon(session.eventType).emoji} {session.name || "Untitled Session"}
+              </h1>
               <button onClick={() => { setEditName(session.name || ""); setEditing(true); }} className="text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
                 Rename
               </button>
@@ -117,7 +144,7 @@ export default function SessionDetailPage() {
       <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40">
         <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
           <span className="text-sm font-medium">{solves.length} solve{solves.length !== 1 ? "s" : ""}</span>
-          <button onClick={handleDeleteSession} className="text-xs text-red-500 hover:text-red-400">
+          <button onClick={() => setConfirmingDeleteSession(true)} className="text-xs text-red-500 hover:text-red-400">
             Delete Session
           </button>
         </div>
@@ -163,6 +190,16 @@ export default function SessionDetailPage() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={confirmingDeleteSession}
+        onClose={() => setConfirmingDeleteSession(false)}
+        onConfirm={confirmDeleteSession}
+        loading={deleting}
+        title="Delete session?"
+        description="This permanently deletes this session and all of its solves. This cannot be undone."
+        confirmLabel="Delete session"
+      />
     </main>
   );
 }

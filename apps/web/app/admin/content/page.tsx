@@ -8,27 +8,12 @@ import {
   updateBanner,
   deleteBanner,
   uploadBannerImage,
+  uploadBannerMobileImage,
   type BannerDto,
 } from "@/lib/api";
 
-const TABS = [
-  { label: "Competitions", href: "/admin" },
-  { label: "Users", href: "/admin/users" },
-  { label: "Payments", href: "/admin/payments" },
-  { label: "Promo Codes", href: "/admin/promo-codes" },
-  { label: "Appeals", href: "/admin/appeals" },
-  { label: "WCA Queue", href: "/admin/wca-queue" },
-  { label: "Rank Tiers", href: "/admin/rank-tiers" },
-  { label: "Merge", href: "/admin/merge" },
-  { label: "CMS", href: "/admin/cms" },
-  { label: "Migration", href: "/admin/migration" },
-  { label: "Content", href: "/admin/content" },
-  { label: "Details", href: "/admin/faq" },
-  { label: "Staff", href: "/admin/staff" },
-  { label: "Verification", href: "/admin/verification" },
-];
 
-const EMPTY = { title: "", ctaText: "", ctaLink: "", expiresAt: "", active: true, order: 0 };
+const EMPTY = { title: "", linkUrl: "", ctaText: "", ctaLink: "", expiresAt: "", active: true, order: 0 };
 
 export default function AdminContentPage() {
   const [list, setList] = useState<BannerDto[]>([]);
@@ -39,6 +24,7 @@ export default function AdminContentPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [mobileImageFile, setMobileImageFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
@@ -50,10 +36,11 @@ export default function AdminContentPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openCreate = () => { setForm(EMPTY); setEditing(null); setCreating(true); setImageFile(null); };
+  const openCreate = () => { setForm(EMPTY); setEditing(null); setCreating(true); setImageFile(null); setMobileImageFile(null); };
   const openEdit = (b: BannerDto) => {
     setForm({
       title: b.title,
+      linkUrl: b.linkUrl ?? b.ctaLink ?? "",
       ctaText: b.ctaText ?? "",
       ctaLink: b.ctaLink ?? "",
       expiresAt: b.expiresAt ?? "",
@@ -63,8 +50,9 @@ export default function AdminContentPage() {
     setEditing(b);
     setCreating(false);
     setImageFile(null);
+    setMobileImageFile(null);
   };
-  const closeForm = () => { setCreating(false); setEditing(null); setError(null); setImageFile(null); };
+  const closeForm = () => { setCreating(false); setEditing(null); setError(null); setImageFile(null); setMobileImageFile(null); };
 
   const save = async () => {
     if (!form.title.trim()) { setError("Title is required."); return; }
@@ -73,8 +61,9 @@ export default function AdminContentPage() {
     try {
       const payload = {
         title: form.title,
+        linkUrl: form.linkUrl || undefined,
         ctaText: form.ctaText || undefined,
-        ctaLink: form.ctaLink || undefined,
+        ctaLink: form.ctaLink || form.linkUrl || undefined,
         expiresAt: form.expiresAt || undefined,
         active: form.active,
         order: form.order,
@@ -89,6 +78,9 @@ export default function AdminContentPage() {
       }
       if (imageFile) {
         await uploadBannerImage(bannerId, imageFile);
+      }
+      if (mobileImageFile) {
+        await uploadBannerMobileImage(bannerId, mobileImageFile);
       }
       closeForm();
       load();
@@ -116,17 +108,6 @@ export default function AdminContentPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="mb-6 flex items-center gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
-        {TABS.map((tab) => (
-          <Link key={tab.label} href={tab.href}
-            className={`whitespace-nowrap rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200 ${
-              tab.href === "/admin/content" ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
-            }`}>
-            {tab.label}
-          </Link>
-        ))}
-      </div>
-
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Banner Management</h1>
@@ -170,21 +151,27 @@ export default function AdminContentPage() {
                 onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 file:mr-3 file:rounded file:border-0 file:bg-emerald-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs text-zinc-500">CTA Text</label>
-                <input value={form.ctaText}
-                  onChange={(e) => setForm((f) => ({ ...f, ctaText: e.target.value }))}
-                  placeholder="Learn More"
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-zinc-500">CTA Link</label>
-                <input value={form.ctaLink}
-                  onChange={(e) => setForm((f) => ({ ...f, ctaLink: e.target.value }))}
-                  placeholder="/competitions/abc"
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
-              </div>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Mobile Banner Image</label>
+              {editing?.mobileImageUrl && !mobileImageFile && (
+                <div className="mb-2">
+                  <img src={editing.mobileImageUrl} alt="Current mobile banner" className="h-16 rounded-lg object-cover" />
+                  <p className="mt-1 text-xs text-zinc-500">Current mobile image — upload a new one to replace</p>
+                </div>
+              )}
+              {mobileImageFile && (
+                <p className="mb-2 text-xs text-emerald-500">Selected: {mobileImageFile.name}</p>
+              )}
+              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={(e) => setMobileImageFile(e.target.files?.[0] ?? null)}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 file:mr-3 file:rounded file:border-0 file:bg-zinc-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Banner Link URL</label>
+              <input value={form.linkUrl}
+                onChange={(e) => setForm((f) => ({ ...f, linkUrl: e.target.value }))}
+                placeholder="/competitions/abc or https://..."
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -244,11 +231,11 @@ export default function AdminContentPage() {
                   {b.expiresAt ? `Expires ${new Date(b.expiresAt).toLocaleDateString()}` : "No expiry"}
                 </span>
               </div>
-              {b.imageUrl && <p className="mb-2 truncate text-xs text-zinc-500">Image: {b.imageUrl}</p>}
-              {b.ctaText && (
+              {b.imageUrl && <p className="mb-1 truncate text-xs text-zinc-500">Desktop: {b.imageUrl}</p>}
+              {b.mobileImageUrl && <p className="mb-1 truncate text-xs text-zinc-500">Mobile: {b.mobileImageUrl}</p>}
+              {(b.linkUrl || b.ctaLink) && (
                 <p className="mb-3 text-xs text-zinc-400">
-                  CTA: <span className="text-zinc-700 dark:text-zinc-300">{b.ctaText}</span>
-                  {b.ctaLink && <span className="text-zinc-500"> → {b.ctaLink}</span>}
+                  Link: <span className="text-zinc-700 dark:text-zinc-300">{b.linkUrl || b.ctaLink}</span>
                 </p>
               )}
               <div className="flex flex-wrap gap-2">

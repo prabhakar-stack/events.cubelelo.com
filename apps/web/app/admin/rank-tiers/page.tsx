@@ -8,23 +8,10 @@ import {
   deleteRankTier,
   type RankTierDto,
 } from "@/lib/api";
+import { ConfirmModal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
+import { EmptyState } from "@/components/EmptyState";
 
-const TABS = [
-  { label: "Competitions", href: "/admin" },
-  { label: "Users", href: "/admin/users" },
-  { label: "Payments", href: "/admin/payments" },
-  { label: "Promo Codes", href: "/admin/promo-codes" },
-  { label: "Appeals", href: "/admin/appeals" },
-  { label: "WCA Queue", href: "/admin/wca-queue" },
-  { label: "Rank Tiers", href: "/admin/rank-tiers" },
-  { label: "Merge", href: "/admin/merge" },
-  { label: "CMS", href: "/admin/cms" },
-  { label: "Migration", href: "/admin/migration" },
-  { label: "Content", href: "/admin/content" },
-  { label: "Details", href: "/admin/faq" },
-  { label: "Staff", href: "/admin/staff" },
-  { label: "Verification", href: "/admin/verification" },
-];
 
 const EVENT_TYPES = ["3x3", "2x2", "4x4", "5x5", "pyraminx", "megaminx", "skewb", "sq1", "clock", "3x3oh", "3x3bld"];
 
@@ -36,6 +23,7 @@ function formatMs(ms: number) {
 }
 
 export default function AdminRankTiersPage() {
+  const toast = useToast();
   const [tiers, setTiers] = useState<RankTierDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +34,8 @@ export default function AdminRankTiersPage() {
     maxAo5Ms: "",
     color: "#4f46e5",
   });
+  const [deleteTarget, setDeleteTarget] = useState<RankTierDto | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -74,12 +64,18 @@ export default function AdminRankTiersPage() {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await deleteRankTier(id);
+      await deleteRankTier(deleteTarget.id);
+      toast.show(`Deleted tier "${deleteTarget.name}"`, "success");
+      setDeleteTarget(null);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.show(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -90,17 +86,6 @@ export default function AdminRankTiersPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
-        {TABS.map((tab) => (
-          <Link key={tab.label} href={tab.href}
-            className={`rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200 ${
-              tab.href === "/admin/rank-tiers" ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
-            }`}>
-            {tab.label}
-          </Link>
-        ))}
-      </div>
-
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Rank Tiers</h1>
         <button
@@ -166,7 +151,7 @@ export default function AdminRankTiersPage() {
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
       ) : Object.keys(grouped).length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-10 text-center text-zinc-500">No rank tiers configured yet.</div>
+        <EmptyState icon="🏅" title="No rank tiers configured yet" description="Create a tier to define skill brackets for an event." />
       ) : (
         <div className="space-y-6">
           {Object.entries(grouped)
@@ -199,7 +184,7 @@ export default function AdminRankTiersPage() {
                           </td>
                           <td className="px-4 py-2">
                             <button
-                              onClick={() => handleDelete(tier.id)}
+                              onClick={() => setDeleteTarget(tier)}
                               className="rounded bg-red-900/30 px-3 py-1 text-xs text-red-400 hover:bg-red-900/50"
                             >
                               Delete
@@ -214,6 +199,22 @@ export default function AdminRankTiersPage() {
             ))}
         </div>
       )}
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        loading={deleting}
+        title="Delete rank tier?"
+        description={
+          <>
+            This permanently removes the <strong>{deleteTarget?.name}</strong> tier for{" "}
+            <strong>{deleteTarget?.eventType}</strong>. Any ranking displays relying on this tier will no longer show
+            it. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete tier"
+      />
     </div>
   );
 }

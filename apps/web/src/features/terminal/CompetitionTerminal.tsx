@@ -7,6 +7,7 @@ import type { Solve, SolvePenalty } from "@cubers/types";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTimer } from "@/features/timer/useTimer";
+import { TimerDisplay } from "@/features/timer/TimerDisplay";
 import { TwistyPlayer } from "@/features/scramble/TwistyPlayer";
 import { useLeaderboard } from "@/features/realtime/useLeaderboard";
 import { useAuth } from "@/features/auth/AuthProvider";
@@ -399,7 +400,7 @@ export function CompetitionTerminal({
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
         >
-          <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} />
+          <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} size="xl" theme="dark" />
           <p className="text-sm text-zinc-500">{instruction(snapshot.phase)}</p>
         </div>
       ) : (
@@ -502,7 +503,7 @@ export function CompetitionTerminal({
             onPointerDown={onPointerDown}
             onPointerUp={onPointerUp}
           >
-            <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} />
+            <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} size="xl" theme="dark" />
             {snapshot.phase === "stopped" ? (
               <div className="flex items-center gap-3">
                 <PenaltyButtons value={pendingPenalty} onChange={setPendingPenalty} />
@@ -688,49 +689,6 @@ function LeaderboardCard({
   );
 }
 
-function TimerDisplay({
-  snapshot,
-  pendingPenalty,
-}: {
-  snapshot: ReturnType<typeof useTimer>["snapshot"];
-  pendingPenalty: SolvePenalty;
-}) {
-  let text: string;
-  let color = "text-zinc-100";
-
-  if (snapshot.phase === "inspection" || snapshot.phase === "ready") {
-    const remaining = snapshot.inspectionRemainingMs ?? 0;
-    if (remaining <= 0) {
-      text = "+2";
-      color = "text-red-500";
-    } else {
-      text = Math.ceil(remaining / 1000).toString();
-      color = "text-amber-400";
-    }
-    if (snapshot.phase === "ready") color = "text-emerald-400";
-  } else if (snapshot.phase === "solving") {
-    text = formatTime(snapshot.timeMs);
-    color = "text-white";
-  } else if (snapshot.phase === "stopped" && snapshot.result) {
-    const inspP = snapshot.result.inspectionPenalty ?? "none";
-    const displaySolve: Solve = { time_ms: snapshot.result.time_ms, inspectionPenalty: inspP, penalty: pendingPenalty };
-    text = formatSolve(displaySolve);
-    const hasDnf = inspP === "dnf" || pendingPenalty === "dnf";
-    const hasPlus2 = inspP === "plus2" || pendingPenalty === "plus2";
-    color = hasDnf
-      ? "text-red-500"
-      : hasPlus2
-        ? "text-orange-400"
-        : "text-emerald-400";
-  } else {
-    text = "0.00";
-    color = "text-zinc-600";
-  }
-
-  return (
-    <div className={`font-mono text-8xl font-bold tabular-nums ${color}`}>{text}</div>
-  );
-}
 
 function PenaltyButtons({
   value,

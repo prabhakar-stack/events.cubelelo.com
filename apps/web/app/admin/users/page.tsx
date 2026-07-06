@@ -8,25 +8,11 @@ import {
   deleteAdminUser,
   type AdminUserDto,
 } from "@/lib/api";
+import { ConfirmModal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
+import { EmptyState } from "@/components/EmptyState";
 
-const TABS = [
-  { label: "Competitions", href: "/admin" },
-  { label: "Users", href: "/admin/users" },
-  { label: "Payments", href: "/admin/payments" },
-  { label: "Promo Codes", href: "/admin/promo-codes" },
-  { label: "Appeals", href: "/admin/appeals" },
-  { label: "WCA Queue", href: "/admin/wca-queue" },
-  { label: "Rank Tiers", href: "/admin/rank-tiers" },
-  { label: "Merge", href: "/admin/merge" },
-  { label: "CMS", href: "/admin/cms" },
-  { label: "Migration", href: "/admin/migration" },
-  { label: "Content", href: "/admin/content" },
-  { label: "Details", href: "/admin/faq" },
-  { label: "Staff", href: "/admin/staff" },
-  { label: "Verification", href: "/admin/verification" },
-];
 
-const ROLES = ["user", "judge", "moderator", "admin"];
 const STAGES = ["active", "migrated_stub", "suspended", "banned"];
 
 const STAGE_COLOR: Record<string, string> = {
@@ -35,73 +21,68 @@ const STAGE_COLOR: Record<string, string> = {
   suspended: "text-orange-400",
   banned: "text-red-400",
 };
-const ROLE_COLOR: Record<string, string> = {
-  admin: "text-purple-400",
-  moderator: "text-blue-400",
-  judge: "text-sky-400",
-  user: "text-zinc-400",
-};
 
 export default function AdminUsersPage() {
+  const toast = useToast();
   const [users, setUsers] = useState<AdminUserDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingStage, setPendingStage] = useState<{ user: AdminUserDto; stage: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminUserDto | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
-    fetchAdminUsers({ search: search || undefined, role: roleFilter || undefined, stage: stageFilter || undefined })
+    fetchAdminUsers({ search: search || undefined, stage: stageFilter || undefined })
       .then(setUsers)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, [search, roleFilter, stageFilter]);
+  }, [search, stageFilter]);
 
   useEffect(() => { load(); }, [load]);
 
-  const update = async (id: string, body: { role?: string; accountStage?: string }) => {
-    setBusy(id);
-    setError(null);
+  const requestStageChange = (user: AdminUserDto, stage: string) => {
+    if (stage === user.accountStage) return;
+    setPendingStage({ user, stage });
+  };
+
+  const confirmStageChange = async () => {
+    if (!pendingStage) return;
+    const { user, stage } = pendingStage;
+    setConfirmBusy(true);
     try {
-      await updateAdminUser(id, body);
+      await updateAdminUser(user.id, { accountStage: stage });
+      toast.show(`${user.name} is now ${stage}`, "success");
+      setPendingStage(null);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.show(e instanceof Error ? e.message : String(e), "error");
     } finally {
-      setBusy(null);
+      setConfirmBusy(false);
     }
   };
 
-  const onDeleteUser = async (u: AdminUserDto) => {
-    if (!confirm(`Permanently delete user "${u.name}" (${u.email})? This cannot be undone.`)) return;
-    setBusy(u.id);
-    setError(null);
+  const confirmDeleteUser = async () => {
+    if (!deleteTarget) return;
+    setConfirmBusy(true);
     try {
-      await deleteAdminUser(u.id);
+      await deleteAdminUser(deleteTarget.id);
+      toast.show(`Deleted user ${deleteTarget.name}`, "success");
+      setDeleteTarget(null);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.show(e instanceof Error ? e.message : String(e), "error");
     } finally {
-      setBusy(null);
+      setConfirmBusy(false);
     }
   };
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       {/* Sub-nav */}
-      <div className="mb-6 flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/40 p-1">
-        {TABS.map((tab) => (
-          <Link key={tab.label} href={tab.href}
-            className={`rounded-md px-4 py-2 text-xs font-medium transition hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200 ${
-              tab.href === "/admin/users" ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
-            }`}>
-            {tab.label}
-          </Link>
-        ))}
-      </div>
-
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Users</h1>
         <span className="text-sm text-zinc-500">{users.length} result{users.length !== 1 ? "s" : ""}</span>
@@ -117,11 +98,6 @@ export default function AdminUsersPage() {
           onKeyDown={(e) => e.key === "Enter" && load()}
           className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
         />
-        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
-          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-          <option value="">All roles</option>
-          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-        </select>
         <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}
           className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
           <option value="">All stages</option>
@@ -138,9 +114,7 @@ export default function AdminUsersPage() {
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
       ) : users.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-10 text-center text-zinc-500">
-          No users found.
-        </div>
+        <EmptyState icon="🔍" title="No users found" description="Try adjusting your search or stage filter." />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-sm">
@@ -149,7 +123,6 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3">CL ID</th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Stage</th>
                 <th className="px-4 py-3">Joined</th>
                 <th className="px-4 py-3">Actions</th>
@@ -165,19 +138,9 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{u.email}</td>
                   <td className="px-4 py-3">
                     <select
-                      value={u.role}
-                      disabled={busy === u.id}
-                      onChange={(e) => update(u.id, { role: e.target.value })}
-                      className={`rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-900 ${ROLE_COLOR[u.role] ?? "text-zinc-400"} disabled:opacity-50`}
-                    >
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
                       value={u.accountStage}
                       disabled={busy === u.id}
-                      onChange={(e) => update(u.id, { accountStage: e.target.value })}
+                      onChange={(e) => requestStageChange(u, e.target.value)}
                       className={`rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-900 ${STAGE_COLOR[u.accountStage] ?? "text-zinc-400"} disabled:opacity-50`}
                     >
                       {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -194,7 +157,7 @@ export default function AdminUsersPage() {
                       </Link>
                       <button
                         disabled={busy === u.id}
-                        onClick={() => onDeleteUser(u)}
+                        onClick={() => setDeleteTarget(u)}
                         className="text-xs text-red-400 hover:text-red-300 disabled:opacity-40"
                       >
                         Delete
@@ -207,6 +170,36 @@ export default function AdminUsersPage() {
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!pendingStage}
+        onClose={() => setPendingStage(null)}
+        onConfirm={confirmStageChange}
+        loading={confirmBusy}
+        destructive={pendingStage?.stage === "banned" || pendingStage?.stage === "suspended"}
+        title="Change account stage?"
+        description={
+          <>
+            Set <strong>{pendingStage?.user.name}</strong>&apos;s account to{" "}
+            <strong>{pendingStage?.stage}</strong>? This changes what they can access immediately.
+          </>
+        }
+        confirmLabel="Confirm"
+      />
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDeleteUser}
+        loading={confirmBusy}
+        title="Delete user?"
+        description={
+          <>
+            Permanently delete <strong>{deleteTarget?.name}</strong> ({deleteTarget?.email})? This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete user"
+      />
     </div>
   );
 }

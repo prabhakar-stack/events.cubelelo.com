@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 
 interface CompTimestamps {
   status: string;
@@ -13,7 +14,7 @@ interface CompTimestamps {
 
 interface UserStatusInfo {
   label: string;
-  style: string;
+  tone: BadgeTone;
 }
 
 function formatCountdown(ms: number): string {
@@ -31,16 +32,16 @@ function computeUserStatus(comp: CompTimestamps, now: number, isRegistered?: boo
   const { status } = comp;
 
   if (status === "cancelled") {
-    return { label: "Competition Cancelled", style: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" };
+    return { label: "Competition Cancelled", tone: "danger" };
   }
   if (status === "completed") {
-    return { label: "Result Announced", style: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" };
+    return { label: "Result Announced", tone: "info" };
   }
   if (status === "results_pending") {
-    return { label: "Result Pending", style: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" };
+    return { label: "Result Pending", tone: "warning" };
   }
   if (status === "live") {
-    return { label: "Competition Live", style: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" };
+    return { label: "Competition Live", tone: "success" };
   }
   if (status === "registration_closed") {
     if (isRegistered && comp.startsAt) {
@@ -48,14 +49,14 @@ function computeUserStatus(comp: CompTimestamps, now: number, isRegistered?: boo
       if (remaining > 0) {
         return {
           label: `Starting In ${formatCountdown(remaining)}`,
-          style: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+          tone: "info",
         };
       }
     }
-    return { label: "Registration Closed", style: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" };
+    return { label: "Registration Closed", tone: "warning" };
   }
   if (status === "registration_open") {
-    return { label: "Registration Open", style: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" };
+    return { label: "Registration Open", tone: "success" };
   }
 
   // upcoming — check if registration opening countdown applies
@@ -64,12 +65,12 @@ function computeUserStatus(comp: CompTimestamps, now: number, isRegistered?: boo
     if (remaining > 0) {
       return {
         label: `Reg. Opens In ${formatCountdown(remaining)}`,
-        style: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+        tone: "info",
       };
     }
   }
 
-  return { label: "Upcoming", style: "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" };
+  return { label: "Upcoming", tone: "neutral" };
 }
 
 export function UserStatusBadge({
@@ -91,13 +92,7 @@ export function UserStatusBadge({
     return () => clearInterval(t);
   }, [hasCountdown]);
 
-  const { label, style } = computeUserStatus(comp, now, isRegistered);
+  const { label, tone } = computeUserStatus(comp, now, isRegistered);
 
-  return (
-    <span
-      className={`inline-block rounded px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${style}`}
-    >
-      {label}
-    </span>
-  );
+  return <Badge tone={tone}>{label}</Badge>;
 }

@@ -4,6 +4,9 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { resetPassword } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { friendlyAuthError } from "@/lib/errorMessages";
 
 export default function ResetPasswordPage() {
   return (
@@ -49,7 +52,7 @@ function ResetPasswordInner() {
       await resetPassword(token, password);
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(friendlyAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -83,28 +86,25 @@ function ResetPasswordInner() {
           Enter your new password below.
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input
+          <Input
             type="password"
             placeholder="New password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            autoComplete="new-password"
+            autoFocus
           />
-          <input
+          <Input
             type="password"
             placeholder="Confirm new password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            autoComplete="new-password"
+            error={error ?? undefined}
           />
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-emerald-600 py-2.5 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-          >
-            {loading ? "Resetting..." : "Reset Password"}
-          </button>
+          <Button type="submit" fullWidth loading={loading} size="lg">
+            {loading ? "Resetting…" : "Reset Password"}
+          </Button>
         </form>
       </div>
     </main>

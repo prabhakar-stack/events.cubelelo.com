@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchCompetitions, type CompetitionSummary } from "@/lib/api";
 import { CompetitionCard } from "@/features/competitions/CompetitionCard";
+import { SkeletonCard } from "@/components/Skeleton";
 
 const FILTERS = [
   { label: "All", value: "" },
@@ -45,11 +46,16 @@ export default function CompetitionsPage() {
       </div>
 
       {loading ? (
-        <div className="flex min-h-[200px] items-center justify-center text-zinc-500">
-          Loading…
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
         </div>
       ) : comps.length === 0 ? (
-        <p className="text-zinc-500">No competitions found.</p>
+        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
+          <div className="mb-2 text-3xl">🧊</div>
+          No competitions found — check back soon!
+        </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {comps.map((c) => (
