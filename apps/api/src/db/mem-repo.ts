@@ -62,9 +62,14 @@ export function createMemRepo(): Repository {
 
   function nextClIdSync(): string {
     const year = new Date().getFullYear();
-    const seq = (clSeq.get(year) ?? 0) + 1;
-    clSeq.set(year, seq);
-    return `CL-${year}-${String(seq).padStart(4, "0")}`;
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    for (let attempt = 0; attempt < 20; attempt++) {
+      let code = "";
+      for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+      const clId = `CL-${year}-${code}`;
+      if (![...users.values()].some((u) => u.clId === clId)) return clId;
+    }
+    throw new Error("Failed to generate unique CL ID");
   }
 
   return {

@@ -35,6 +35,8 @@ export interface AuthUser {
   wcaVerified?: boolean;
   emailVerified?: boolean;
   mobileVerified?: boolean;
+  hasPassword?: boolean;
+  profilePrivacy?: "public" | "private";
 }
 
 export interface AdvancementCriteria {
@@ -110,6 +112,8 @@ export interface CompetitionDetail {
 export interface ResultDto {
   id: string;
   userId: string;
+  userName?: string;
+  userClId?: string;
   roundId?: string;
   ao5Ms: number | null;
   bestSingleMs: number | null;
@@ -617,7 +621,7 @@ export interface AdminUserDto extends AuthUser {
   createdAt: string;
 }
 
-export function fetchAdminUsers(params?: {
+export async function fetchAdminUsers(params?: {
   search?: string;
   role?: string;
   stage?: string;
@@ -625,7 +629,8 @@ export function fetchAdminUsers(params?: {
   const qs = new URLSearchParams(
     Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
   ).toString();
-  return getJson<AdminUserDto[]>(`/api/v1/admin/users${qs ? `?${qs}` : ""}`);
+  const res = await getJson<{ data: AdminUserDto[] } | AdminUserDto[]>(`/api/v1/admin/users${qs ? `?${qs}` : ""}`);
+  return Array.isArray(res) ? res : res.data;
 }
 
 export function updateAdminUser(
@@ -677,9 +682,10 @@ export interface AdminPaymentDto {
   competitionTitle: string;
 }
 
-export function fetchAdminPayments(status?: string): Promise<AdminPaymentDto[]> {
+export async function fetchAdminPayments(status?: string): Promise<AdminPaymentDto[]> {
   const qs = status ? `?status=${status}` : "";
-  return getJson<AdminPaymentDto[]>(`/api/v1/admin/payments${qs}`);
+  const res = await getJson<{ data: AdminPaymentDto[] } | AdminPaymentDto[]>(`/api/v1/admin/payments${qs}`);
+  return Array.isArray(res) ? res : res.data;
 }
 
 // ── Admin: announcements ──────────────────────────────────────────────────────
@@ -888,7 +894,8 @@ export async function fetchMyAppeals(): Promise<AppealDto[]> {
 export async function fetchAllAppeals(): Promise<AppealDto[]> {
   const res = await fetch(`${BASE_URL}/api/v1/admin/appeals`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Fetch appeals failed: ${res.status}`);
-  return res.json();
+  const json = await res.json();
+  return Array.isArray(json) ? json : json.data;
 }
 
 export async function resolveAppeal(

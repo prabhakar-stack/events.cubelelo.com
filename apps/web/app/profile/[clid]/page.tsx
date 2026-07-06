@@ -76,26 +76,33 @@ export default function ProfilePage() {
               <GradientAvatar name={profile.name} size={64} className="text-2xl" />
             )}
             <div>
-              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{profile.name}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{profile.name}</h1>
+                {isPrivate && (
+                  <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                    &#x1F512; Private
+                  </span>
+                )}
+              </div>
               <p className="font-mono text-sm text-emerald-400">{profile.clId}</p>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                {(profile.city || profile.state || profile.country) && (
+                {!isPrivate && (profile.city || profile.state || profile.country) && (
                   <span>
                     {[profile.city, profile.state, profile.country]
                       .filter(Boolean)
                       .join(", ")}
                   </span>
                 )}
-                {profile.wcaId && (
+                {!isPrivate && profile.wcaId && (
                   <span className={profile.wcaVerified ? "text-emerald-400" : ""}>
                     WCA: {profile.wcaId}
                     {profile.wcaVerified ? " ✓" : ""}
                   </span>
                 )}
-                {profile.instagram && (
+                {!isPrivate && profile.instagram && (
                   <span className="text-zinc-400">@{profile.instagram}</span>
                 )}
-                {profile.createdAt && (
+                {!isPrivate && profile.createdAt && (
                   <span className="rounded-full bg-accent-primary/10 px-2 py-0.5 font-semibold text-accent-primary">
                     Cubler since {new Date(profile.createdAt).toLocaleDateString(undefined, { month: "short", year: "numeric" })}
                   </span>

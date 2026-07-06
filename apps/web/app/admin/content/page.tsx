@@ -13,7 +13,7 @@ import {
 } from "@/lib/api";
 
 
-const EMPTY = { title: "", linkUrl: "", ctaText: "", ctaLink: "", expiresAt: "", active: true, order: 0 };
+const EMPTY = { title: "", linkUrl: "", expiresAt: "", active: true, order: 0 };
 
 export default function AdminContentPage() {
   const [list, setList] = useState<BannerDto[]>([]);
@@ -41,8 +41,6 @@ export default function AdminContentPage() {
     setForm({
       title: b.title,
       linkUrl: b.linkUrl ?? b.ctaLink ?? "",
-      ctaText: b.ctaText ?? "",
-      ctaLink: b.ctaLink ?? "",
       expiresAt: b.expiresAt ?? "",
       active: b.active,
       order: b.order,
@@ -62,8 +60,6 @@ export default function AdminContentPage() {
       const payload = {
         title: form.title,
         linkUrl: form.linkUrl || undefined,
-        ctaText: form.ctaText || undefined,
-        ctaLink: form.ctaLink || form.linkUrl || undefined,
         expiresAt: form.expiresAt || undefined,
         active: form.active,
         order: form.order,
@@ -99,7 +95,7 @@ export default function AdminContentPage() {
   };
 
   const del = async (b: BannerDto) => {
-    if (!confirm(`Delete banner "${b.title}"?`)) return;
+    if (!confirm(`Delete announcement "${b.title}"?`)) return;
     setBusy(`del-${b.id}`);
     try { await deleteBanner(b.id); load(); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -110,13 +106,13 @@ export default function AdminContentPage() {
     <div className="mx-auto max-w-6xl px-6 py-8">
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Banner Management</h1>
-          <p className="mt-1 text-sm text-zinc-500">Hero banners shown on the homepage. Set CTA links, expiry dates, and display order.</p>
+          <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Announcements</h1>
+          <p className="mt-1 text-sm text-zinc-500">Image announcements shown on the homepage. Set links, expiry dates, and display order.</p>
         </div>
         {!creating && !editing && (
           <button onClick={openCreate}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
-            + New Banner
+            + New Announcement
           </button>
         )}
       </div>
@@ -126,7 +122,7 @@ export default function AdminContentPage() {
       {(creating || editing) && (
         <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/50 p-5">
           <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-            {editing ? "Edit Banner" : "New Banner"}
+            {editing ? "Edit Announcement" : "New Announcement"}
           </h2>
           <div className="space-y-3">
             <div>
@@ -137,7 +133,7 @@ export default function AdminContentPage() {
                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none" />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Banner Image</label>
+              <label className="mb-1 block text-xs text-zinc-500">Desktop Image <span className="text-zinc-400">(1200 x 400px recommended, 3:1 ratio)</span></label>
               {editing?.imageUrl && !imageFile && (
                 <div className="mb-2">
                   <img src={editing.imageUrl} alt="Current banner" className="h-20 rounded-lg object-cover" />
@@ -152,7 +148,7 @@ export default function AdminContentPage() {
                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 file:mr-3 file:rounded file:border-0 file:bg-emerald-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white" />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Mobile Banner Image</label>
+              <label className="mb-1 block text-xs text-zinc-500">Mobile Image <span className="text-zinc-400">(600 x 400px recommended, 3:2 ratio)</span></label>
               {editing?.mobileImageUrl && !mobileImageFile && (
                 <div className="mb-2">
                   <img src={editing.mobileImageUrl} alt="Current mobile banner" className="h-16 rounded-lg object-cover" />
@@ -211,7 +207,7 @@ export default function AdminContentPage() {
         <p className="text-zinc-500">Loading...</p>
       ) : list.length === 0 ? (
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-10 text-center text-zinc-500">
-          No banners yet. Create one to display on the homepage.
+          No announcements yet. Create one to display on the homepage.
         </div>
       ) : (
         <div className="space-y-3">

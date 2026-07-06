@@ -306,6 +306,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           wcaVerified: "wca_verified", role: "role", accountStage: "account_stage",
           emailVerified: "email_verified", mobileVerified: "mobile_verified",
           passwordHash: "password_hash", supabaseId: "supabase_id",
+          profilePrivacy: "profile_privacy",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -323,27 +324,15 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
       async nextClId() {
         const year = new Date().getFullYear();
-        const client = await pool.connect();
-        try {
-          await client.query("BEGIN");
-          await client.query(
-            `INSERT INTO cl_id_seq (year, seq) VALUES ($1, 1)
-             ON CONFLICT (year) DO UPDATE SET seq = cl_id_seq.seq + 1`,
-            [year],
-          );
-          const { rows } = await client.query(
-            "SELECT seq FROM cl_id_seq WHERE year = $1",
-            [year],
-          );
-          await client.query("COMMIT");
-          const seq = rows[0].seq as number;
-          return `CL-${year}-${String(seq).padStart(4, "0")}`;
-        } catch (err) {
-          await client.query("ROLLBACK");
-          throw err;
-        } finally {
-          client.release();
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        for (let attempt = 0; attempt < 20; attempt++) {
+          let code = "";
+          for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+          const clId = `CL-${year}-${code}`;
+          const { rows } = await pool.query("SELECT 1 FROM users WHERE cl_id = $1", [clId]);
+          if (rows.length === 0) return clId;
         }
+        throw new Error("Failed to generate unique CL ID after 20 attempts");
       },
     },
 

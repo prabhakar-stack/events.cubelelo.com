@@ -90,6 +90,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
   const [events, setEvents] = useState<EventSpec[]>([
     { eventType: "333", roundCount: 1 },
   ]);
+  const [featured, setFeatured] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -127,8 +128,11 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
         })),
       };
       const { id } = await createCompetition(body);
-      if (status !== "draft") {
-        await updateCompetition(id, { status });
+      const updates: Record<string, unknown> = {};
+      if (status !== "draft") updates.status = status;
+      if (featured) updates.featured = true;
+      if (Object.keys(updates).length > 0) {
+        await updateCompetition(id, updates as Parameters<typeof updateCompetition>[1]);
       }
       setTitle("");
       setDescription("");
@@ -140,6 +144,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
       setRegistrationDeadline("");
       setStartsAt("");
       setEndsAt("");
+      setFeatured(false);
       setEvents([{ eventType: "333", roundCount: 1 }]);
       onCreated();
     } catch (e: unknown) {
@@ -218,7 +223,7 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
           </div>
         </div>
 
-        {/* Type + fees */}
+        {/* Type + fees + featured */}
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <label className="mb-1 block text-xs text-zinc-500">Type</label>
@@ -229,6 +234,17 @@ function CompetitionCreator({ onCreated }: { onCreated: () => void }) {
             >
               <option value="free">Free</option>
               <option value="paid">Paid</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-zinc-500">Featured</label>
+            <select
+              value={featured ? "yes" : "no"}
+              onChange={(e) => setFeatured(e.target.value === "yes")}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
             </select>
           </div>
           {type === "paid" && (

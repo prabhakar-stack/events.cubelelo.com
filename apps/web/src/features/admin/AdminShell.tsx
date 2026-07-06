@@ -40,8 +40,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Content",
     items: [
-      { label: "CMS", href: "/admin/cms" },
-      { label: "Banners", href: "/admin/content" },
+      { label: "Announcements", href: "/admin/content" },
       { label: "FAQ", href: "/admin/faq" },
     ],
   },
@@ -62,8 +61,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-56px)] max-w-7xl">
-      <aside className="hidden w-56 shrink-0 border-r border-zinc-200 px-3 py-6 dark:border-zinc-800 md:block">
-        <nav className="space-y-5">
+      <aside className="hidden w-56 shrink-0 border-r border-zinc-200 dark:border-zinc-800 md:block">
+        <nav className="sticky top-14 max-h-[calc(100vh-56px)] space-y-5 overflow-y-auto px-3 py-6">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
               <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-600">

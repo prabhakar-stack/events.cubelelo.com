@@ -12,6 +12,10 @@ const EVENT_NAMES: Record<string, string> = {
   "333bf": "3x3 BLD",
   sq1: "Square-1",
   clock: "Clock",
+  "444bf": "4x4 BLD",
+  "555bf": "5x5 BLD",
+  "333mbf": "Multi-BLD",
+  fto: "FTO",
 };
 
 export function eventDisplayName(eventType: string): string {

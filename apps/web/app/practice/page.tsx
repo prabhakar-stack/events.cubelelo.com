@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   fetchPracticeSessions,
   fetchPracticeStats,
   deletePracticeSession,
+  createPracticeSession,
   type PracticeSessionDto,
   type PracticeStatsDto,
 } from "@/lib/api";
+import { EVENT_IDS, EVENTS, type EventId } from "@cubers/scramble-core";
 import { formatTime } from "@cubers/timer-core";
 import { eventDisplayName } from "@/lib/eventNames";
 import { eventIcon } from "@/lib/eventIcons";
@@ -20,17 +23,35 @@ import { useToast } from "@/components/ui/Toast";
 
 export default function PracticePage() {
   const toast = useToast();
+  const router = useRouter();
   const [sessions, setSessions] = useState<PracticeSessionDto[]>([]);
   const [stats, setStats] = useState<PracticeStatsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<PracticeSessionDto | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showNewSession, setShowNewSession] = useState(false);
+  const [newEventId, setNewEventId] = useState<EventId>("333");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     Promise.all([fetchPracticeSessions(), fetchPracticeStats()])
       .then(([s, st]) => { setSessions(s); setStats(st); })
       .finally(() => setLoading(false));
   }, []);
+
+  const handleCreateSession = async () => {
+    setCreating(true);
+    try {
+      const session = await createPracticeSession(newEventId);
+      setSessions((prev) => [session, ...prev]);
+      setShowNewSession(false);
+      toast.show("Session created", "success");
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Failed to create session", "error");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -65,11 +86,43 @@ export default function PracticePage() {
               Daily Challenge
             </Button>
           </Link>
+          <Button variant="secondary" onClick={() => setShowNewSession(true)}>
+            + New Session
+          </Button>
           <Link href="/terminal">
             <Button>Open Terminal</Button>
           </Link>
         </div>
       </div>
+
+      {/* New Session Picker */}
+      {showNewSession && (
+        <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Create New Session</h3>
+            <button onClick={() => setShowNewSession(false)} className="text-xs text-zinc-400 hover:text-zinc-600">Cancel</button>
+          </div>
+          <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7">
+            {EVENT_IDS.map((id) => (
+              <button
+                key={id}
+                onClick={() => setNewEventId(id)}
+                className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-medium transition ${
+                  newEventId === id
+                    ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
+                    : "border-zinc-200 text-zinc-500 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
+                }`}
+              >
+                <span className="text-lg">{eventIcon(id).emoji}</span>
+                {eventDisplayName(id)}
+              </button>
+            ))}
+          </div>
+          <Button onClick={handleCreateSession} loading={creating} className="w-full sm:w-auto">
+            Start {eventDisplayName(newEventId)} Session
+          </Button>
+        </div>
+      )}
 
       {/* Stats Overview */}
       {loading ? (

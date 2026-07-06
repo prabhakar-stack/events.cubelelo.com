@@ -11,6 +11,7 @@ import { getSupabase } from "@/lib/supabase";
 import { Country, State, City } from "country-state-city";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { GradientAvatar } from "@/components/GradientAvatar";
 
 const GENDER_OPTIONS = ["Male", "Female", "Other", "Prefer not to say"] as const;
@@ -41,6 +42,10 @@ function SettingsContent() {
   const countries = useMemo(() => Country.getAllCountries(), []);
   const states = useMemo(() => countryCode ? State.getStatesOfCountry(countryCode) : [], [countryCode]);
   const cities = useMemo(() => countryCode && stateCode ? City.getCitiesOfState(countryCode, stateCode) : [], [countryCode, stateCode]);
+
+  const countryOptions = useMemo(() => countries.map((c) => ({ value: c.isoCode, label: `${c.flag} ${c.name}` })), [countries]);
+  const stateOptions = useMemo(() => states.map((s) => ({ value: s.isoCode, label: s.name })), [states]);
+  const cityOptions = useMemo(() => cities.map((c) => ({ value: c.name, label: c.name })), [cities]);
 
   useEffect(() => {
     if (searchParams.get("verified") !== "1") return;
@@ -210,17 +215,17 @@ function SettingsContent() {
         </div>
         <button
           onClick={async () => {
-            const next = (user as unknown as Record<string, unknown>).profilePrivacy === "private" ? "public" : "private";
+            const next = user!.profilePrivacy === "private" ? "public" : "private";
             try {
               await updateMyProfile({ profilePrivacy: next });
-              window.location.reload();
+              setUser({ ...user!, profilePrivacy: next });
             } catch (e) {
               setError(e instanceof Error ? e.message : String(e));
             }
           }}
           className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
         >
-          {(user as unknown as Record<string, unknown>).profilePrivacy === "private" ? "Make Public" : "Make Private"}
+          {user!.profilePrivacy === "private" ? "Make Public" : "Make Private"}
         </button>
       </div>
 
@@ -230,14 +235,14 @@ function SettingsContent() {
           <div>
             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Password</p>
             <p className="text-xs text-zinc-500">
-              {(user as unknown as Record<string, unknown>).passwordHash
+              {user!.hasPassword
                 ? "Update your account password"
                 : "Set a password (currently using Google sign-in only)"}
             </p>
           </div>
         </div>
         <div className="space-y-3">
-          {Boolean((user as unknown as Record<string, unknown>).passwordHash) && (
+          {Boolean(user!.hasPassword) && (
             <Input
               type="password"
               placeholder="Current password"
@@ -386,40 +391,37 @@ function SettingsContent() {
           </div>
         </div>
 
-        {/* Country / State / City — cascading dropdowns */}
+        {/* Country / State / City — searchable dropdowns */}
         <div>
           <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Country</label>
-          <select value={countryCode} onChange={(e) => handleCountryChange(e.target.value)}
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-            <option value="">Select country…</option>
-            {countries.map((c) => (
-              <option key={c.isoCode} value={c.isoCode}>{c.flag} {c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={countryOptions}
+            value={countryCode}
+            onChange={handleCountryChange}
+            placeholder="Search country…"
+          />
         </div>
 
         {countryCode && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">State</label>
-              <select value={stateCode} onChange={(e) => handleStateChange(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-                <option value="">Select state…</option>
-                {states.map((s) => (
-                  <option key={s.isoCode} value={s.isoCode}>{s.name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                options={stateOptions}
+                value={stateCode}
+                onChange={handleStateChange}
+                placeholder="Search state…"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">City</label>
-              {cities.length > 0 ? (
-                <select value={form.city ?? ""} onChange={(e) => handleCityChange(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-                  <option value="">Select city…</option>
-                  {cities.map((c) => (
-                    <option key={c.name} value={c.name}>{c.name}</option>
-                  ))}
-                </select>
+              {cityOptions.length > 0 ? (
+                <SearchableSelect
+                  options={cityOptions}
+                  value={form.city ?? ""}
+                  onChange={handleCityChange}
+                  placeholder="Search city…"
+                />
               ) : (
                 <input type="text" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)}
                   placeholder="City name"

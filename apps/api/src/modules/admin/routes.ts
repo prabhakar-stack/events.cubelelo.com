@@ -1582,7 +1582,7 @@ export async function registerAdminRoutes(
     const banner: Banner = {
       id: randomUUID(),
       title: title.trim(),
-      imageUrl: imageUrl?.trim() || undefined,
+      imageUrl: imageUrl?.trim() || "",
       mobileImageUrl: mobileImageUrl?.trim() || undefined,
       ctaText: ctaText?.trim() || undefined,
       ctaLink: ctaLink?.trim() || undefined,

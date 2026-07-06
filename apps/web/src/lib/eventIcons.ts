@@ -17,6 +17,10 @@ const EVENT_ICONS: Record<string, EventIcon> = {
   minx: { emoji: "\u{2B1F}", color: "#ec4899" }, // ⬟
   sq1: { emoji: "\u{1F4A0}", color: "#0ea5e9" }, // 💠
   clock: { emoji: "\u{1F550}", color: "#94a3b8" }, // 🕐
+  "444bf": { emoji: "\u{1F648}", color: "#f97316" }, // 🙈
+  "555bf": { emoji: "\u{1F648}", color: "#ef4444" }, // 🙈
+  "333mbf": { emoji: "\u{1F9E0}", color: "#8b5cf6" }, // 🧠
+  fto: { emoji: "\u{1F532}", color: "#06b6d4" }, // ▪️ → 🔲
 };
 
 const DEFAULT_ICON: EventIcon = { emoji: "\u{1F9E9}", color: "#71717a" }; // 🧩

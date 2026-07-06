@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { Repository } from "../../db/repo";
+import { sanitizeUser } from "../../db/types";
 import { requireAuth } from "../../auth/plugin";
 import type { Solve } from "@cubers/types";
 import { env } from "../../config/env";
@@ -34,7 +35,6 @@ export async function registerUserRoutes(
         return reply.code(400).send({ error: "query_too_short" });
       const all = await repo.users.findAll(q);
       return all
-        .filter((u) => u.profilePrivacy !== "private")
         .slice(0, 20)
         .map((u) => ({
           clId: u.clId,
@@ -312,7 +312,7 @@ export async function registerUserRoutes(
       }
       const updated = await repo.users.update(req.authClaims!.sub, fields);
       if (!updated) return reply.code(404).send({ error: "not_synced" });
-      return updated;
+      return sanitizeUser(updated);
     },
   );
 
@@ -339,7 +339,7 @@ export async function registerUserRoutes(
         repo.contentPages.findAll(true),
       ]);
 
-      const matchedUsers = users.filter((u) => u.profilePrivacy !== "private").slice(0, 10).map((u) => ({
+      const matchedUsers = users.slice(0, 10).map((u) => ({
         type: "user" as const,
         id: u.clId,
         title: u.name,

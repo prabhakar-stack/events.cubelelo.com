@@ -181,9 +181,9 @@ function OverviewTab({ comp }: { comp: CompetitionDetail }) {
         <span>{feeText}</span>
         <span>{comp.registrationCount ?? 0} registered</span>
         {comp.registrationDeadline && (
-          <span>Deadline: {new Date(comp.registrationDeadline).toLocaleDateString()}</span>
+          <span>Deadline: {new Date(comp.registrationDeadline).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "medium" })}</span>
         )}
-        {comp.startsAt && <span>Starts: {new Date(comp.startsAt).toLocaleDateString()}</span>}
+        {comp.startsAt && <span>Starts: {new Date(comp.startsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "medium" })}</span>}
       </div>
 
       {/* Rules */}

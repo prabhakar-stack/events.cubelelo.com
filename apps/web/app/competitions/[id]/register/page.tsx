@@ -94,7 +94,7 @@ function RegisterContent() {
 
   const handleRegister = async () => {
     if (selected.size === 0) return;
-    if (user && (!user.emailVerified || !user.mobileVerified)) {
+    if (user && !user.emailVerified) {
       setShowVerifyPopup(true);
       return;
     }

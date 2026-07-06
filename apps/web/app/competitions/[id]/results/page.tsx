@@ -142,10 +142,10 @@ export default function ResultsPage() {
                   >
                     <span className="mb-1 text-2xl">{style.medal}</span>
                     <Link
-                      href={`/profile/${r.userId}`}
-                      className="max-w-full truncate font-mono text-sm font-semibold text-zinc-100 hover:underline"
+                      href={`/profile/${r.userClId ?? r.userId}`}
+                      className="max-w-full truncate text-sm font-semibold text-zinc-100 hover:underline"
                     >
-                      {r.userId}
+                      {r.userName ?? r.userId}
                     </Link>
                     <span className={`font-mono text-lg font-bold ${style.text}`}>
                       {r.ao5Ms !== null && r.ao5Ms !== Infinity ? formatTime(r.ao5Ms) : "DNF"}
@@ -185,10 +185,10 @@ export default function ResultsPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         <Link
-                          href={`/profile/${r.userId}`}
-                          className="font-mono text-emerald-400 hover:text-emerald-300"
+                          href={`/profile/${r.userClId ?? r.userId}`}
+                          className="text-emerald-400 hover:text-emerald-300"
                         >
-                          {r.userId}
+                          {r.userName ?? r.userId}
                         </Link>
                         {isMe && (
                           <span className="ml-2 rounded-full bg-accent-primary/20 px-1.5 py-0.5 text-[10px] font-semibold text-accent-primary">

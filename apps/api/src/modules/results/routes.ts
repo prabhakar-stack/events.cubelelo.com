@@ -120,6 +120,7 @@ export async function registerResultRoutes(
           "333": 3000, "222": 800, "444": 18000, "555": 35000,
           "666": 75000, "777": 110000, pyram: 1000, skewb: 1200,
           minx: 25000, "333oh": 6000, "333bf": 12000, sq1: 5000, clock: 3000,
+          "444bf": 60000, "555bf": 120000, "333mbf": 60000, fto: 15000,
         };
         const eventType = event?.eventType ?? "333";
         const threshold = thresholds[eventType] ?? 3000;
@@ -225,10 +226,16 @@ export async function registerResultRoutes(
     "/api/v1/rounds/:id/results",
     async (req) => {
       const board = await repo.results.findByRound(req.params.id);
-      return board.sort(
+      board.sort(
         (a, b) =>
           (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),
       );
+      const userIds = [...new Set(board.map((r) => r.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
+      return board.map((r) => {
+        const u = usersMap.get(r.userId);
+        return { ...r, userName: u?.name ?? r.userId, userClId: u?.clId ?? r.userId };
+      });
     },
   );
 
@@ -237,12 +244,18 @@ export async function registerResultRoutes(
     "/api/v1/rounds/:id/verified-results",
     async (req) => {
       const board = await repo.results.findByRound(req.params.id);
-      return board
+      const filtered = board
         .filter((r) => r.flagStatus === "clean" || r.flagStatus === "verified")
         .sort(
           (a, b) =>
             (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),
         );
+      const userIds = [...new Set(filtered.map((r) => r.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
+      return filtered.map((r) => {
+        const u = usersMap.get(r.userId);
+        return { ...r, userName: u?.name ?? r.userId, userClId: u?.clId ?? r.userId };
+      });
     },
   );
 }

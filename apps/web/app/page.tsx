@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { fetchCompetitions, fetchPublicAnnouncements, fetchPublicBanners, assetUrl, type CompetitionSummary, type AnnouncementDto, type BannerDto } from "@/lib/api";
+import { fetchCompetitions, fetchPublicBanners, assetUrl, type CompetitionSummary, type BannerDto } from "@/lib/api";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 import { eventIcon } from "@/lib/eventIcons";
 import { SkeletonCard, Skeleton } from "@/components/Skeleton";
@@ -47,7 +47,6 @@ export default function Home() {
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
       <BannerSlider />
-      <AnnouncementSlider />
 
       {featured && <Hero comp={featured} />}
 
@@ -100,107 +99,56 @@ function BannerSlider() {
   const current = banners[idx];
   const href = current.linkUrl || current.ctaLink;
 
-  const img = (
-    <div key={idx} className="fade-slide-in relative w-full overflow-hidden rounded-xl">
+  const image = (
+    <div key={idx} className="fade-slide-in w-full overflow-hidden rounded-xl">
       {current.imageUrl && (
         <img
           src={assetUrl(current.imageUrl)}
           alt={current.title}
-          className={`w-full rounded-xl object-cover ${current.mobileImageUrl ? "hidden sm:block" : ""}`}
+          className={`aspect-[3/1] w-full rounded-xl object-cover object-top ${current.mobileImageUrl ? "hidden sm:block" : ""}`}
         />
       )}
       {current.mobileImageUrl && (
         <img
           src={assetUrl(current.mobileImageUrl)}
           alt={current.title}
-          className="w-full rounded-xl object-cover sm:hidden"
+          className="aspect-[3/2] w-full rounded-xl object-cover object-top sm:hidden"
         />
       )}
+    </div>
+  );
+
+  return (
+    <div className="relative mb-4">
+      {href ? <Link href={href}>{image}</Link> : image}
       {banners.length > 1 && (
-        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-          {banners.map((_, i) => (
-            <button
-              key={i}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIdx(i); }}
-              className={`h-2 rounded-full transition-all ${
-                i === idx ? "w-5 bg-white" : "w-2 bg-white/50"
-              }`}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  return (
-    <div className="mb-4">
-      {href ? <Link href={href}>{img}</Link> : img}
-    </div>
-  );
-}
-
-function AnnouncementSlider() {
-  const [announcements, setAnnouncements] = useState<AnnouncementDto[]>([]);
-  const [idx, setIdx] = useState(0);
-
-  useEffect(() => {
-    fetchPublicAnnouncements().then(setAnnouncements).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (announcements.length <= 1) return;
-    const t = setInterval(() => setIdx((i) => (i + 1) % announcements.length), 5000);
-    return () => clearInterval(t);
-  }, [announcements.length]);
-
-  if (announcements.length === 0) return null;
-
-  const current = announcements[idx];
-
-  const inner = (
-    <div key={idx} className="fade-slide-in flex flex-1 flex-col items-center gap-2">
-      {current.imageUrl && (
-        <img src={assetUrl(current.imageUrl)} alt={current.title} className="max-h-16 rounded object-contain" />
-      )}
-      <p className="text-center text-sm text-zinc-700 dark:text-zinc-300">{current.title}</p>
-    </div>
-  );
-
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => setIdx((i) => (i - 1 + announcements.length) % announcements.length)}
-          className="mr-3 shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          aria-label="Previous"
-        >
-          <ChevronLeft />
-        </button>
-        {current.redirectUrl ? (
-          <Link href={current.redirectUrl} className="flex flex-1 justify-center">{inner}</Link>
-        ) : (
-          inner
-        )}
-        <button
-          onClick={() => setIdx((i) => (i + 1) % announcements.length)}
-          className="ml-3 shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          aria-label="Next"
-        >
-          <ChevronRight />
-        </button>
-      </div>
-      {announcements.length > 1 && (
-        <div className="mt-2 flex justify-center gap-1.5">
-          {announcements.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setIdx(i)}
-              className={`h-1.5 rounded-full transition-all ${
-                i === idx ? "w-4 bg-emerald-500" : "w-1.5 bg-zinc-300 dark:bg-zinc-700"
-              }`}
-            />
-          ))}
-        </div>
+        <>
+          <button
+            onClick={() => setIdx((i) => (i - 1 + banners.length) % banners.length)}
+            className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1.5 text-white/80 backdrop-blur-sm transition hover:bg-black/60 hover:text-white"
+            aria-label="Previous"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <button
+            onClick={() => setIdx((i) => (i + 1) % banners.length)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1.5 text-white/80 backdrop-blur-sm transition hover:bg-black/60 hover:text-white"
+            aria-label="Next"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+            {banners.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setIdx(i)}
+                className={`h-2 rounded-full transition-all ${
+                  i === idx ? "w-5 bg-white" : "w-2 bg-white/50"
+                }`}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

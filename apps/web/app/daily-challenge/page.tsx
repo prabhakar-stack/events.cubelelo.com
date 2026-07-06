@@ -14,9 +14,11 @@ import { TimerDisplay } from "@/features/timer/TimerDisplay";
 import { TwistyPlayer } from "@/features/scramble/TwistyPlayer";
 import { eventDisplayName } from "@/lib/eventNames";
 import { CountUp } from "@/components/CountUp";
+import { useAuthStore } from "@/stores/authStore";
 import Link from "next/link";
 
 export default function DailyChallengePage() {
+  const user = useAuthStore((s) => s.user);
   const [data, setData] = useState<DailyChallengeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -35,7 +37,9 @@ export default function DailyChallengePage() {
 
   const handleSubmit = useCallback(async () => {
     if (!snapshot.result || !data) return;
+    if (!user) { setError("You must be logged in to submit"); return; }
     setSubmitting(true);
+    setError("");
     try {
       const worstPenalty = snapshot.result.inspectionPenalty === "dnf" || snapshot.result.penalty === "dnf"
         ? "dnf"
@@ -66,11 +70,12 @@ export default function DailyChallengePage() {
       reset();
     } catch (err: any) {
       if (err?.message?.includes("409")) setError("You already submitted today!");
-      else setError("Failed to submit");
+      else if (err?.message?.includes("401")) setError("Please log in to submit your time");
+      else setError("Failed to submit — please try again");
     } finally {
       setSubmitting(false);
     }
-  }, [snapshot.result, data, reset]);
+  }, [snapshot.result, data, reset, user]);
 
 
   const handleShare = useCallback(async () => {
@@ -90,6 +95,16 @@ export default function DailyChallengePage() {
       setTimeout(() => setShareCopied(false), 2000);
     } catch {}
   }, [data]);
+
+  // Pointer handlers for touch/mobile support
+  const onPointerDown = useCallback(() => {
+    if (snapshot.phase === "stopped") return;
+    down();
+  }, [snapshot.phase, down]);
+  const onPointerUp = useCallback(() => {
+    if (snapshot.phase === "stopped") return;
+    up();
+  }, [snapshot.phase, up]);
 
   // Keyboard controls
   useEffect(() => {
@@ -119,7 +134,11 @@ export default function DailyChallengePage() {
 
   if (focusMode) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center select-none">
+      <div
+        className="flex min-h-screen flex-col items-center justify-center select-none"
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+      >
         <TimerDisplay snapshot={snapshot} />
         <p className="mt-4 text-sm text-zinc-500">{instruction(snapshot.phase)}</p>
       </div>
@@ -180,18 +199,24 @@ export default function DailyChallengePage() {
           </button>
         </div>
       ) : (
-        <div className="mb-8 rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+        <div
+          className="mb-8 rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900/40"
+          onPointerDown={onPointerDown}
+          onPointerUp={onPointerUp}
+        >
           <TimerDisplay snapshot={snapshot} />
           {snapshot.phase === "stopped" && snapshot.result ? (
             <div className="mt-4 flex items-center justify-center gap-3">
               <button
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={submitting || !user}
                 className="rounded-lg bg-emerald-600 px-6 py-2.5 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
               >
-                {submitting ? "Submitting..." : "Submit Time"}
+                {submitting ? "Submitting..." : !user ? "Log in to submit" : "Submit Time"}
               </button>
               <button
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={reset}
                 className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm text-zinc-500 transition hover:text-zinc-700 dark:border-zinc-700 dark:hover:text-zinc-300"
               >

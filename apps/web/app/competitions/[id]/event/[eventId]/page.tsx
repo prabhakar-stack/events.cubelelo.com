@@ -705,7 +705,9 @@ function ResultTable({
             >
               <td className="px-4 py-2.5 font-mono text-zinc-400">{r.rank ?? "—"}</td>
               <td className="px-4 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
-                {r.userId}
+                <Link href={`/profile/${r.userClId ?? r.userId}`} className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400 dark:hover:text-emerald-300">
+                  {r.userName ?? r.userId}
+                </Link>
               </td>
               <td className="px-4 py-2.5 font-mono text-zinc-700 dark:text-zinc-300">
                 {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}

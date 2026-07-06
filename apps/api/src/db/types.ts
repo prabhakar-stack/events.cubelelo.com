@@ -9,9 +9,9 @@ import type {
   UserRole,
 } from "@cubers/types";
 
-export function sanitizeUser<T extends { passwordHash?: unknown }>(u: T): Omit<T, "passwordHash"> {
-  const { passwordHash: _, ...safe } = u;
-  return safe;
+export function sanitizeUser<T extends { passwordHash?: unknown }>(u: T): Omit<T, "passwordHash"> & { hasPassword: boolean } {
+  const { passwordHash, ...safe } = u;
+  return { ...safe, hasPassword: !!passwordHash };
 }
 
 export interface User {
