@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   EVENTS,
@@ -62,7 +62,7 @@ function saveLocalSession(eventId: EventId, solves: ExtendedSolve[]) {
     const sessions: Record<string, ExtendedSolve[]> = raw ? JSON.parse(raw) : {};
     sessions[eventId] = solves;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  } catch {}
+  } catch { }
 }
 
 function loadTargetTime(eventId: EventId): number | null {
@@ -83,7 +83,7 @@ function saveTargetTime(eventId: EventId, ms: number | null) {
     if (ms === null) delete targets[eventId];
     else targets[eventId] = ms;
     localStorage.setItem(TARGET_KEY, JSON.stringify(targets));
-  } catch {}
+  } catch { }
 }
 
 function apiSolveToLocal(s: PracticeSolveDto): ExtendedSolve {
@@ -97,7 +97,7 @@ function apiSolveToLocal(s: PracticeSolveDto): ExtendedSolve {
   };
 }
 
-export default function PracticeTerminalPage() {
+function PracticeTerminalPage() {
   const user = useAuthStore((s) => s.user);
   const isLoggedIn = !!user;
   const searchParams = useSearchParams();
@@ -239,7 +239,7 @@ export default function PracticeTerminalPage() {
               if (last && !last.apiId) copy[copy.length - 1] = { ...last, apiId: saved.id };
               return copy;
             });
-          }).catch(() => {});
+          }).catch(() => { });
         }
         reset();
         genScramble();
@@ -247,7 +247,7 @@ export default function PracticeTerminalPage() {
     } else if (snapshot.phase !== "stopped") {
       stoppedRef.current = false;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.phase, snapshot.result]);
 
   const confirmSolve = useCallback(() => {
@@ -284,7 +284,7 @@ export default function PracticeTerminalPage() {
           if (last && !last.apiId) copy[copy.length - 1] = { ...last, apiId: saved.id };
           return copy;
         });
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     setPendingNote("");
@@ -299,7 +299,7 @@ export default function PracticeTerminalPage() {
         const next = prev.filter((_, i) => i !== index);
         if (!isLoggedIn) saveLocalSession(eventId, next);
         if (isLoggedIn && removed?.apiId) {
-          deletePracticeSolve(removed.apiId).catch(() => {});
+          deletePracticeSolve(removed.apiId).catch(() => { });
         }
         return next;
       });
@@ -316,7 +316,7 @@ export default function PracticeTerminalPage() {
         );
         const newSid = await ensureApiSession(eventId);
         apiSessionId.current = newSid;
-      } catch {}
+      } catch { }
     } else {
       saveLocalSession(eventId, []);
     }
@@ -651,8 +651,8 @@ export default function PracticeTerminalPage() {
 function StatCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className={`rounded-lg border px-3 py-2 text-center ${highlight
-        ? "border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20"
-        : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40"
+      ? "border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20"
+      : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40"
       }`}>
       <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
       <div className={`font-mono text-lg font-bold ${highlight ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
@@ -683,8 +683,8 @@ function PenaltyButtons({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onChange(o.key)}
           className={`px-4 py-2 text-sm font-semibold transition ${value === o.key
-              ? "bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900"
-              : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            ? "bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900"
+            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
             }`}
         >
           {o.label}
@@ -707,4 +707,16 @@ function instruction(phase: string): string {
     default:
       return "";
   }
+}
+
+export default function TerminalPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-[60vh] items-center justify-center text-zinc-500">
+        Loading Terminal…
+      </div>
+    }>
+      <PracticeTerminalPage />
+    </Suspense>
+  );
 }

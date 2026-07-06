@@ -79,11 +79,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`block rounded-lg px-3 py-1.5 text-sm transition ${
-                      isActive(item.href)
+                    className={`block rounded-lg px-3 py-1.5 text-sm transition ${isActive(item.href)
                         ? "bg-accent-primary/10 font-semibold text-accent-primary"
                         : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-                    }`}
+                      }`}
                   >
                     {item.label}
                   </Link>
