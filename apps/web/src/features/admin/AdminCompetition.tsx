@@ -9,7 +9,6 @@ import {
   sendBulkEmail,
   sendRoundNotification,
   fetchCompetition,
-  generateScrambles,
   updateCompetition,
   updateRound,
   type AdvancementCriteria,
@@ -19,6 +18,7 @@ import {
 import { formatTime } from "@cubers/timer-core";
 import { StatusBadge } from "./StatusBadge";
 import { ConfirmModal } from "@/components/ui/Modal";
+import { Countdown } from "@/components/Countdown";
 
 // Only statuses that are manually set — the others are auto-computed from schedule
 const MANUAL_STATUSES = ["draft", "published", "cancelled", "completed"];
@@ -39,6 +39,13 @@ export function AdminCompetition({ id }: { id: string }) {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Detail editor local state
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editRules, setEditRules] = useState("");
+  const [editBaseFee, setEditBaseFee] = useState("");
+  const [editPerEventFee, setEditPerEventFee] = useState("");
+
   // Schedule editor local state — synced from detail on load
   const [regOpens, setRegOpens] = useState("");
   const [regCloses, setRegCloses] = useState("");
@@ -56,9 +63,14 @@ export function AdminCompetition({ id }: { id: string }) {
     load();
   }, [load]);
 
-  // Sync schedule inputs whenever detail refreshes
+  // Sync all inputs whenever detail refreshes
   useEffect(() => {
     if (detail) {
+      setEditTitle(detail.title);
+      setEditDescription(detail.description ?? "");
+      setEditRules(detail.rulesMd ?? "");
+      setEditBaseFee(String((detail.baseFee ?? 0) / 100));
+      setEditPerEventFee(String((detail.perEventFee ?? 0) / 100));
       setRegOpens(toLocal(detail.registrationOpensAt));
       setRegCloses(toLocal(detail.registrationDeadline));
       setCompStarts(toLocal(detail.startsAt));
@@ -101,7 +113,7 @@ export function AdminCompetition({ id }: { id: string }) {
 
   if (error && !detail) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-8">
+      <div className="mx-auto max-w-[1400px] px-8 py-10">
         <Link href="/admin" className="text-emerald-500 hover:underline">
           ← Back
         </Link>
@@ -111,14 +123,14 @@ export function AdminCompetition({ id }: { id: string }) {
   }
   if (!detail) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-8">
+      <div className="mx-auto max-w-[1400px] px-8 py-10">
         <p className="text-zinc-500">Loading…</p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-8 py-10">
       {/* ── Competition details banner ── */}
       <section className="mb-6 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/30 p-6">
         <div className="mb-3 flex items-center justify-between">
@@ -172,23 +184,15 @@ export function AdminCompetition({ id }: { id: string }) {
           </div>
         </div>
 
-        <h1 className="mb-1 text-xl font-bold text-zinc-900 dark:text-zinc-100">{detail.title}</h1>
-        {detail.description && (
-          <p className="mb-2 text-sm text-zinc-400">{detail.description}</p>
-        )}
+        <h1 className="mb-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100">{detail.title}</h1>
 
-        <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500">
-          <span>Type: {detail.type}</span>
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <span><span className="text-zinc-400 dark:text-zinc-500">Type</span> {detail.type}</span>
           <span>
-            Events: {detail.events.map((e) => e.eventType).join(", ")}
+            <span className="text-zinc-400 dark:text-zinc-500">Events</span>{" "}
+            {detail.events.map((e) => e.eventType).join(", ")}
           </span>
-          <span>Registered: {detail.registrationCount ?? 0}</span>
-          {detail.type !== "free" && (
-            <span>
-              Fee: ₹{((detail.baseFee ?? 0) / 100).toFixed(0)} + ₹
-              {((detail.perEventFee ?? 0) / 100).toFixed(0)}/event
-            </span>
-          )}
+          <span><span className="text-zinc-400 dark:text-zinc-500">Registered</span> {detail.registrationCount ?? 0}</span>
           <div className="ml-auto flex items-center gap-2">
             <button
               onClick={() => setShowEmailModal(true)}
@@ -223,6 +227,86 @@ export function AdminCompetition({ id }: { id: string }) {
             )}
           </div>
         )}
+
+        {/* ── Details editor ── */}
+        <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Details
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs text-zinc-500">Title</label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs text-zinc-500">Description</label>
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs text-zinc-500">Rules (Markdown)</label>
+              <textarea
+                value={editRules}
+                onChange={(e) => setEditRules(e.target.value)}
+                rows={6}
+                placeholder="Competition rules — supports Markdown formatting"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+              />
+            </div>
+            {detail.type !== "free" && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-500">Base Fee (INR)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editBaseFee}
+                    onChange={(e) => setEditBaseFee(e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-500">Per-Event Fee (INR)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editPerEventFee}
+                    onChange={(e) => setEditPerEventFee(e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <button
+            disabled={busy === "details"}
+            onClick={() =>
+              run("details", () =>
+                updateCompetition(id, {
+                  title: editTitle,
+                  description: editDescription,
+                  rulesMd: editRules,
+                  ...(detail.type !== "free" ? {
+                    baseFee: Math.round(Number(editBaseFee) * 100),
+                    perEventFee: Math.round(Number(editPerEventFee) * 100),
+                  } : {}),
+                }),
+              )
+            }
+            className="mt-3 rounded-lg bg-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-600 disabled:opacity-50"
+          >
+            {busy === "details" ? "Saving…" : "Save Details"}
+          </button>
+        </div>
 
         {/* ── Schedule editor ── */}
         <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 p-4">
@@ -426,6 +510,7 @@ function RoundRow({
 }) {
   const [showSchedule, setShowSchedule] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [roundError, setRoundError] = useState<string | null>(null);
   const [opensAt, setOpensAt] = useState(toLocal(round.opensAt));
   const [closesAt, setClosesAt] = useState(toLocal(round.closesAt));
   const [duration, setDuration] = useState<string>("");
@@ -463,30 +548,49 @@ function RoundRow({
     return null;
   };
 
-  const saveSchedule = () =>
-    onRun(`sched-${round.id}`, () =>
-      updateRound(round.id, {
+  const saveSchedule = async () => {
+    setRoundError(null);
+    try {
+      await updateRound(round.id, {
         opensAt: toISO(opensAt),
         closesAt: toISO(closesAt),
         advancementCriteria: buildCriteria(),
         ...(duration ? { durationMinutes: Number(duration) } : {}),
-      }),
-    );
+      });
+      onRun(`sched-${round.id}`, () => Promise.resolve());
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      try {
+        const jsonMatch = msg.match(/\{.*\}/s);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          setRoundError(
+            parsed.errors?.join(", ") ?? parsed.error ?? msg,
+          );
+        } else {
+          setRoundError(msg);
+        }
+      } catch {
+        setRoundError(msg);
+      }
+    }
+  };
 
   return (
     <div className="rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60">
       {/* Main row */}
-      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
-        <span className="font-mono text-sm text-zinc-300">R{round.roundNumber}</span>
-        <StatusBadge status={round.status} />
-        <span className={`text-xs ${round.scrambleLocked ? "text-emerald-400" : "text-zinc-600"}`}>
-          {round.scrambleLocked ? "locked" : "no scrambles"}
-        </span>
+      <div className="flex flex-wrap items-center gap-4 px-5 py-3.5">
+        <span className="font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-300">R{round.roundNumber}</span>
+        <StatusBadge status={round.status} domain="round" />
 
         {/* Show scheduled times if set */}
         {(round.opensAt || round.closesAt) && (
           <span className="text-xs text-zinc-500">
-            {round.opensAt ? `opens ${new Date(round.opensAt).toLocaleString()}` : ""}
+            {round.opensAt
+              ? round.status === "pending"
+                ? <>Starts in <Countdown target={round.opensAt} className="font-semibold text-accent-primary" /> ({new Date(round.opensAt).toLocaleString()})</>
+                : `opens ${new Date(round.opensAt).toLocaleString()}`
+              : ""}
             {round.opensAt && round.closesAt ? " · " : ""}
             {round.closesAt ? `closes ${new Date(round.closesAt).toLocaleString()}` : ""}
           </span>
@@ -506,15 +610,6 @@ function RoundRow({
             title="Set open / close times — round auto-transitions when the time is reached"
           >
             ⏱ {round.opensAt || round.closesAt ? "Edit Times" : "Set Times"}
-          </button>
-
-          {/* Generate scrambles */}
-          <button
-            disabled={round.scrambleLocked || busy === `gen-${round.id}`}
-            onClick={() => onRun(`gen-${round.id}`, () => generateScrambles(round.id, 5))}
-            className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
-          >
-            {busy === `gen-${round.id}` ? "Generating…" : "Generate & Lock"}
           </button>
 
           {/* Cancel round */}
@@ -547,10 +642,6 @@ function RoundRow({
             {busy === `notify-${round.id}` ? "Sending…" : "Notify"}
           </button>
 
-          <Link href={`/competitions/${competitionId}/round/${round.roundNumber}`}
-            className="text-xs text-zinc-500 hover:text-zinc-300">
-            Terminal
-          </Link>
         </div>
       </div>
 
@@ -564,6 +655,11 @@ function RoundRow({
             The round status changes automatically when each time is reached.
             The manual Open / Close buttons above override this at any time.
           </p>
+          {roundError && (
+            <div className="mb-3 rounded bg-red-100 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">
+              {roundError}
+            </div>
+          )}
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className="mb-1 block text-xs text-zinc-500">Opens at</label>

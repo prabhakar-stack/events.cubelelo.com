@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchLobby, type RosterEntry } from "@/lib/api";
 import { acquireSocket, releaseSocket } from "./socket";
 
@@ -15,7 +15,7 @@ export function useLobby(
   roundId: string | null,
   me: { userId: string; name: string },
 ): LobbyLive {
-  const [roster, setRoster] = useState<RosterEntry[]>([]);
+  const [serverRoster, setServerRoster] = useState<RosterEntry[]>([]);
   const [status, setStatus] = useState<string>("pending");
   const [opensAt, setOpensAt] = useState<string | null>(null);
   const [rulesMd, setRulesMd] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export function useLobby(
     fetchLobby(roundId)
       .then((s) => {
         if (!active) return;
-        setRoster(s.roster);
+        setServerRoster(s.roster);
         setStatus(s.round.status);
         setOpensAt(s.round.opensAt);
         setRulesMd(s.competition.rulesMd);
@@ -38,7 +38,7 @@ export function useLobby(
     socket.emit("lobby:checkin", { roundId, name: me.name });
 
     const rosterHandler = (p: { roundId: string; competitors: RosterEntry[] }) => {
-      if (p.roundId === roundId) setRoster(p.competitors);
+      if (p.roundId === roundId) setServerRoster(p.competitors);
     };
     const statusHandler = (p: { roundId: string; status: string; opensAt?: string }) => {
       if (p.roundId !== roundId) return;
@@ -55,6 +55,12 @@ export function useLobby(
       releaseSocket();
     };
   }, [roundId, me.userId, me.name]);
+
+  const roster = useMemo(() => {
+    if (me.userId === "guest") return serverRoster;
+    if (serverRoster.some((c) => c.userId === me.userId)) return serverRoster;
+    return [{ userId: me.userId, name: me.name }, ...serverRoster];
+  }, [serverRoster, me.userId, me.name]);
 
   return { roster, status, opensAt, rulesMd };
 }

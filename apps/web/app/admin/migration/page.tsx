@@ -18,7 +18,7 @@ export default function AdminMigrationPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-8 py-10">
       {/* Sub-nav */}
       <h1 className="mb-2 text-xl font-bold text-zinc-900 dark:text-zinc-100">Legacy Migration</h1>
       <p className="mb-6 text-sm text-zinc-500">

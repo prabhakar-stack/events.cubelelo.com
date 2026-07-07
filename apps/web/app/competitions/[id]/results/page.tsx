@@ -59,7 +59,7 @@ export default function ResultsPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-4xl px-6 py-10">
+      <main className="mx-auto max-w-5xl px-6 py-10">
         <Skeleton className="mb-2 h-8 w-64" />
         <Skeleton className="mb-6 h-4 w-32" />
         <div className="mb-8 grid grid-cols-3 gap-3">
@@ -74,7 +74,7 @@ export default function ResultsPage() {
 
   if (!comp) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-red-400">
+      <main className="flex min-h-[60vh] items-center justify-center text-red-500 dark:text-red-400">
         Competition not found
       </main>
     );
@@ -88,11 +88,11 @@ export default function ResultsPage() {
   const podium = results.slice(0, 3);
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-10">
-      <h1 className="mb-2 text-2xl font-bold text-zinc-100">
+    <main className="mx-auto max-w-5xl px-6 py-10">
+      <h1 className="mb-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
         {comp.title} — Results
       </h1>
-      <p className="mb-6 text-sm text-zinc-400">
+      <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
         <StatusBadge status={comp.status} />
       </p>
 
@@ -105,12 +105,12 @@ export default function ResultsPage() {
               key={r.id}
               onClick={() => hasResults && setActiveRound(r.id)}
               disabled={!hasResults}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition ${
                 activeRound === r.id
                   ? "bg-accent-primary text-zinc-950"
                   : hasResults
-                    ? "bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
-                    : "bg-zinc-900/40 text-zinc-600 cursor-not-allowed"
+                    ? "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    : "bg-zinc-100/60 text-zinc-400 cursor-not-allowed dark:bg-zinc-900/40 dark:text-zinc-600"
               }`}
             >
               <EventIcon eventId={r.eventType} size={16} />
@@ -121,7 +121,7 @@ export default function ResultsPage() {
       </div>
 
       {results.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-700 p-10 text-center text-zinc-500">
+        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
           No results yet for this round.
         </div>
       ) : (
@@ -143,7 +143,7 @@ export default function ResultsPage() {
                     <span className="mb-1 text-2xl">{style.medal}</span>
                     <Link
                       href={`/profile/${r.userClId ?? r.userId}`}
-                      className="max-w-full truncate text-sm font-semibold text-zinc-100 hover:underline"
+                      className="max-w-full truncate text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
                     >
                       {r.userName ?? r.userId}
                     </Link>
@@ -156,10 +156,10 @@ export default function ResultsPage() {
             </div>
           )}
 
-          <div className="overflow-x-auto rounded-xl border border-zinc-800">
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500">
+                <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
                   <th className="px-4 py-3">Rank</th>
                   <th className="px-4 py-3">Competitor</th>
                   <th className="px-4 py-3 text-right">Average (ao5)</th>
@@ -173,20 +173,20 @@ export default function ResultsPage() {
                   return (
                     <tr
                       key={r.id}
-                      className={`row-count-in border-b border-zinc-800/50 ${
+                      className={`row-count-in border-b border-zinc-100 dark:border-zinc-800/50 ${
                         isMe
                           ? "bg-accent-primary/10 shadow-[inset_0_0_0_1px_var(--accent-primary)]"
-                          : "hover:bg-zinc-900/40"
+                          : "hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
                       }`}
                       style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
                     >
-                      <td className="px-4 py-2.5 font-mono text-zinc-300">
+                      <td className="px-4 py-3 font-mono text-zinc-500 dark:text-zinc-300">
                         {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (r.rank ?? "—")}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="px-4 py-3">
                         <Link
                           href={`/profile/${r.userClId ?? r.userId}`}
-                          className="text-emerald-400 hover:text-emerald-300"
+                          className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400 dark:hover:text-emerald-300"
                         >
                           {r.userName ?? r.userId}
                         </Link>
@@ -196,18 +196,18 @@ export default function ResultsPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-right font-mono text-zinc-200">
+                      <td className="px-4 py-3 text-right font-mono text-zinc-800 dark:text-zinc-200">
                         {r.ao5Ms !== null && r.ao5Ms !== Infinity
                           ? formatTime(r.ao5Ms)
                           : "DNF"}
                       </td>
-                      <td className="px-4 py-2.5 text-right font-mono text-zinc-200">
+                      <td className="px-4 py-3 text-right font-mono text-zinc-800 dark:text-zinc-200">
                         {r.bestSingleMs !== null && r.bestSingleMs !== Infinity
                           ? formatTime(r.bestSingleMs)
                           : "DNF"}
                       </td>
                       {user && (
-                        <td className="px-4 py-2.5">
+                        <td className="px-4 py-3">
                           {r.userId === user.id && (
                             <button
                               onClick={() => {
@@ -215,7 +215,7 @@ export default function ResultsPage() {
                                 setAppealReason("");
                                 setAppealStatus("idle");
                               }}
-                              className="rounded bg-amber-900/30 px-2 py-1 text-xs text-amber-400 hover:bg-amber-900/50"
+                              className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50"
                             >
                               Appeal
                             </button>

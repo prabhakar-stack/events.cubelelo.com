@@ -30,7 +30,7 @@ export default function AdminMergePage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-8 py-10">
       <h1 className="mb-4 text-xl font-bold text-zinc-900 dark:text-zinc-100">Merge Duplicate Accounts</h1>
       <p className="mb-6 text-sm text-zinc-500">
         Merge two user accounts into one. The &quot;keep&quot; account retains its profile. All registrations

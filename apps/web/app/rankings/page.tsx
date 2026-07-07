@@ -74,34 +74,28 @@ export default function RankingsPage() {
   const rest = entries.slice(3);
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-10">
-      <h1 className="mb-6 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Rankings</h1>
-
-      {/* Event filter dropdown */}
-      <div className="mb-8 flex items-center gap-3">
-        <label htmlFor="event-select" className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-          Event
-        </label>
-        <div className="relative">
-          <select
-            id="event-select"
-            value={event}
-            onChange={(e) => setEvent(e.target.value)}
-            className="appearance-none rounded-lg border border-zinc-200 bg-white py-2 pl-3 pr-10 text-sm font-semibold text-zinc-800 shadow-sm transition hover:border-zinc-300 focus:border-accent-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/30 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-600"
+    <>
+      {/* ══ Event rail — fixed to viewport on desktop, same technique as AdminShell ══ */}
+      <nav className="flex gap-1.5 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-zinc-200 lg:bg-white lg:px-3 lg:py-6 dark:lg:border-zinc-800 dark:lg:bg-zinc-950">
+        {EVENT_IDS.map((id) => (
+          <button
+            key={id}
+            onClick={() => setEvent(id)}
+            className={`flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition lg:shrink ${
+              event === id
+                ? "bg-accent-primary/10 font-semibold text-accent-primary"
+                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            }`}
           >
-            {EVENT_IDS.map((id) => (
-              <option key={id} value={id}>
-                {eventDisplayName(id)}
-              </option>
-            ))}
-          </select>
-          <EventIcon
-            eventId={event}
-            size={16}
-            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"
-          />
-        </div>
-      </div>
+            <EventIcon eventId={id} size={18} />
+            <span className="whitespace-nowrap">{eventDisplayName(id)}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="lg:pl-56">
+        <main className="mx-auto max-w-6xl px-6 py-10">
+          <h1 className="mb-6 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Rankings</h1>
 
       {loading ? (
         <>
@@ -180,13 +174,13 @@ export default function RankingsPage() {
                       }`}
                       style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
                     >
-                      <td className="px-4 py-2.5 font-mono text-zinc-400">
+                      <td className="px-4 py-3 font-mono text-zinc-400">
                         <span className="inline-flex items-center gap-1.5">
                           {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
                           <RankDelta delta={deltas[r.clId]} />
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 font-medium text-zinc-800 dark:text-zinc-200">
+                      <td className="px-4 py-3 font-medium text-zinc-800 dark:text-zinc-200">
                         {r.name}
                         {isMe && (
                           <span className="ml-2 rounded-full bg-accent-primary/20 px-1.5 py-0.5 text-[10px] font-semibold text-accent-primary">
@@ -194,7 +188,7 @@ export default function RankingsPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="px-4 py-3">
                         <Link
                           href={`/profile/${r.clId}`}
                           className="font-mono text-emerald-400 hover:text-emerald-300"
@@ -202,12 +196,12 @@ export default function RankingsPage() {
                           {r.clId}
                         </Link>
                       </td>
-                      <td className="px-4 py-2.5 text-right font-mono text-zinc-800 dark:text-zinc-200">
+                      <td className="px-4 py-3 text-right font-mono text-zinc-800 dark:text-zinc-200">
                         {r.bestAo5Ms !== null && r.bestAo5Ms !== Infinity
                           ? formatTime(r.bestAo5Ms)
                           : "—"}
                       </td>
-                      <td className="px-4 py-2.5 text-right font-mono text-zinc-800 dark:text-zinc-200">
+                      <td className="px-4 py-3 text-right font-mono text-zinc-800 dark:text-zinc-200">
                         {r.bestSingleMs !== null && r.bestSingleMs !== Infinity
                           ? formatTime(r.bestSingleMs)
                           : "—"}
@@ -220,7 +214,9 @@ export default function RankingsPage() {
           </div>
         </>
       )}
-    </main>
+        </main>
+      </div>
+    </>
   );
 }
 

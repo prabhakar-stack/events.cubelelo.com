@@ -87,7 +87,7 @@ export function NavBar() {
     <>
     <nav
       data-layout="navbar"
-      className={`sticky top-0 z-40 flex items-center justify-between border-b px-6 py-3 text-sm transition-all duration-200 ${
+      className={`fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b px-6 text-sm transition-all duration-200 ${
         scrolled
           ? "border-zinc-200 bg-white/80 shadow-sm backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80"
           : "border-transparent bg-white dark:bg-zinc-950"
@@ -287,7 +287,7 @@ export function NavBar() {
     </nav>
 
     {mobileOpen && (
-      <div className="border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
+      <div className="fixed inset-x-0 top-14 z-40 border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
         <div className="flex flex-col gap-1">
           {NAV_LINKS.map((l) => (
             <Link

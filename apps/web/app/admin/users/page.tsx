@@ -81,7 +81,7 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-8 py-10">
       {/* Sub-nav */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Users</h1>

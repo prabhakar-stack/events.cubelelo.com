@@ -47,9 +47,16 @@ export const STATUS_DOMAINS = {
     results_pending: { label: "Results Pending", tone: "warning" },
     completed: { label: "Completed", tone: "info" },
     open: { label: "Open", tone: "success" },
-    pending: { label: "Pending", tone: "warning" },
+    pending: { label: "Upcoming", tone: "info" },
     closed: { label: "Closed", tone: "neutral" },
     advanced: { label: "Advanced", tone: "info" },
+  },
+  round: {
+    pending: { label: "Upcoming", tone: "info" },
+    open: { label: "Live", tone: "success" },
+    closed: { label: "Closed", tone: "neutral" },
+    advanced: { label: "Shortlisted", tone: "info" },
+    cancelled: { label: "Cancelled", tone: "danger" },
   },
   payment: {
     pending: { label: "Pending", tone: "warning" },

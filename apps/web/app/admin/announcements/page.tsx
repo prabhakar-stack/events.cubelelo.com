@@ -103,7 +103,7 @@ export default function AdminContentPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-8 py-10">
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Announcements</h1>

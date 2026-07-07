@@ -1,4 +1,4 @@
-import type { Competition, Round } from "../db/types";
+import type { Competition, CompetitionEvent, Round } from "../db/types";
 
 export interface ScheduleValidationResult {
   valid: boolean;
@@ -9,6 +9,7 @@ export function validateCompetitionSchedule(
   comp: Partial<Competition>,
   rounds: Round[],
   requireAllRoundTimes = true,
+  events?: CompetitionEvent[],
 ): ScheduleValidationResult {
   const errors: string[] = [];
 
@@ -30,7 +31,11 @@ export function validateCompetitionSchedule(
     errors.push("Competition start must be before competition end");
   }
 
-  // Group rounds by competitionEventId
+  const eventMap = new Map<string, string>();
+  if (events) {
+    for (const e of events) eventMap.set(e.id, e.eventType);
+  }
+
   const byEvent = new Map<string, Round[]>();
   for (const r of rounds) {
     const list = byEvent.get(r.competitionEventId) ?? [];
@@ -38,13 +43,16 @@ export function validateCompetitionSchedule(
     byEvent.set(r.competitionEventId, list);
   }
 
-  for (const [, eventRounds] of byEvent) {
+  for (const [ceId, eventRounds] of byEvent) {
     const sorted = [...eventRounds].sort((a, b) => a.roundNumber - b.roundNumber);
+    const eventLabel = eventMap.get(ceId);
 
     for (const r of sorted) {
       const rOpen = r.opensAt ? +new Date(r.opensAt) : null;
       const rClose = r.closesAt ? +new Date(r.closesAt) : null;
-      const label = `Round ${r.roundNumber}`;
+      const label = eventLabel
+        ? `${eventLabel} Round ${r.roundNumber}`
+        : `Round ${r.roundNumber}`;
 
       if (requireAllRoundTimes) {
         if (!rOpen) errors.push(`${label}: start time is required`);
@@ -63,17 +71,20 @@ export function validateCompetitionSchedule(
       }
     }
 
-    // Check sequential ordering (no overlaps)
     for (let i = 1; i < sorted.length; i++) {
       const prev = sorted[i - 1]!;
       const curr = sorted[i]!;
       const prevClose = prev.closesAt ? +new Date(prev.closesAt) : null;
       const currOpen = curr.opensAt ? +new Date(curr.opensAt) : null;
+      const prevLabel = eventLabel
+        ? `${eventLabel} R${prev.roundNumber}`
+        : `Round ${prev.roundNumber}`;
+      const currLabel = eventLabel
+        ? `${eventLabel} R${curr.roundNumber}`
+        : `Round ${curr.roundNumber}`;
 
       if (prevClose !== null && currOpen !== null && prevClose > currOpen) {
-        errors.push(
-          `Round ${prev.roundNumber} must end before Round ${curr.roundNumber} starts`,
-        );
+        errors.push(`${prevLabel} must end before ${currLabel} starts`);
       }
     }
   }
@@ -108,21 +119,23 @@ export function validateRoundTimes(
   round: Round,
   siblings: Round[],
   comp: Partial<Competition>,
+  eventType?: string,
 ): ScheduleValidationResult {
   const errors: string[] = [];
   const rOpen = round.opensAt ? +new Date(round.opensAt) : null;
   const rClose = round.closesAt ? +new Date(round.closesAt) : null;
   const starts = comp.startsAt ? +new Date(comp.startsAt) : null;
   const ends = comp.endsAt ? +new Date(comp.endsAt) : null;
+  const prefix = eventType ? `${eventType} ` : "";
 
   if (rOpen !== null && rClose !== null && rOpen >= rClose) {
-    errors.push("Round start must be before round end");
+    errors.push(`${prefix}Round ${round.roundNumber}: start must be before end`);
   }
   if (starts !== null && rOpen !== null && rOpen < starts) {
-    errors.push("Round starts before competition start");
+    errors.push(`${prefix}Round ${round.roundNumber}: starts before competition start`);
   }
   if (ends !== null && rClose !== null && rClose > ends) {
-    errors.push("Round ends after competition end");
+    errors.push(`${prefix}Round ${round.roundNumber}: ends after competition end`);
   }
 
   for (const sib of siblings) {
@@ -131,10 +144,10 @@ export function validateRoundTimes(
     const sibClose = sib.closesAt ? +new Date(sib.closesAt) : null;
 
     if (sib.roundNumber < round.roundNumber && sibClose !== null && rOpen !== null && sibClose > rOpen) {
-      errors.push(`Round ${sib.roundNumber} must end before Round ${round.roundNumber} starts`);
+      errors.push(`${prefix}R${sib.roundNumber} must end before ${prefix}R${round.roundNumber} starts`);
     }
     if (sib.roundNumber > round.roundNumber && rClose !== null && sibOpen !== null && rClose > sibOpen) {
-      errors.push(`Round ${round.roundNumber} must end before Round ${sib.roundNumber} starts`);
+      errors.push(`${prefix}R${round.roundNumber} must end before ${prefix}R${sib.roundNumber} starts`);
     }
   }
 

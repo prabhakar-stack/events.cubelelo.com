@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { fetchAdminPayments, downloadInvoice, type AdminPaymentDto } from "@/lib/api";
+import { fetchAdminPayments, downloadInvoice, confirmPayment, type AdminPaymentDto } from "@/lib/api";
 import { EmptyState } from "@/components/EmptyState";
+import { ConfirmModal } from "@/components/ui/Modal";
 
 
 const STATUSES = ["pending", "paid", "failed", "refunded", "refund_pending"];
@@ -25,6 +26,8 @@ export default function AdminPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -38,8 +41,22 @@ export default function AdminPaymentsPage() {
 
   const total = payments.filter((p) => p.status === "paid").reduce((s, p) => s + p.amount, 0);
 
+  const handleConfirm = async () => {
+    if (!confirmingId) return;
+    setConfirming(true);
+    try {
+      await confirmPayment(confirmingId, "Manual confirmation by admin");
+      setConfirmingId(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-8 py-10">
       {/* Sub-nav */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Payments</h1>
@@ -111,14 +128,24 @@ export default function AdminPaymentsPage() {
                     {new Date(p.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3">
-                    {p.status === "paid" && (
-                      <button
-                        onClick={() => downloadInvoice(p.id)}
-                        className="rounded bg-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                      >
-                        Download
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {p.status === "pending" && (
+                        <button
+                          onClick={() => setConfirmingId(p.id)}
+                          className="rounded bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-500"
+                        >
+                          Confirm
+                        </button>
+                      )}
+                      {p.status === "paid" && (
+                        <button
+                          onClick={() => downloadInvoice(p.id)}
+                          className="rounded bg-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                        >
+                          Invoice
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -126,6 +153,16 @@ export default function AdminPaymentsPage() {
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmingId}
+        onClose={() => setConfirmingId(null)}
+        onConfirm={handleConfirm}
+        loading={confirming}
+        title="Confirm payment?"
+        description="This marks the payment as paid and completes the registration. Use this for offline/cash payments. This action is logged."
+        confirmLabel="Confirm Payment"
+      />
     </div>
   );
 }

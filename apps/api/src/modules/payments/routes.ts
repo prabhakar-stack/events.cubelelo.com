@@ -120,7 +120,65 @@ export async function registerPaymentRoutes(
       };
       await repo.payments.create(payment);
 
-      return reply.code(201).send({ orderId, amount, currency: "INR", paymentId: payment.id });
+      return reply.code(201).send({
+        orderId,
+        amount,
+        currency: "INR",
+        paymentId: payment.id,
+        keyId: env.RAZORPAY_KEY_ID || null,
+      });
+    },
+  );
+
+  // Client-side checkout verification — uses RAZORPAY_KEY_SECRET (not webhook secret).
+  app.post<{
+    Body: {
+      razorpay_order_id?: string;
+      razorpay_payment_id?: string;
+      razorpay_signature?: string;
+    };
+  }>(
+    "/api/v1/payments/verify",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body ?? {};
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature)
+        return reply.code(400).send({ error: "missing_fields" });
+
+      if (!env.RAZORPAY_KEY_SECRET)
+        return reply.code(500).send({ error: "razorpay_not_configured" });
+
+      const expected = createHmac("sha256", env.RAZORPAY_KEY_SECRET)
+        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+        .digest("hex");
+      if (expected !== razorpay_signature)
+        return reply.code(400).send({ error: "invalid_signature" });
+
+      const payment = await repo.payments.findByOrderId(razorpay_order_id);
+      if (!payment) return reply.code(404).send({ error: "payment_not_found" });
+
+      if (payment.userId !== req.authClaims!.sub)
+        return reply.code(403).send({ error: "forbidden" });
+
+      if (payment.status === "paid")
+        return reply.send({ status: "already_confirmed" });
+
+      await repo.payments.update(payment.id, {
+        razorpayPaymentId: razorpay_payment_id,
+        status: "paid",
+      });
+      await repo.registrations.update(payment.registrationId, { paymentStatus: "paid" });
+
+      await repo.auditLog.create({
+        id: randomUUID(),
+        adminId: "system",
+        action: "payment_confirmed",
+        target: payment.id,
+        reason: `checkout verified: order=${razorpay_order_id} payment=${razorpay_payment_id}`,
+        createdAt: new Date().toISOString(),
+      });
+
+      return { status: "confirmed" };
     },
   );
 

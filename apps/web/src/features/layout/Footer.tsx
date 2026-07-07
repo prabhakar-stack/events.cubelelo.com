@@ -15,6 +15,9 @@ const DETAIL_LINKS = [
 export function Footer() {
   const pathname = usePathname();
   if (pathname.startsWith("/admin")) return null;
+  // Competition detail page has its own side-nav (with FAQs/Contact tabs already reachable there)
+  // and a sticky action sidebar — the footer just adds unreachable dead space below the fold.
+  if (/^\/competitions\/[^/]+$/.test(pathname)) return null;
 
   return (
     <footer data-layout="footer" className="mt-auto border-t border-zinc-200 bg-white py-8 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">

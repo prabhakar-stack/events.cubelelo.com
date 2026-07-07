@@ -30,7 +30,7 @@ export default function Home() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="mx-auto max-w-[1400px] px-6 py-8">
         <Skeleton className="mb-4 h-40 w-full rounded-xl" />
         <section className="mt-8">
           <Skeleton className="mb-3 h-3 w-24" />
@@ -45,7 +45,7 @@ export default function Home() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-8">
+    <main className="mx-auto max-w-[1400px] px-6 py-8">
       <BannerSlider />
 
       {featured && <Hero comp={featured} />}

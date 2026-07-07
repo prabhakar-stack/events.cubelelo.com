@@ -52,7 +52,7 @@ export default function EventPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-5xl px-6 py-10">
+      <main className="mx-auto max-w-6xl px-6 py-10">
         <Skeleton className="mb-4 h-4 w-32" />
         <Skeleton className="mb-6 h-8 w-56" />
         <Skeleton className="mb-4 h-10 w-full rounded-xl" />
@@ -82,46 +82,9 @@ export default function EventPage() {
       : null;
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
-      {/* Back link */}
-      <Link
-        href={`/competitions/${competition.id}`}
-        className="mb-4 inline-block text-sm text-zinc-500 hover:text-zinc-300"
-      >
-        ← {competition.title}
-      </Link>
-
-      {/* Event header */}
-      <div className="mb-2 flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-          {eventDisplayName(event.eventType)}
-        </h1>
-        <span className="text-sm text-zinc-500">
-          {event.roundCount} round{event.roundCount > 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* Event details */}
-      <div className="mb-6 flex flex-wrap gap-4 text-xs text-zinc-500">
-        {event.cutoffMs && <span>Cutoff: {(event.cutoffMs / 1000).toFixed(1)}s</span>}
-        {event.timeLimitMs && <span>Time limit: {(event.timeLimitMs / 1000).toFixed(1)}s</span>}
-        <StatusBadge status={competition.status} />
-      </div>
-
-      {/* Cancellation banner */}
-      {competition.status === "cancelled" && competition.cancellationReason && (
-        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
-          <div className="mb-1 text-sm font-semibold text-red-700 dark:text-red-300">
-            This competition has been cancelled
-          </div>
-          <p className="text-sm text-red-600 dark:text-red-400">
-            {competition.cancellationReason}
-          </p>
-        </div>
-      )}
-
-      {/* Round selector pills */}
-      <div className="mb-4 flex flex-wrap gap-2">
+    <>
+      {/* ══ Round nav — fixed to viewport on desktop, same technique as AdminShell ══ */}
+      <nav className="flex gap-1.5 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-zinc-200 lg:bg-white lg:px-3 lg:py-6 dark:lg:border-zinc-800 dark:lg:bg-zinc-950">
         {rounds.map((r, idx) => (
           <button
             key={r.id}
@@ -129,50 +92,125 @@ export default function EventPage() {
               setSelectedRoundIdx(idx);
               setRoundTab("live");
             }}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition lg:w-full lg:shrink ${
               selectedRoundIdx === idx
-                ? "bg-emerald-600 text-white"
-                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                ? "bg-accent-primary/10 font-semibold text-accent-primary"
+                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
             }`}
           >
-            R{r.roundNumber}
+            Round {r.roundNumber}
             <StatusBadge status={r.status} />
           </button>
         ))}
+      </nav>
+
+      <div className="lg:pl-56">
+        <main className="mx-auto max-w-6xl px-6 py-10">
+          {/* Back link */}
+          <Link
+            href={`/competitions/${competition.id}`}
+            className="mb-4 inline-block text-sm text-zinc-500 hover:text-zinc-300"
+          >
+            ← {competition.title}
+          </Link>
+
+          {/* Event header */}
+          <div className="mb-2 flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+              {eventDisplayName(event.eventType)}
+            </h1>
+            <span className="text-sm text-zinc-500">
+              {event.roundCount} round{event.roundCount > 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {/* Cancellation banner */}
+          {competition.status === "cancelled" && competition.cancellationReason && (
+            <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+              <div className="mb-1 text-sm font-semibold text-red-700 dark:text-red-300">
+                This competition has been cancelled
+              </div>
+              <p className="text-sm text-red-600 dark:text-red-400">
+                {competition.cancellationReason}
+              </p>
+            </div>
+          )}
+
+          <div className="grid gap-6 lg:grid-cols-[1fr_300px] lg:items-start">
+            {/* ══ Main column ══ */}
+            <div className="min-w-0">
+              {selectedRound && (
+                <SelectedRoundView
+                  round={selectedRound}
+                  userRound={userRound ?? null}
+                  userStatus={userStatus}
+                  nextRound={nextRound}
+                  isLastRound={selectedRoundIdx === rounds.length - 1}
+                  finalStandings={selectedRoundIdx === rounds.length - 1 ? finalStandings : null}
+                  competitionId={competition.id}
+                  eventType={event.eventType}
+                  roundTab={roundTab}
+                  setRoundTab={setRoundTab}
+                  videoDeadlineMinutes={competition.videoDeadlineMinutes}
+                  onVideoUpdate={() => {
+                    fetchEventPage(params.id!, params.eventId!).then(setData).catch(() => {});
+                  }}
+                />
+              )}
+            </div>
+
+            {/* ══ Sidebar — event info + rules ══ */}
+            <aside className="space-y-4 lg:sticky lg:top-20">
+              <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
+                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Event Info</h2>
+                <dl className="space-y-2.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <dt className="text-zinc-500">Competition</dt>
+                    <dd><StatusBadge status={competition.status} /></dd>
+                  </div>
+                  {event.cutoffMs && (
+                    <div className="flex items-center justify-between">
+                      <dt className="text-zinc-500">Cutoff</dt>
+                      <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">{(event.cutoffMs / 1000).toFixed(1)}s</dd>
+                    </div>
+                  )}
+                  {event.timeLimitMs && (
+                    <div className="flex items-center justify-between">
+                      <dt className="text-zinc-500">Time limit</dt>
+                      <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">{(event.timeLimitMs / 1000).toFixed(1)}s</dd>
+                    </div>
+                  )}
+                  {selectedRound && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <dt className="text-zinc-500">Results</dt>
+                        <dd className="font-medium text-zinc-800 dark:text-zinc-200">{selectedRound.resultCount}</dd>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <dt className="text-zinc-500">Participants</dt>
+                        <dd className="font-medium text-zinc-800 dark:text-zinc-200">{selectedRound.participantCount}</dd>
+                      </div>
+                    </>
+                  )}
+                </dl>
+              </div>
+
+              {/* Rules */}
+              {competition.rulesMd && (
+                <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
+                  <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    Rules
+                  </h2>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                    {competition.rulesMd}
+                  </p>
+                </div>
+              )}
+            </aside>
+          </div>
+        </main>
       </div>
-
-      {/* Selected round content */}
-      {selectedRound && (
-        <SelectedRoundView
-          round={selectedRound}
-          userRound={userRound ?? null}
-          userStatus={userStatus}
-          nextRound={nextRound}
-          isLastRound={selectedRoundIdx === rounds.length - 1}
-          finalStandings={selectedRoundIdx === rounds.length - 1 ? finalStandings : null}
-          competitionId={competition.id}
-          eventType={event.eventType}
-          roundTab={roundTab}
-          setRoundTab={setRoundTab}
-          videoDeadlineMinutes={competition.videoDeadlineMinutes}
-          onVideoUpdate={() => {
-            fetchEventPage(params.id!, params.eventId!).then(setData).catch(() => {});
-          }}
-        />
-      )}
-
-      {/* Rules */}
-      {competition.rulesMd && (
-        <div className="mt-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
-            Rules
-          </h2>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-            {competition.rulesMd}
-          </p>
-        </div>
-      )}
-    </main>
+    </>
   );
 }
 
@@ -229,7 +267,7 @@ function SelectedRoundView({
         </span>
         <StatusBadge status={liveStatus} />
 
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
+        <div className="flex items-center gap-2 text-sm text-zinc-500">
           <span>{round.resultCount} result{round.resultCount !== 1 ? "s" : ""}</span>
           <span>·</span>
           <span>{round.participantCount} participant{round.participantCount !== 1 ? "s" : ""}</span>
@@ -288,7 +326,7 @@ function SelectedRoundView({
           <button
             key={t}
             onClick={() => setRoundTab(t)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-lg px-3.5 py-2 text-sm font-semibold transition ${
               roundTab === t
                 ? "bg-accent-primary text-zinc-950"
                 : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
@@ -322,14 +360,14 @@ function SelectedRoundView({
             {finalStandings.map((entry) => (
               <div
                 key={entry.userId}
-                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-300"
+                className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-zinc-700 dark:text-zinc-300"
               >
                 <span className={`w-8 text-center font-bold ${
-                  entry.rank === 1 ? "text-amber-400" : entry.rank === 2 ? "text-zinc-400" : entry.rank === 3 ? "text-amber-600" : "text-zinc-500"
+                  entry.rank === 1 ? "text-amber-500 dark:text-amber-400" : entry.rank === 2 ? "text-zinc-500 dark:text-zinc-400" : entry.rank === 3 ? "text-amber-700 dark:text-amber-600" : "text-zinc-500"
                 }`}>
                   #{entry.rank}
                 </span>
-                <span className="text-zinc-200">{entry.displayName}</span>
+                <span className="text-zinc-800 dark:text-zinc-200">{entry.displayName}</span>
               </div>
             ))}
           </div>
@@ -703,20 +741,20 @@ function ResultTable({
                 justMoved.has(r.id) ? "bg-accent-primary/15" : "bg-white dark:bg-zinc-900/40"
               }`}
             >
-              <td className="px-4 py-2.5 font-mono text-zinc-400">{r.rank ?? "—"}</td>
-              <td className="px-4 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
+              <td className="px-4 py-3 font-mono text-zinc-400">{r.rank ?? "—"}</td>
+              <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
                 <Link href={`/profile/${r.userClId ?? r.userId}`} className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400 dark:hover:text-emerald-300">
                   {r.userName ?? r.userId}
                 </Link>
               </td>
-              <td className="px-4 py-2.5 font-mono text-zinc-700 dark:text-zinc-300">
+              <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
                 {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}
               </td>
-              <td className="px-4 py-2.5 font-mono text-zinc-700 dark:text-zinc-300">
+              <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
                 {r.bestSingleMs !== null ? formatTime(r.bestSingleMs) : "—"}
               </td>
               {showFlagStatus && (
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-3">
                   <span
                     className={`rounded px-1.5 py-0.5 text-xs ${
                       r.flagStatus === "clean" || r.flagStatus === "verified"

@@ -2,7 +2,7 @@ import type { RoundStatus } from "@cubers/types";
 import type { Repository } from "../db/repo";
 import type { Realtime } from "../sockets/realtime";
 import { effectiveRoundStatus, effectiveCompStatus } from "./statusUtils";
-import { closeRound, shortlistRound } from "./roundLifecycle";
+import { closeRound, shortlistRound, ensureScramblesGenerated } from "./roundLifecycle";
 
 const TICK_INTERVAL_MS = 10_000;
 
@@ -22,6 +22,7 @@ export function startRoundTicker(repo: Repository, realtime: Realtime): () => vo
         if (effective === round.status) continue;
 
         if (effective === "open" && round.status === "pending") {
+          await ensureScramblesGenerated(repo, round);
           await repo.rounds.update(round.id, { status: "open" });
           realtime.emitRoundStatus(round.id, "open" as RoundStatus, round.opensAt);
           console.log(`⏱ Round ${round.id} auto-opened`);

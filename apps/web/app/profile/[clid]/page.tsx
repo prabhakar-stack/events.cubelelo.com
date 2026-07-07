@@ -29,26 +29,24 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-4xl px-6 py-8">
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
-          <div className="flex items-start gap-5">
-            <Skeleton className="h-16 w-16 rounded-full" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-6 w-40" />
-              <Skeleton className="h-4 w-24" />
-            </div>
-          </div>
-        </section>
-        <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
-          <Skeleton className="h-32 w-full" />
-        </section>
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+          <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <Skeleton className="mb-4 h-16 w-16 rounded-full" />
+            <Skeleton className="mb-2 h-6 w-32" />
+            <Skeleton className="h-4 w-24" />
+          </section>
+          <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <Skeleton className="h-32 w-full" />
+          </section>
+        </div>
       </main>
     );
   }
 
   if (error || !profile) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-red-400">
+      <main className="flex min-h-[60vh] items-center justify-center text-red-500 dark:text-red-400">
         {error ?? "User not found"}
       </main>
     );
@@ -60,32 +58,33 @@ export default function ProfilePage() {
   const eventStatEntries = Object.entries(profile.stats?.eventStats ?? {});
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-8">
-      {/* ═══ Section 1: Profile Details ═══ */}
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-5">
-            {profile.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={profile.avatarUrl}
-                alt={profile.name}
-                className="h-16 w-16 flex-shrink-0 rounded-full object-cover"
-              />
-            ) : (
-              <GradientAvatar name={profile.name} size={64} className="text-2xl" />
-            )}
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{profile.name}</h1>
-                {isPrivate && (
-                  <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                    &#x1F512; Private
-                  </span>
-                )}
+    <main className="mx-auto max-w-6xl px-6 py-8">
+      <div className="grid gap-6 lg:grid-cols-[300px_1fr] lg:items-start">
+        {/* ══ Left column — identity card (sticky) ══ */}
+        <div className="space-y-6 lg:sticky lg:top-20">
+          <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <div className="flex flex-col items-center text-center">
+              {profile.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={profile.avatarUrl}
+                  alt={profile.name}
+                  className="h-20 w-20 flex-shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <GradientAvatar name={profile.name} size={80} className="text-3xl" />
+              )}
+              <div className="mt-3 flex items-center gap-2">
+                <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{profile.name}</h1>
               </div>
-              <p className="font-mono text-sm text-emerald-400">{profile.clId}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              {isPrivate && (
+                <span className="mt-1 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                  &#x1F512; Private
+                </span>
+              )}
+              <p className="mt-1 font-mono text-sm text-emerald-600 dark:text-emerald-400">{profile.clId}</p>
+
+              <div className="mt-4 flex w-full flex-col items-center gap-2 border-t border-zinc-200 pt-4 text-sm text-zinc-500 dark:border-zinc-800">
                 {!isPrivate && (profile.city || profile.state || profile.country) && (
                   <span>
                     {[profile.city, profile.state, profile.country]
@@ -94,13 +93,13 @@ export default function ProfilePage() {
                   </span>
                 )}
                 {!isPrivate && profile.wcaId && (
-                  <span className={profile.wcaVerified ? "text-emerald-400" : ""}>
+                  <span className={profile.wcaVerified ? "text-emerald-600 dark:text-emerald-400" : ""}>
                     WCA: {profile.wcaId}
                     {profile.wcaVerified ? " ✓" : ""}
                   </span>
                 )}
                 {!isPrivate && profile.instagram && (
-                  <span className="text-zinc-400">@{profile.instagram}</span>
+                  <span className="text-zinc-400 dark:text-zinc-500">@{profile.instagram}</span>
                 )}
                 {!isPrivate && profile.createdAt && (
                   <span className="rounded-full bg-accent-primary/10 px-2 py-0.5 font-semibold text-accent-primary">
@@ -108,134 +107,138 @@ export default function ProfilePage() {
                   </span>
                 )}
               </div>
+
+              {isOwnProfile && (
+                <Link
+                  href="/settings"
+                  className="mt-4 w-full rounded-lg border border-zinc-300 px-4 py-2 text-center text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Edit Profile
+                </Link>
+              )}
             </div>
-          </div>
-          {isOwnProfile && (
-            <Link
-              href="/settings"
-              className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
-            >
-              Edit Profile
-            </Link>
+          </section>
+
+          {!isPrivate && (
+            <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+              <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">Statistics</h2>
+              <div className="grid grid-cols-3 gap-3 lg:grid-cols-1 lg:gap-4">
+                <div className="text-center lg:flex lg:items-baseline lg:justify-between lg:text-left">
+                  <CountUp
+                    value={profile.stats?.totalCompetitions ?? 0}
+                    className="font-mono text-2xl font-bold text-zinc-900 dark:text-zinc-100"
+                  />
+                  <div className="text-xs text-zinc-500">Competitions</div>
+                </div>
+                <div className="text-center lg:flex lg:items-baseline lg:justify-between lg:text-left">
+                  <CountUp
+                    value={profile.stats?.totalSolves ?? 0}
+                    className="font-mono text-2xl font-bold text-zinc-900 dark:text-zinc-100"
+                  />
+                  <div className="text-xs text-zinc-500">Total Solves</div>
+                </div>
+                <div className="text-center lg:flex lg:items-baseline lg:justify-between lg:text-left">
+                  <CountUp value={pbEntries.length} className="font-mono text-2xl font-bold text-zinc-900 dark:text-zinc-100" />
+                  <div className="text-xs text-zinc-500">Events</div>
+                </div>
+              </div>
+            </section>
           )}
         </div>
-      </section>
 
-      {isPrivate && (
-        <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-center">
-          <div className="text-3xl mb-2">&#x1F512;</div>
-          <p className="text-sm text-zinc-400">This profile is private. Solve history and statistics are hidden.</p>
-        </section>
-      )}
+        {/* ══ Right column — main content ══ */}
+        <div className="space-y-6">
+          {isPrivate && (
+            <section className="rounded-2xl border border-zinc-200 bg-white p-6 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+              <div className="text-3xl mb-2">&#x1F512;</div>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">This profile is private. Solve history and statistics are hidden.</p>
+            </section>
+          )}
 
-      {!isPrivate && <>
-      {/* ═══ Section 2: Stats ═══ */}
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
-        <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
-          Statistics
-        </h2>
-
-        {/* Summary counters */}
-        <div className="mb-6 flex gap-6">
-          <div className="text-center">
-            <CountUp
-              value={profile.stats?.totalCompetitions ?? 0}
-              className="font-mono text-3xl font-bold text-zinc-100"
+          {!isPrivate && <>
+          {/* Solve timeline */}
+          <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
+              Solve Timeline
+            </h2>
+            <SolveTimelineGraph
+              timeline={profile.stats?.solveTimeline ?? {}}
+              eventStats={profile.stats?.eventStats ?? {}}
             />
-            <div className="text-xs text-zinc-500">Competitions</div>
-          </div>
-          <div className="text-center">
-            <CountUp
-              value={profile.stats?.totalSolves ?? 0}
-              className="font-mono text-3xl font-bold text-zinc-100"
-            />
-            <div className="text-xs text-zinc-500">Total Solves</div>
-          </div>
-          <div className="text-center">
-            <CountUp value={pbEntries.length} className="font-mono text-3xl font-bold text-zinc-100" />
-            <div className="text-xs text-zinc-500">Events</div>
-          </div>
-        </div>
+            <div className="mt-4 rounded-lg border border-dashed border-zinc-300 p-3 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-600">
+              Practice stats coming soon
+            </div>
+          </section>
 
-        {/* Solve timeline line graph */}
-        <SolveTimelineGraph
-          timeline={profile.stats?.solveTimeline ?? {}}
-          eventStats={profile.stats?.eventStats ?? {}}
-        />
+          {/* Personal Bests */}
+          <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
+              Personal Bests
+            </h2>
+            {pbEntries.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wider text-zinc-500 dark:border-zinc-800">
+                      <th className="pb-2 pr-4">Event</th>
+                      <th className="pb-2 px-4 text-right">Comp Single</th>
+                      <th className="pb-2 px-4 text-right">Comp ao5</th>
+                      <th className="pb-2 px-4 text-right text-zinc-400 dark:text-zinc-700">Practice Single</th>
+                      <th className="pb-2 pl-4 text-right text-zinc-400 dark:text-zinc-700">Practice ao5</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pbEntries.map(([event, pb]) => (
+                      <tr key={event} className="border-b border-zinc-100 dark:border-zinc-800/40">
+                        <td className="py-3 pr-4 font-mono font-semibold text-zinc-800 dark:text-zinc-200">
+                          <span className="inline-flex items-center gap-1.5">
+                            <EventIcon eventId={event} size={16} />
+                            {event}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-zinc-700 dark:text-zinc-300">
+                          {pb.bestSingle !== null ? formatTime(pb.bestSingle) : "—"}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-zinc-700 dark:text-zinc-300">
+                          {pb.bestAo5 !== null ? formatTime(pb.bestAo5) : "—"}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-zinc-400 dark:text-zinc-700">
+                          —
+                        </td>
+                        <td className="py-3 pl-4 text-right font-mono text-zinc-400 dark:text-zinc-700">
+                          —
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-500 dark:text-zinc-600">No personal bests yet.</p>
+            )}
+          </section>
 
-        {/* Practice placeholder */}
-        <div className="mt-4 rounded-lg border border-dashed border-zinc-800 p-3 text-center text-xs text-zinc-600">
-          Practice stats coming soon
-        </div>
-      </section>
-
-      {/* ═══ Section 3: Personal Bests ═══ */}
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
-        <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
-          Personal Bests
-        </h2>
-        {pbEntries.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-800 text-left text-[11px] uppercase tracking-wider text-zinc-500">
-                  <th className="pb-2 pr-4">Event</th>
-                  <th className="pb-2 px-4 text-right">Comp Single</th>
-                  <th className="pb-2 px-4 text-right">Comp ao5</th>
-                  <th className="pb-2 px-4 text-right text-zinc-700">Practice Single</th>
-                  <th className="pb-2 pl-4 text-right text-zinc-700">Practice ao5</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pbEntries.map(([event, pb]) => (
-                  <tr key={event} className="border-b border-zinc-800/40">
-                    <td className="py-2.5 pr-4 font-mono font-semibold text-zinc-200">
-                      <span className="inline-flex items-center gap-1.5">
-                        <EventIcon eventId={event} size={16} />
-                        {event}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-mono text-zinc-300">
-                      {pb.bestSingle !== null ? formatTime(pb.bestSingle) : "—"}
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-mono text-zinc-300">
-                      {pb.bestAo5 !== null ? formatTime(pb.bestAo5) : "—"}
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-mono text-zinc-700">
-                      —
-                    </td>
-                    <td className="py-2.5 pl-4 text-right font-mono text-zinc-700">
-                      —
-                    </td>
-                  </tr>
+          {/* Competition History */}
+          <section className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
+              Competition History
+            </h2>
+            {profile.competitionHistory.length === 0 ? (
+              <p className="text-sm text-zinc-500 dark:text-zinc-600">No competitions yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {profile.competitionHistory.map((h) => (
+                  <CompetitionHistoryCard key={h.competitionId} entry={h} />
                 ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-sm text-zinc-600">No personal bests yet.</p>
-        )}
-      </section>
-
-      {/* ═══ Section 4: Competition History ═══ */}
-      <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
-        <h2 className="mb-4 text-xs uppercase tracking-wider text-zinc-500">
-          Competition History
-        </h2>
-        {profile.competitionHistory.length === 0 ? (
-          <p className="text-sm text-zinc-600">No competitions yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {profile.competitionHistory.map((h) => (
-              <CompetitionHistoryCard key={h.competitionId} entry={h} />
-            ))}
-          </div>
-        )}
-      </section>
-      </>}
+              </div>
+            )}
+          </section>
+          </>}
+        </div>
+      </div>
 
       {/* ═══ Footer ═══ */}
-      <footer className="mt-10 border-t border-zinc-800 py-6 text-center text-xs text-zinc-600">
+      <footer className="mt-10 border-t border-zinc-200 py-6 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-600">
         <p>© {new Date().getFullYear()} Cubelelo Events. All rights reserved.</p>
       </footer>
     </main>
@@ -306,7 +309,7 @@ function SolveTimelineGraph({
             className={`rounded-lg px-3 py-1.5 font-mono text-xs font-semibold transition ${
               selected === et
                 ? "bg-emerald-600 text-white"
-                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
             }`}
           >
             {et}
@@ -330,8 +333,8 @@ function SolveTimelineGraph({
                 y1={y(t)}
                 x2={W - PAD_R}
                 y2={y(t)}
-                stroke="#27272a"
                 strokeWidth={1}
+                className="stroke-zinc-200 dark:stroke-zinc-800"
               />
               <text
                 x={PAD_L - 6}
@@ -339,7 +342,7 @@ function SolveTimelineGraph({
                 textAnchor="end"
                 fontSize={9}
                 fontFamily="monospace"
-                className="fill-zinc-600"
+                className="fill-zinc-400 dark:fill-zinc-600"
               >
                 {formatTime(t)}
               </text>
@@ -422,7 +425,7 @@ function SolveTimelineGraph({
                   textAnchor="middle"
                   fontSize={8}
                   fontFamily="monospace"
-                  className="fill-zinc-600"
+                  className="fill-zinc-400 dark:fill-zinc-600"
                 >
                   {i + 1}
                 </text>
@@ -435,7 +438,7 @@ function SolveTimelineGraph({
                   textAnchor="middle"
                   fontSize={8}
                   fontFamily="monospace"
-                  className="fill-zinc-600"
+                  className="fill-zinc-400 dark:fill-zinc-600"
                 >
                   {i + 1}
                 </text>
@@ -445,23 +448,23 @@ function SolveTimelineGraph({
         {/* Tooltip */}
         {hovered !== null && points[hovered] && (
           <div
-            className="pointer-events-none absolute z-10 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs shadow-lg"
+            className="pointer-events-none absolute z-10 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
             style={{
               left: `${(x(hovered) / W) * 100}%`,
               top: `${(y(points[hovered].timeMs) / H) * 100 - 14}%`,
               transform: "translate(-50%, -100%)",
             }}
           >
-            <div className="font-mono font-bold text-emerald-400">
+            <div className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
               {formatTime(points[hovered].timeMs)}
             </div>
             {points[hovered].ao5Ms != null && (
-              <div className="text-zinc-400">
+              <div className="text-zinc-500 dark:text-zinc-400">
                 ao5: {formatTime(points[hovered].ao5Ms!)}
               </div>
             )}
             <div className="text-zinc-500">{points[hovered].compTitle}</div>
-            <div className="text-zinc-600">Solve #{hovered + 1}</div>
+            <div className="text-zinc-400 dark:text-zinc-600">Solve #{hovered + 1}</div>
           </div>
         )}
       </div>
@@ -471,16 +474,16 @@ function SolveTimelineGraph({
         <div className="mt-2 flex gap-6 text-xs text-zinc-500">
           {stat.mean != null && (
             <span>
-              Mean: <span className="font-mono text-zinc-300">{formatTime(stat.mean)}</span>
+              Mean: <span className="font-mono text-zinc-700 dark:text-zinc-300">{formatTime(stat.mean)}</span>
             </span>
           )}
           {stat.stdDev != null && (
             <span>
-              σ: <span className="font-mono text-zinc-300">{formatTime(stat.stdDev)}</span>
+              σ: <span className="font-mono text-zinc-700 dark:text-zinc-300">{formatTime(stat.stdDev)}</span>
             </span>
           )}
           <span>
-            Solves: <span className="font-mono text-zinc-300">{stat.solveCount}</span>
+            Solves: <span className="font-mono text-zinc-700 dark:text-zinc-300">{stat.solveCount}</span>
           </span>
         </div>
       )}
@@ -498,13 +501,13 @@ function CompetitionHistoryCard({
   const eventTypes = entry.events.map((e) => e.eventType).join(", ");
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-950/40">
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/40">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-zinc-900/40"
+        className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
       >
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-zinc-200">{entry.competitionTitle}</span>
+          <span className="font-semibold text-zinc-800 dark:text-zinc-200">{entry.competitionTitle}</span>
           <StatusBadge status={entry.status} />
         </div>
         <div className="flex items-center gap-3">
@@ -526,20 +529,20 @@ function CompetitionHistoryCard({
       </button>
 
       {open && (
-        <div className="border-t border-zinc-800 px-4 py-3">
+        <div className="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
           {entry.events.length === 0 ? (
-            <p className="text-xs text-zinc-600">No results for this competition.</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-600">No results for this competition.</p>
           ) : (
             <div className="space-y-4">
               {entry.events.map((ev) => (
                 <div key={ev.eventType}>
-                  <div className="mb-2 font-mono text-sm font-semibold text-zinc-300">
+                  <div className="mb-2 font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-300">
                     {ev.eventType}
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="border-b border-zinc-800 text-left text-[10px] uppercase tracking-wider text-zinc-600">
+                        <tr className="border-b border-zinc-200 text-left text-[10px] uppercase tracking-wider text-zinc-500 dark:border-zinc-800 dark:text-zinc-600">
                           <th className="pb-1.5 pr-3">Round</th>
                           <th className="pb-1.5 px-3 text-right">Rank</th>
                           <th className="pb-1.5 px-3 text-right">ao5</th>
@@ -549,17 +552,17 @@ function CompetitionHistoryCard({
                       </thead>
                       <tbody>
                         {ev.rounds.map((rd) => (
-                          <tr key={rd.roundNumber} className="border-b border-zinc-800/30">
-                            <td className="py-1.5 pr-3 text-zinc-400">
+                          <tr key={rd.roundNumber} className="border-b border-zinc-100 dark:border-zinc-800/30">
+                            <td className="py-1.5 pr-3 text-zinc-500 dark:text-zinc-400">
                               R{rd.roundNumber}
                             </td>
-                            <td className="py-1.5 px-3 text-right font-mono text-zinc-200">
+                            <td className="py-1.5 px-3 text-right font-mono text-zinc-700 dark:text-zinc-200">
                               {rd.rank !== null ? `#${rd.rank}` : "—"}
                             </td>
-                            <td className="py-1.5 px-3 text-right font-mono text-zinc-200">
+                            <td className="py-1.5 px-3 text-right font-mono text-zinc-700 dark:text-zinc-200">
                               {rd.ao5Ms !== null ? formatTime(rd.ao5Ms) : "DNF"}
                             </td>
-                            <td className="py-1.5 px-3 text-right font-mono text-zinc-200">
+                            <td className="py-1.5 px-3 text-right font-mono text-zinc-700 dark:text-zinc-200">
                               {rd.bestSingleMs !== null
                                 ? formatTime(rd.bestSingleMs)
                                 : "—"}
@@ -582,7 +585,7 @@ function CompetitionHistoryCard({
           <div className="mt-3 text-right">
             <Link
               href={`/competitions/${entry.competitionId}`}
-              className="text-xs text-zinc-500 transition hover:text-zinc-300"
+              className="text-xs text-zinc-500 transition hover:text-zinc-700 dark:hover:text-zinc-300"
             >
               View competition →
             </Link>

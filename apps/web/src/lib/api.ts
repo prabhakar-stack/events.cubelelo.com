@@ -106,6 +106,7 @@ export interface CompetitionDetail {
   createdAt?: string;
   registrationCount?: number;
   cancellationReason?: string | null;
+  videoDeadlineMinutes?: number;
   events: EventDetail[];
 }
 
@@ -486,8 +487,20 @@ export function fetchMyRegistrations(): Promise<RegistrationDto[]> {
 // ── Payments ──
 export function createPaymentOrder(
   registrationId: string,
-): Promise<{ orderId: string; amount: number; currency: string; paymentId: string }> {
+): Promise<{ orderId: string; amount: number; currency: string; paymentId: string; keyId: string | null }> {
   return sendJson("POST", `/api/v1/payments/order`, { registrationId });
+}
+
+export function verifyPayment(
+  razorpay_order_id: string,
+  razorpay_payment_id: string,
+  razorpay_signature: string,
+): Promise<{ status: string }> {
+  return sendJson("POST", `/api/v1/payments/verify`, {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+  });
 }
 
 // ── User Profiles ──
@@ -561,19 +574,6 @@ export function duplicateCompetition(
   body: { reuseScrambles?: boolean; type?: string },
 ): Promise<{ id: string; title: string }> {
   return sendJson("POST", `/api/v1/admin/competitions/${id}/duplicate`, body);
-}
-
-export function fetchAdminScrambles(
-  roundId: string,
-): Promise<{ roundId: string; scrambles: string[]; locked: boolean; generatedAt?: string; lockedAt?: string }> {
-  return getJson(`/api/v1/admin/rounds/${roundId}/scrambles`);
-}
-
-export function generateScrambles(
-  roundId: string,
-  count: number,
-): Promise<{ roundId: string; count: number }> {
-  return sendJson("POST", `/api/v1/admin/rounds/${roundId}/scrambles`, { count });
 }
 
 export function cancelRound(roundId: string): Promise<{ id: string; status: string }> {
@@ -686,6 +686,10 @@ export async function fetchAdminPayments(status?: string): Promise<AdminPaymentD
   const qs = status ? `?status=${status}` : "";
   const res = await getJson<{ data: AdminPaymentDto[] } | AdminPaymentDto[]>(`/api/v1/admin/payments${qs}`);
   return Array.isArray(res) ? res : res.data;
+}
+
+export function confirmPayment(paymentId: string, reason?: string): Promise<{ status: string; paymentId: string }> {
+  return sendJson("POST", `/api/v1/admin/payments/${paymentId}/confirm`, { reason });
 }
 
 // ── Admin: announcements ──────────────────────────────────────────────────────

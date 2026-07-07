@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { generateScrambleSet, isEventId } from "@cubers/scramble-core";
 import type { Repository } from "../../db/repo";
 import type { Realtime } from "../../sockets/realtime";
 import { requireRole, requireAuth } from "../../auth/plugin";
@@ -91,39 +89,6 @@ export async function registerRoundRoutes(
 
       await recordScrambleFetch(round.id, req.authClaims!.sub);
       return { roundId: round.id, scrambles: set.scrambles };
-    },
-  );
-
-  // Generate + lock scrambles.
-  app.post<{ Params: { id: string }; Body: { count?: number } }>(
-    "/api/v1/admin/rounds/:id/scrambles",
-    adminOnly,
-    async (req, reply) => {
-      const round = await repo.rounds.findById(req.params.id);
-      if (!round) return reply.code(404).send({ error: "round_not_found" });
-
-      const event = await repo.competitionEvents.findByRound(round.id);
-      if (!event || !isEventId(event.eventType))
-        return reply.code(409).send({ error: "invalid_event_type" });
-
-      const existing = await repo.scrambleSets.findByRound(round.id);
-      if (existing?.lockedAt) return reply.code(409).send({ error: "scrambles_already_locked" });
-
-      const count = req.body?.count ?? 5;
-      if (count < 1) return reply.code(400).send({ error: "invalid_count" });
-
-      const now = new Date().toISOString();
-      const scrambles = await generateScrambleSet(event.eventType, count);
-      await repo.scrambleSets.upsert({
-        id: existing?.id ?? randomUUID(),
-        roundId: round.id,
-        scrambles,
-        generatedAt: now,
-        lockedAt: now,
-        lockedBy: req.authClaims!.sub,
-      });
-
-      return reply.code(201).send({ roundId: round.id, count: scrambles.length });
     },
   );
 
@@ -254,7 +219,7 @@ export async function registerRoundRoutes(
         const comp = await repo.competitions.findById(event.competitionId);
         const allRounds = await repo.rounds.findByCompetition(event.competitionId);
         const siblings = allRounds.filter((r) => r.competitionEventId === existing.competitionEventId);
-        const result = validateRoundTimes(merged as Round, siblings, comp ?? {});
+        const result = validateRoundTimes(merged as Round, siblings, comp ?? {}, event.eventType);
         if (!result.valid) {
           return reply.code(400).send({ error: "schedule_validation_failed", errors: result.errors });
         }

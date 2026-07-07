@@ -144,115 +144,145 @@ function SettingsContent() {
   const set = (key: string, val: string) => setForm((prev) => ({ ...prev, [key]: val }));
 
   return (
-    <main className="mx-auto max-w-lg px-6 py-10">
-      <h1 className="mb-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Settings</h1>
-      <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
-        <span className="font-mono text-emerald-600 dark:text-emerald-400">{user!.clId}</span>
-        {" · "}
-        {user!.email || "No email set"}
-      </p>
+    <main className="mx-auto max-w-6xl px-6 py-10">
+      <h1 className="mb-6 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Settings</h1>
 
-      {/* Avatar */}
-      <div className="mb-6 flex items-center gap-4">
-        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full">
-          {(user as unknown as Record<string, unknown>).avatarUrl ? (
-            <img
-              src={String((user as unknown as Record<string, unknown>).avatarUrl)}
-              alt="Avatar"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <GradientAvatar name={user!.name} size={64} className="text-2xl" />
-          )}
-        </div>
-        <div>
-          <label className="cursor-pointer rounded bg-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
-            {avatarUploading ? "Uploading..." : "Change Avatar"}
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              className="hidden"
-              disabled={avatarUploading}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                setAvatarUploading(true);
-                setError(null);
-                try {
-                  await uploadAvatar(file);
-                  window.location.reload();
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : String(err));
-                } finally {
-                  setAvatarUploading(false);
-                }
-              }}
-            />
-          </label>
-          <p className="mt-1 text-xs text-zinc-500">Max 2MB. JPG, PNG, GIF, WebP.</p>
-        </div>
-      </div>
+      <div className="grid gap-6 lg:grid-cols-[340px_1fr] lg:items-start">
+        {/* ══ Left column — identity + preferences (sticky) ══ */}
+        <div className="space-y-6 lg:sticky lg:top-20">
+          {/* Identity card */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <div className="flex items-center gap-4">
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full">
+                {(user as unknown as Record<string, unknown>).avatarUrl ? (
+                  <img
+                    src={String((user as unknown as Record<string, unknown>).avatarUrl)}
+                    alt="Avatar"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <GradientAvatar name={user!.name} size={64} className="text-2xl" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">{user!.name}</p>
+                <p className="font-mono text-sm text-emerald-600 dark:text-emerald-400">{user!.clId}</p>
+                <p className="truncate text-xs text-zinc-500">{user!.email || "No email set"}</p>
+              </div>
+            </div>
+            <label className="mt-4 block w-full cursor-pointer rounded-lg bg-zinc-100 px-3 py-2 text-center text-sm font-medium text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+              {avatarUploading ? "Uploading..." : "Change Avatar"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                className="hidden"
+                disabled={avatarUploading}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setAvatarUploading(true);
+                  setError(null);
+                  try {
+                    await uploadAvatar(file);
+                    window.location.reload();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setAvatarUploading(false);
+                  }
+                }}
+              />
+            </label>
+            <p className="mt-1.5 text-center text-xs text-zinc-500">Max 2MB. JPG, PNG, GIF, WebP.</p>
 
-      {/* Theme toggle */}
-      <div className="mb-4 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <div>
-          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Theme</p>
-          <p className="text-xs text-zinc-500">Switch between dark and light mode</p>
-        </div>
-        <button
-          onClick={toggleTheme}
-          className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-        >
-          {theme === "dark" ? "Light mode" : "Dark mode"}
-        </button>
-      </div>
+            {/* Verification status badges */}
+            {(user!.emailVerified || user!.mobileVerified) && (
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+                {user!.emailVerified && (
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    ✓ Email Verified
+                  </span>
+                )}
+                {user!.mobileVerified && (
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    ✓ Mobile Verified
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
 
-      {/* Profile privacy toggle */}
-      <div className="mb-6 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <div>
-          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Profile Privacy</p>
-          <p className="text-xs text-zinc-500">Private hides solve history and stats from other users</p>
-        </div>
-        <button
-          onClick={async () => {
-            const next = user!.profilePrivacy === "private" ? "public" : "private";
-            try {
-              await updateMyProfile({ profilePrivacy: next });
-              setUser({ ...user!, profilePrivacy: next });
-            } catch (e) {
-              setError(e instanceof Error ? e.message : String(e));
-            }
-          }}
-          className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-        >
-          {user!.profilePrivacy === "private" ? "Make Public" : "Make Private"}
-        </button>
-      </div>
+          {/* Preferences card */}
+          <div className="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <div className="flex items-center justify-between px-5 py-4">
+              <div>
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Theme</p>
+                <p className="text-xs text-zinc-500">Dark or light mode</p>
+              </div>
+              <button
+                onClick={toggleTheme}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              >
+                {theme === "dark" ? "Light mode" : "Dark mode"}
+              </button>
+            </div>
+            <div className="flex items-center justify-between px-5 py-4">
+              <div>
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Profile Privacy</p>
+                <p className="text-xs text-zinc-500">Hides solve history from others</p>
+              </div>
+              <button
+                onClick={async () => {
+                  const next = user!.profilePrivacy === "private" ? "public" : "private";
+                  try {
+                    await updateMyProfile({ profilePrivacy: next });
+                    setUser({ ...user!, profilePrivacy: next });
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e));
+                  }
+                }}
+                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              >
+                {user!.profilePrivacy === "private" ? "Make Public" : "Make Private"}
+              </button>
+            </div>
+          </div>
 
-      {/* Change Password (moved up) */}
-      <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Password</p>
-            <p className="text-xs text-zinc-500">
+          {/* Legacy Account Claim */}
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Legacy Account</p>
+            <p className="text-xs text-zinc-500">Link a legacy cubelelo-event profile to this account</p>
+            <Link
+              href="/register/migrate"
+              className="mt-2 inline-block text-sm text-emerald-600 hover:text-emerald-500 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              Claim legacy account →
+            </Link>
+          </div>
+        </div>
+
+        {/* ══ Right column — security, verification, profile form ══ */}
+        <div className="space-y-6">
+          {/* Password card */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Password</h2>
+            <p className="mb-4 mt-1 text-sm text-zinc-500">
               {user!.hasPassword
                 ? "Update your account password"
                 : "Set a password (currently using Google sign-in only)"}
             </p>
-          </div>
-        </div>
-        <div className="space-y-3">
-          {Boolean(user!.hasPassword) && (
-            <Input
-              type="password"
-              placeholder="Current password"
-              value={pwCurrent}
-              onChange={(e) => setPwCurrent(e.target.value)}
-              autoComplete="current-password"
-            />
-          )}
-          <div className="flex gap-3">
-            <div className="flex-1">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {Boolean(user!.hasPassword) && (
+                <div className="sm:col-span-2">
+                  <Input
+                    type="password"
+                    placeholder="Current password"
+                    value={pwCurrent}
+                    onChange={(e) => setPwCurrent(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </div>
+              )}
               <Input
                 type="password"
                 placeholder="New password"
@@ -260,8 +290,6 @@ function SettingsContent() {
                 onChange={(e) => setPwNew(e.target.value)}
                 autoComplete="new-password"
               />
-            </div>
-            <div className="flex-1">
               <Input
                 type="password"
                 placeholder="Confirm"
@@ -270,223 +298,193 @@ function SettingsContent() {
                 autoComplete="new-password"
               />
             </div>
+            {pwError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{pwError}</p>}
+            {pwMsg && <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">{pwMsg}</p>}
+            <Button
+              className="mt-4"
+              loading={pwSaving}
+              onClick={async () => {
+                setPwError(null);
+                setPwMsg(null);
+                if (pwNew.length < 6) { setPwError("Password must be at least 6 characters"); return; }
+                if (pwNew !== pwConfirm) { setPwError("Passwords do not match"); return; }
+                setPwSaving(true);
+                try {
+                  await changePassword(pwCurrent, pwNew);
+                  setPwMsg("Password updated!");
+                  setPwCurrent("");
+                  setPwNew("");
+                  setPwConfirm("");
+                } catch (e) {
+                  setPwError(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setPwSaving(false);
+                }
+              }}
+              disabled={!pwNew}
+            >
+              Update Password
+            </Button>
           </div>
-        </div>
-        {pwError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{pwError}</p>}
-        {pwMsg && <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">{pwMsg}</p>}
-        <Button
-          fullWidth
-          className="mt-3"
-          loading={pwSaving}
-          onClick={async () => {
-            setPwError(null);
-            setPwMsg(null);
-            if (pwNew.length < 6) { setPwError("Password must be at least 6 characters"); return; }
-            if (pwNew !== pwConfirm) { setPwError("Passwords do not match"); return; }
-            setPwSaving(true);
-            try {
-              await changePassword(pwCurrent, pwNew);
-              setPwMsg("Password updated!");
-              setPwCurrent("");
-              setPwNew("");
-              setPwConfirm("");
-            } catch (e) {
-              setPwError(e instanceof Error ? e.message : String(e));
-            } finally {
-              setPwSaving(false);
-            }
-          }}
-          disabled={!pwNew}
-        >
-          Update Password
-        </Button>
-      </div>
 
-      {/* Email Verification */}
-      {!user!.emailVerified && (
-        <OtpVerifySection
-          type="email"
-          currentValue={user!.email}
-          label="Email"
-          placeholder="you@example.com"
-          icon="&#x2709;"
-          onVerified={() => setUser({ ...user!, emailVerified: true })}
-          verifyWithGoogle={verifyWithGoogle}
-          verifying={verifying}
-          verifyMsg={verifyMsg}
-          verifyError={verifyError}
-        />
-      )}
-
-      {/* Mobile Verification */}
-      {!user!.mobileVerified && (
-        <OtpVerifySection
-          type="mobile"
-          currentValue={user!.mobileNo || ""}
-          label="Mobile Number"
-          placeholder="+919876543210"
-          icon="&#x1F4F1;"
-          onVerified={() => setUser({ ...user!, mobileVerified: true })}
-        />
-      )}
-
-      {/* Verification status badges */}
-      {(user!.emailVerified || user!.mobileVerified) && (
-        <div className="mb-6 flex flex-wrap gap-2">
-          {user!.emailVerified && (
-            <span className="rounded-full bg-emerald-900/30 px-3 py-1 text-xs font-semibold text-emerald-400">
-              Email Verified
-            </span>
+          {/* Email Verification */}
+          {!user!.emailVerified && (
+            <OtpVerifySection
+              type="email"
+              currentValue={user!.email}
+              label="Email"
+              placeholder="you@example.com"
+              icon="&#x2709;"
+              onVerified={() => setUser({ ...user!, emailVerified: true })}
+              verifyWithGoogle={verifyWithGoogle}
+              verifying={verifying}
+              verifyMsg={verifyMsg}
+              verifyError={verifyError}
+            />
           )}
-          {user!.mobileVerified && (
-            <span className="rounded-full bg-emerald-900/30 px-3 py-1 text-xs font-semibold text-emerald-400">
-              Mobile Verified
-            </span>
+
+          {/* Mobile Verification */}
+          {!user!.mobileVerified && (
+            <OtpVerifySection
+              type="mobile"
+              currentValue={user!.mobileNo || ""}
+              label="Mobile Number"
+              placeholder="+919876543210"
+              icon="&#x1F4F1;"
+              onVerified={() => setUser({ ...user!, mobileVerified: true })}
+            />
           )}
-        </div>
-      )}
 
-      {/* ── Profile Form ── */}
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500">Profile Information</h2>
+          {/* Profile Information */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500">Profile Information</h2>
 
-      <div className="space-y-4">
-        {/* Name fields */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Display Name</label>
-            <input type="text" value={form.name ?? ""} onChange={(e) => set("name", e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Last Name</label>
-            <input type="text" value={form.lastName ?? ""} onChange={(e) => set("lastName", e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
-          </div>
-        </div>
+            <div className="space-y-4">
+              {/* Name fields */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Display Name</label>
+                  <input type="text" value={form.name ?? ""} onChange={(e) => set("name", e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Last Name</label>
+                  <input type="text" value={form.lastName ?? ""} onChange={(e) => set("lastName", e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                </div>
+              </div>
 
-        {/* Phone */}
-        <div>
-          <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Mobile Number</label>
-          <input type="tel" value={form.mobileNo ?? ""} onChange={(e) => set("mobileNo", e.target.value)}
-            placeholder="+919876543210"
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
-        </div>
+              {/* Phone + DOB + Gender */}
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Mobile Number</label>
+                  <input type="tel" value={form.mobileNo ?? ""} onChange={(e) => set("mobileNo", e.target.value)}
+                    placeholder="+919876543210"
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Date of Birth</label>
+                  <input type="date" value={form.dob ?? ""} onChange={(e) => set("dob", e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Gender</label>
+                  <select value={form.gender ?? ""} onChange={(e) => set("gender", e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+                    <option value="">Select…</option>
+                    {GENDER_OPTIONS.map((g) => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-        {/* DOB + Gender row */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Date of Birth</label>
-            <input type="date" value={form.dob ?? ""} onChange={(e) => set("dob", e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Gender</label>
-            <select value={form.gender ?? ""} onChange={(e) => set("gender", e.target.value)}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-              <option value="">Select…</option>
-              {GENDER_OPTIONS.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+              {/* Country / State / City — searchable dropdowns */}
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Country</label>
+                  <SearchableSelect
+                    options={countryOptions}
+                    value={countryCode}
+                    onChange={handleCountryChange}
+                    placeholder="Search country…"
+                  />
+                </div>
+                {countryCode && (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">State</label>
+                      <SearchableSelect
+                        options={stateOptions}
+                        value={stateCode}
+                        onChange={handleStateChange}
+                        placeholder="Search state…"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">City</label>
+                      {cityOptions.length > 0 ? (
+                        <SearchableSelect
+                          options={cityOptions}
+                          value={form.city ?? ""}
+                          onChange={handleCityChange}
+                          placeholder="Search city…"
+                        />
+                      ) : (
+                        <input type="text" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)}
+                          placeholder="City name"
+                          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
 
-        {/* Country / State / City — searchable dropdowns */}
-        <div>
-          <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Country</label>
-          <SearchableSelect
-            options={countryOptions}
-            value={countryCode}
-            onChange={handleCountryChange}
-            placeholder="Search country…"
-          />
-        </div>
-
-        {countryCode && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">State</label>
-              <SearchableSelect
-                options={stateOptions}
-                value={stateCode}
-                onChange={handleStateChange}
-                placeholder="Search state…"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">City</label>
-              {cityOptions.length > 0 ? (
-                <SearchableSelect
-                  options={cityOptions}
-                  value={form.city ?? ""}
-                  onChange={handleCityChange}
-                  placeholder="Search city…"
-                />
-              ) : (
-                <input type="text" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)}
-                  placeholder="City name"
+              {/* Address fields */}
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Address</label>
+                <input type="text" value={form.address ?? ""} onChange={(e) => set("address", e.target.value)}
+                  placeholder="Street address"
                   className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
-              )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Landmark</label>
+                  <input type="text" value={form.landmark ?? ""} onChange={(e) => set("landmark", e.target.value)}
+                    placeholder="Near…"
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Pincode</label>
+                  <input type="text" value={form.pincode ?? ""} onChange={(e) => set("pincode", e.target.value)}
+                    placeholder="110001"
+                    maxLength={10}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Instagram</label>
+                  <input type="text" value={form.instagram ?? ""} onChange={(e) => set("instagram", e.target.value)}
+                    placeholder="@username"
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+                </div>
+              </div>
             </div>
-          </div>
-        )}
 
-        {/* Address fields */}
-        <div>
-          <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Address</label>
-          <input type="text" value={form.address ?? ""} onChange={(e) => set("address", e.target.value)}
-            placeholder="Street address"
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
-        </div>
+            {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
+            {saved && (
+              <p className="mt-4 text-sm text-emerald-600 dark:text-emerald-400">Profile updated!</p>
+            )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Landmark</label>
-            <input type="text" value={form.landmark ?? ""} onChange={(e) => set("landmark", e.target.value)}
-              placeholder="Near…"
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Pincode</label>
-            <input type="text" value={form.pincode ?? ""} onChange={(e) => set("pincode", e.target.value)}
-              placeholder="110001"
-              maxLength={10}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="mt-6 w-full rounded-lg bg-emerald-600 px-6 py-3 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50 sm:w-auto"
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
           </div>
         </div>
-
-        {/* Social — at the bottom */}
-        <div>
-          <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Instagram</label>
-          <input type="text" value={form.instagram ?? ""} onChange={(e) => set("instagram", e.target.value)}
-            placeholder="@username"
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
-        </div>
-      </div>
-
-      {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {saved && (
-        <p className="mt-4 text-sm text-emerald-600 dark:text-emerald-400">Profile updated!</p>
-      )}
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="mt-6 w-full rounded-lg bg-emerald-600 px-6 py-3 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-      >
-        {saving ? "Saving…" : "Save Changes"}
-      </button>
-
-      {/* Legacy Account Claim */}
-      <div className="mt-6 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Legacy Account</p>
-        <p className="text-xs text-zinc-500">Link a legacy cubelelo-event profile to this account</p>
-        <Link
-          href="/register/migrate"
-          className="mt-2 inline-block text-sm text-emerald-600 hover:text-emerald-500 dark:text-emerald-400 dark:hover:text-emerald-300"
-        >
-          Claim legacy account →
-        </Link>
       </div>
     </main>
   );
@@ -555,7 +553,7 @@ function OtpVerifySection({
   if (success) return null;
 
   return (
-    <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-900/20">
+    <div className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 dark:border-amber-700 dark:bg-amber-900/20">
       <div className="mb-2 flex items-center gap-2">
         <span className="text-lg">{icon}</span>
         <div>

@@ -138,6 +138,7 @@ export async function registerCompetitionRoutes(
         createdAt: competition.createdAt,
         registrationCount: regCount,
         cancellationReason: competition.cancellationReason ?? null,
+        videoDeadlineMinutes: competition.videoDeadlineMinutes,
         events: await Promise.all(
           events.map(async (e) => {
             const eventRounds = rounds

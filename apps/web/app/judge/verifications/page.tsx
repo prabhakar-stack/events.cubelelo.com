@@ -82,7 +82,7 @@ export default function JudgeVerificationsPage() {
   ).length;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-6 py-8">
       <h1 className="mb-1 text-xl font-bold text-zinc-900 dark:text-zinc-100">
         Assigned Verifications
       </h1>

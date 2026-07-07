@@ -8,6 +8,7 @@ import {
   fetchCompetition,
   registerForCompetition,
   createPaymentOrder,
+  verifyPayment,
   validatePromoCode,
   type CompetitionDetail,
 } from "@/lib/api";
@@ -27,7 +28,7 @@ function RegisterContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [paymentPending, setPaymentPending] = useState<{ orderId: string; amount: number } | null>(null);
+  const [pendingFallback, setPendingFallback] = useState<{ orderId: string; amount: number } | null>(null);
   const [showVerifyPopup, setShowVerifyPopup] = useState(false);
   const [promoInput, setPromoInput] = useState("");
   const [promoApplied, setPromoApplied] = useState<{
@@ -92,6 +93,47 @@ function RegisterContent() {
     });
   };
 
+  const loadRazorpayScript = (): Promise<void> => {
+    if (document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]'))
+      return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://checkout.razorpay.com/v1/checkout.js";
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Failed to load payment gateway"));
+      document.head.appendChild(s);
+    });
+  };
+
+  const openRazorpayCheckout = (order: {
+    orderId: string;
+    amount: number;
+    keyId: string;
+  }): Promise<{ razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }> =>
+    new Promise((resolve, reject) => {
+      const options = {
+        key: order.keyId,
+        amount: order.amount,
+        currency: "INR",
+        name: "Cubelelo Events",
+        description: `Registration for ${comp.title}`,
+        order_id: order.orderId,
+        handler: (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) =>
+          resolve(response),
+        modal: { ondismiss: () => reject(new Error("Payment cancelled")) },
+        prefill: {
+          email: user?.email ?? "",
+          name: user?.name ?? "",
+        },
+        theme: { color: "#10b981" },
+      };
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on("payment.failed", (resp: any) =>
+        reject(new Error(resp.error?.description ?? "Payment failed")),
+      );
+      rzp.open();
+    });
+
   const handleRegister = async () => {
     if (selected.size === 0) return;
     if (user && !user.emailVerified) {
@@ -103,10 +145,24 @@ function RegisterContent() {
     try {
       const reg = await registerForCompetition(comp.id, [...selected]);
       if (!isFree && reg.paymentStatus === "pending") {
-        // Online checkout isn't wired up yet — the registration exists but is
-        // NOT complete, so this must never be shown as a success state.
         const order = await createPaymentOrder(reg.registrationId);
-        setPaymentPending({ orderId: order.orderId, amount: order.amount });
+
+        if (order.keyId) {
+          await loadRazorpayScript();
+          const checkout = await openRazorpayCheckout({
+            orderId: order.orderId,
+            amount: order.amount,
+            keyId: order.keyId,
+          });
+          await verifyPayment(
+            checkout.razorpay_order_id,
+            checkout.razorpay_payment_id,
+            checkout.razorpay_signature,
+          );
+          setSuccess(true);
+        } else {
+          setPendingFallback({ orderId: order.orderId, amount: order.amount });
+        }
       } else {
         setSuccess(true);
       }
@@ -117,7 +173,7 @@ function RegisterContent() {
     }
   };
 
-  if (paymentPending) {
+  if (pendingFallback) {
     return (
       <main className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center gap-4 px-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
@@ -127,11 +183,10 @@ function RegisterContent() {
         </div>
         <div className="text-xl font-bold text-amber-500">Payment Pending</div>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Your spot for {comp.title} is being held, but online checkout isn&apos;t available yet — your registration
-          is <strong className="text-zinc-700 dark:text-zinc-200">not complete</strong> until payment (₹
-          {(paymentPending.amount / 100).toFixed(2)}) is confirmed. Contact support with order ID{" "}
-          <span className="font-mono text-zinc-700 dark:text-zinc-300">{paymentPending.orderId}</span> to finish
-          paying.
+          Your spot is being held. Online payment is temporarily unavailable — please contact the organiser
+          with order ID{" "}
+          <span className="font-mono text-zinc-700 dark:text-zinc-300">{pendingFallback.orderId}</span>{" "}
+          to complete payment of ₹{(pendingFallback.amount / 100).toFixed(0)}.
         </p>
         <Button variant="secondary" onClick={() => router.push(`/competitions/${comp.id}`)}>
           Back to Competition
@@ -140,13 +195,19 @@ function RegisterContent() {
     );
   }
 
-  if (success && isFree) {
+  if (success) {
     return (
       <main className="fade-slide-in mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center gap-4 px-6 text-center">
-        <div className="text-2xl font-bold text-accent-primary">Registered!</div>
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+          <svg className="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <div className="text-2xl font-bold text-accent-primary">
+          {isFree ? "Registered!" : "Payment Successful!"}
+        </div>
         <p className="text-zinc-500 dark:text-zinc-400">
-          You're registered for {comp.title}. Head to the lobby when the round
-          opens.
+          You&apos;re registered for {comp.title}. Head to the lobby when the round opens.
         </p>
         <Button onClick={() => router.push(`/competitions/${comp.id}`)}>Back to Competition</Button>
       </main>

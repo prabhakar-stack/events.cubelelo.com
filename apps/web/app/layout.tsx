@@ -32,7 +32,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`dark ${sans.variable} ${mono.variable}`}>
-      <body className="flex min-h-screen flex-col">
+      <body className="flex min-h-screen flex-col pt-14">
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>

@@ -223,7 +223,8 @@ export async function registerAdminRoutes(
 
       if (fields.status === "published") {
         const rounds = await repo.rounds.findByCompetition(req.params.id);
-        const result = validateCompetitionSchedule(merged, rounds);
+        const events = await repo.competitionEvents.findByCompetition(req.params.id);
+        const result = validateCompetitionSchedule(merged, rounds, true, events);
         if (!result.valid) {
           return reply.code(400).send({ error: "schedule_validation_failed", errors: result.errors });
         }
@@ -837,6 +838,30 @@ export async function registerAdminRoutes(
       };
     },
   );
+
+  // Admin: manually confirm a pending payment (cash / bank transfer / offline)
+  app.post<{
+    Params: { id: string };
+    Body: { reason?: string };
+  }>("/api/v1/admin/payments/:id/confirm", adminOnly, async (req, reply) => {
+    const payment = await repo.payments.findById(req.params.id);
+    if (!payment) return reply.code(404).send({ error: "payment_not_found" });
+    if (payment.status === "paid") return reply.code(409).send({ error: "already_paid" });
+
+    await repo.payments.update(payment.id, { status: "paid" });
+    await repo.registrations.update(payment.registrationId, { paymentStatus: "paid" });
+
+    await repo.auditLog.create({
+      id: randomUUID(),
+      adminId: req.authClaims!.sub,
+      action: "payment_confirmed_manual",
+      target: payment.id,
+      reason: req.body?.reason?.trim() || "Manual confirmation by admin",
+      createdAt: new Date().toISOString(),
+    });
+
+    return { status: "confirmed", paymentId: payment.id };
+  });
 
   // ── CSV export ────────────────────────────────────────────────────────────
 
