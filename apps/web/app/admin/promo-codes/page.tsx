@@ -5,11 +5,13 @@ import Link from "next/link";
 import {
   fetchPromoCodes,
   fetchCompetitions,
+  fetchCompetition,
   createPromoCode,
   updatePromoCode,
   deletePromoCode,
   type PromoCodeDto,
   type CompetitionSummary,
+  type EventDetail,
 } from "@/lib/api";
 import { ConfirmModal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -33,9 +35,18 @@ export default function AdminPromoCodesPage() {
   const [discountValue, setDiscountValue] = useState("");
   const [maxUses, setMaxUses] = useState("");
   const [competitionId, setCompetitionId] = useState("");
+  const [competitionEventId, setCompetitionEventId] = useState("");
+  const [compEvents, setCompEvents] = useState<EventDetail[]>([]);
   const [validFrom, setValidFrom] = useState("");
   const [validTo, setValidTo] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!competitionId) { setCompEvents([]); setCompetitionEventId(""); return; }
+    fetchCompetition(competitionId)
+      .then((d) => setCompEvents(d.events))
+      .catch(() => setCompEvents([]));
+  }, [competitionId]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -60,6 +71,8 @@ export default function AdminPromoCodesPage() {
     setDiscountValue("");
     setMaxUses("");
     setCompetitionId("");
+    setCompetitionEventId("");
+    setCompEvents([]);
     setValidFrom("");
     setValidTo("");
     setShowForm(false);
@@ -75,6 +88,7 @@ export default function AdminPromoCodesPage() {
         discountValue: Number(discountValue),
         maxUses: maxUses ? Number(maxUses) : undefined,
         competitionId: competitionId || undefined,
+        competitionEventId: competitionEventId || undefined,
         validFrom: validFrom ? new Date(validFrom).toISOString() : undefined,
         validTo: validTo ? new Date(validTo).toISOString() : undefined,
       });
@@ -188,7 +202,7 @@ export default function AdminPromoCodesPage() {
               <label className="mb-1 block text-xs text-zinc-500">Competition</label>
               <select
                 value={competitionId}
-                onChange={(e) => setCompetitionId(e.target.value)}
+                onChange={(e) => { setCompetitionId(e.target.value); setCompetitionEventId(""); }}
                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               >
                 <option value="">All competitions</option>
@@ -197,6 +211,23 @@ export default function AdminPromoCodesPage() {
                 ))}
               </select>
             </div>
+            {compEvents.length > 0 && (
+              <div>
+                <label className="mb-1 block text-xs text-zinc-500">Event (optional)</label>
+                <select
+                  value={competitionEventId}
+                  onChange={(e) => setCompetitionEventId(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                >
+                  <option value="">All events</option>
+                  {compEvents.map((ev) => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.eventType}{ev.fee != null ? ` (₹${(ev.fee / 100).toFixed(0)})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="mb-1 block text-xs text-zinc-500">Valid From</label>
               <input
@@ -252,6 +283,9 @@ export default function AdminPromoCodesPage() {
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-500">
                     {comps.find((c) => c.id === p.competitionId)?.title ?? "—"}
+                    {p.competitionEventId && (
+                      <span className="ml-1 text-emerald-500">(event-specific)</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">
                     {p.discountType === "percentage"

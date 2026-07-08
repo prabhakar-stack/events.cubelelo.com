@@ -70,6 +70,8 @@ export interface CompetitionSummary {
   startsAt?: string | null;
   endsAt?: string | null;
   coverUrl?: string;
+  bannerUrl?: string;
+  mobileBannerUrl?: string;
   featured?: boolean;
   createdAt?: string;
   eventTypes?: string[];
@@ -83,6 +85,7 @@ export interface EventDetail {
   roundCount: number;
   cutoffMs?: number;
   timeLimitMs?: number;
+  fee?: number;
   rounds: RoundRef[];
 }
 
@@ -101,8 +104,11 @@ export interface CompetitionDetail {
   endsAt?: string | null;
   coverUrl?: string;
   bannerUrl?: string;
+  mobileBannerUrl?: string;
   featured?: boolean;
   createdBy?: string;
+  publishedBy?: string | null;
+  publishedByName?: string | null;
   createdAt?: string;
   registrationCount?: number;
   cancellationReason?: string | null;
@@ -540,6 +546,7 @@ export function createCompetition(body: {
     roundCount?: number;
     cutoffMs?: number;
     timeLimitMs?: number;
+    fee?: number;
     durationMinutes?: number;
     advancementCriteria?: AdvancementCriteria;
     roundCriteria?: (AdvancementCriteria | undefined)[];
@@ -563,6 +570,8 @@ export function updateCompetition(
     startsAt?: string | null;
     endsAt?: string | null;
     featured?: boolean;
+    bannerUrl?: string;
+    mobileBannerUrl?: string;
     cancellationReason?: string;
   },
 ): Promise<{ id: string; title: string; status: string }> {
@@ -571,9 +580,40 @@ export function updateCompetition(
 
 export function duplicateCompetition(
   id: string,
-  body: { reuseScrambles?: boolean; type?: string },
+  body: { reuseScrambles?: boolean; type?: string; copySchedule?: boolean },
 ): Promise<{ id: string; title: string }> {
   return sendJson("POST", `/api/v1/admin/competitions/${id}/duplicate`, body);
+}
+
+export function createPracticeEvent(
+  id: string,
+  body: { startsAt?: string; endsAt?: string },
+): Promise<{ id: string; title: string; participantsCopied: number }> {
+  return sendJson("POST", `/api/v1/admin/competitions/${id}/practice`, body);
+}
+
+export async function uploadCompetitionBanner(id: string, file: File): Promise<{ bannerUrl: string }> {
+  const form = new FormData();
+  form.append("image", file);
+  const res = await fetch(`${BASE_URL}/api/v1/admin/competitions/${id}/upload-banner`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json();
+}
+
+export async function uploadCompetitionMobileBanner(id: string, file: File): Promise<{ mobileBannerUrl: string }> {
+  const form = new FormData();
+  form.append("image", file);
+  const res = await fetch(`${BASE_URL}/api/v1/admin/competitions/${id}/upload-mobile-banner`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json();
 }
 
 export function cancelRound(roundId: string): Promise<{ id: string; status: string }> {
@@ -762,6 +802,7 @@ export interface PromoCodeDto {
   maxUses: number;
   usedCount: number;
   competitionId?: string;
+  competitionEventId?: string;
   validFrom?: string;
   validTo?: string;
   active: boolean;
@@ -778,6 +819,7 @@ export function createPromoCode(body: {
   discountValue: number;
   maxUses?: number;
   competitionId?: string;
+  competitionEventId?: string;
   validFrom?: string;
   validTo?: string;
 }): Promise<PromoCodeDto> {
@@ -786,7 +828,7 @@ export function createPromoCode(body: {
 
 export function updatePromoCode(
   id: string,
-  body: Partial<Pick<PromoCodeDto, "code" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "validFrom" | "validTo" | "active">>,
+  body: Partial<Pick<PromoCodeDto, "code" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "competitionEventId" | "validFrom" | "validTo" | "active">>,
 ): Promise<PromoCodeDto> {
   return sendJson("PATCH", `/api/v1/admin/promo-codes/${id}`, body);
 }
@@ -802,8 +844,9 @@ export async function deletePromoCode(id: string): Promise<void> {
 export function validatePromoCode(
   code: string,
   competitionId?: string,
-): Promise<{ valid: boolean; code: string; discountType: string; discountValue: number }> {
-  return sendJson("POST", `/api/v1/promo/validate`, { code, competitionId });
+  eventIds?: string[],
+): Promise<{ valid: boolean; code: string; discountType: string; discountValue: number; competitionEventId?: string }> {
+  return sendJson("POST", `/api/v1/promo/validate`, { code, competitionId, eventIds });
 }
 
 // ── Admin: migration ──────────────────────────────────────────────────────────
@@ -821,9 +864,42 @@ export function fetchMigrationStats(): Promise<MigrationStats> {
 
 export function sendBulkEmail(
   compId: string,
-  body: { subject: string; bodyHtml: string },
+  body: {
+    subject: string;
+    bodyHtml: string;
+    recipients?: Array<{ email: string; name: string }>;
+  },
 ): Promise<{ sent: boolean; message: string; recipientCount: number; recipients: string[] }> {
   return sendJson("POST", `/api/v1/admin/competitions/${compId}/email`, body);
+}
+
+export async function downloadCsvCertificates(
+  compId: string,
+  winners: Array<{
+    name: string;
+    clId?: string;
+    event?: string;
+    rank?: number;
+    bestSingle?: string;
+    average?: string;
+  }>,
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/v1/admin/competitions/${compId}/certificates/csv`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ winners }),
+  });
+  if (!res.ok) throw new Error(`CSV certificate generation failed: ${res.status}`);
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] ?? "custom_certificates.zip";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function downloadCertificatesZip(compId: string): Promise<void> {

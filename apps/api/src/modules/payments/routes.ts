@@ -47,11 +47,12 @@ export async function registerPaymentRoutes(
         });
       }
 
-      const [comp, eventCount] = await Promise.all([
-        repo.competitions.findById(registration.competitionId),
-        repo.registrations.countEvents(registration.id),
-      ]);
-      let amount = (comp?.baseFee ?? 0) + (comp?.perEventFee ?? 0) * eventCount;
+      const comp = await repo.competitions.findById(registration.competitionId);
+      const regEvents = await repo.registrations.findEvents(registration.id);
+      const eventFeeSum = regEvents.reduce(
+        (sum, ev) => sum + (ev.fee ?? comp?.perEventFee ?? 0), 0,
+      );
+      let amount = (comp?.baseFee ?? 0) + eventFeeSum;
 
       let appliedPromoId: string | undefined;
       if (promoCode) {
@@ -62,6 +63,9 @@ export async function registerPaymentRoutes(
         if (promo.competitionId && promo.competitionId !== registration.competitionId) {
           return reply.code(400).send({ error: "promo_not_valid_for_competition" });
         }
+        if (promo.competitionEventId && !regEvents.some((e) => e.id === promo.competitionEventId)) {
+          return reply.code(400).send({ error: "promo_not_for_selected_events" });
+        }
         const now = new Date().toISOString();
         if ((promo.validFrom && now < promo.validFrom) || (promo.validTo && now > promo.validTo)) {
           return reply.code(400).send({ error: "promo_expired" });
@@ -70,7 +74,14 @@ export async function registerPaymentRoutes(
         if (!claimed) {
           return reply.code(409).send({ error: "promo_fully_redeemed" });
         }
-        if (promo.discountType === "percentage") {
+        if (promo.competitionEventId) {
+          const targetEvent = regEvents.find((e) => e.id === promo.competitionEventId);
+          const eventFee = targetEvent?.fee ?? comp?.perEventFee ?? 0;
+          const discount = promo.discountType === "percentage"
+            ? Math.round(eventFee * promo.discountValue / 100)
+            : Math.min(promo.discountValue, eventFee);
+          amount = Math.max(0, amount - discount);
+        } else if (promo.discountType === "percentage") {
           amount = Math.max(0, Math.round(amount * (1 - promo.discountValue / 100)));
         } else {
           amount = Math.max(0, amount - promo.discountValue);
@@ -249,6 +260,7 @@ export async function registerPaymentRoutes(
       const comp = reg ? await repo.competitions.findById(reg.competitionId) : null;
       const regEvents = reg ? await repo.registrations.findEvents(reg.id) : [];
 
+      const hasCustomFees = regEvents.some((e) => e.fee != null);
       const data: InvoiceData = {
         invoiceNumber: `INV-${payment.createdAt.slice(0, 10).replace(/-/g, "")}-${payment.id.slice(0, 8).toUpperCase()}`,
         date: new Date(payment.createdAt).toLocaleDateString("en-IN", {
@@ -262,6 +274,9 @@ export async function registerPaymentRoutes(
         baseFee: comp?.baseFee ?? 0,
         perEventFee: comp?.perEventFee ?? 0,
         eventCount: regEvents.length,
+        eventFees: hasCustomFees
+          ? regEvents.map((e) => ({ name: e.eventType, fee: e.fee ?? comp?.perEventFee ?? 0 }))
+          : undefined,
         totalAmount: payment.amount,
         paymentId: payment.id,
         razorpayPaymentId: payment.razorpayPaymentId,

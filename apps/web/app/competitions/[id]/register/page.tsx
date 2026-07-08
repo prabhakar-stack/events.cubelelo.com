@@ -35,6 +35,7 @@ function RegisterContent() {
     code: string;
     discountType: string;
     discountValue: number;
+    competitionEventId?: string;
   } | null>(null);
   const [promoError, setPromoError] = useState<string | null>(null);
   const [promoChecking, setPromoChecking] = useState(false);
@@ -59,12 +60,24 @@ function RegisterContent() {
   }
 
   const baseFee = comp.baseFee ?? 0;
-  const perEventFee = comp.perEventFee ?? 0;
-  const subtotal = baseFee + perEventFee * selected.size;
+  const defaultPerEventFee = comp.perEventFee ?? 0;
+  const eventFeeSum = [...selected].reduce((sum, eid) => {
+    const ev = comp.events.find((e) => e.id === eid);
+    return sum + (ev?.fee ?? defaultPerEventFee);
+  }, 0);
+  const subtotal = baseFee + eventFeeSum;
   const discount = promoApplied
-    ? promoApplied.discountType === "percentage"
-      ? Math.round(subtotal * promoApplied.discountValue / 100)
-      : Math.min(promoApplied.discountValue, subtotal)
+    ? promoApplied.competitionEventId
+      ? (() => {
+          const ev = comp.events.find((e) => e.id === promoApplied.competitionEventId);
+          const evFee = ev?.fee ?? defaultPerEventFee;
+          return promoApplied.discountType === "percentage"
+            ? Math.round(evFee * promoApplied.discountValue / 100)
+            : Math.min(promoApplied.discountValue, evFee);
+        })()
+      : promoApplied.discountType === "percentage"
+        ? Math.round(subtotal * promoApplied.discountValue / 100)
+        : Math.min(promoApplied.discountValue, subtotal)
     : 0;
   const totalFee = Math.max(0, subtotal - discount);
   const isFree = comp.type === "free" || totalFee === 0;
@@ -74,7 +87,7 @@ function RegisterContent() {
     setPromoChecking(true);
     setPromoError(null);
     try {
-      const res = await validatePromoCode(promoInput.trim(), comp.id);
+      const res = await validatePromoCode(promoInput.trim(), comp.id, [...selected]);
       setPromoApplied(res);
     } catch (e) {
       setPromoError(e instanceof Error ? e.message : "Invalid code");
@@ -247,9 +260,9 @@ function RegisterContent() {
                 {ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}
               </span>
             </div>
-            {perEventFee > 0 && (
+            {(ev.fee ?? defaultPerEventFee) > 0 && (
               <span className="text-xs text-zinc-500">
-                +₹{(perEventFee / 100).toFixed(0)}
+                +₹{((ev.fee ?? defaultPerEventFee) / 100).toFixed(0)}
               </span>
             )}
           </label>
@@ -263,14 +276,13 @@ function RegisterContent() {
             {isFree ? "Free" : `₹${(baseFee / 100).toFixed(0)}`}
           </span>
         </div>
-        {perEventFee > 0 && selected.size > 0 && (
+        {eventFeeSum > 0 && selected.size > 0 && (
           <div className="flex justify-between text-sm">
             <span className="text-zinc-500 dark:text-zinc-400">
-              {selected.size} event{selected.size > 1 ? "s" : ""} × ₹
-              {(perEventFee / 100).toFixed(0)}
+              {selected.size} event{selected.size > 1 ? "s" : ""}
             </span>
             <span className="text-zinc-800 dark:text-zinc-200">
-              ₹{((perEventFee * selected.size) / 100).toFixed(0)}
+              ₹{(eventFeeSum / 100).toFixed(0)}
             </span>
           </div>
         )}

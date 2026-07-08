@@ -59,12 +59,14 @@ export interface Competition {
   endsAt?: string;
   coverUrl?: string;
   bannerUrl?: string;
+  mobileBannerUrl?: string;
   featured: boolean;
   featuredOrder?: number;
   coverCaption?: string;
   cancellationReason?: string;
   videoDeadlineMinutes: number;
   createdBy?: string;
+  publishedBy?: string;
   createdAt: string;
 }
 
@@ -75,6 +77,7 @@ export interface CompetitionEvent {
   roundCount: number;
   cutoffMs?: number;
   timeLimitMs?: number;
+  fee?: number;
 }
 
 export interface AdvancementCriteria {
@@ -294,6 +297,7 @@ export interface PromoCode {
   maxUses: number;
   usedCount: number;
   competitionId?: string;
+  competitionEventId?: string;
   validFrom?: string;
   validTo?: string;
   active: boolean;

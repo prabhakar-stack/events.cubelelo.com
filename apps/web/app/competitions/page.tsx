@@ -133,7 +133,7 @@ export default function CompetitionsPage() {
 
           {/* Loading */}
           {(loading || (tab === "my" && myLoading)) && (tab !== "my" || user) ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 lg:grid-cols-2">
               {Array.from({ length: 6 }).map((_, i) => (
                 <SkeletonCard key={i} />
               ))}
@@ -146,7 +146,7 @@ export default function CompetitionsPage() {
                 : "No competitions found — check back soon!"}
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 lg:grid-cols-2">
               {displayed.map((c) => (
                 <CompetitionCard key={c.id} comp={c} />
               ))}

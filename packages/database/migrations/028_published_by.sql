@@ -1,0 +1,1 @@
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS published_by uuid REFERENCES users(id) ON DELETE SET NULL;

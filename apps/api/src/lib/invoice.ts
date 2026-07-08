@@ -11,6 +11,7 @@ export interface InvoiceData {
   baseFee: number;
   perEventFee: number;
   eventCount: number;
+  eventFees?: Array<{ name: string; fee: number }>;
   totalAmount: number;
   paymentId: string;
   razorpayPaymentId?: string;
@@ -72,8 +73,17 @@ export function generateInvoicePDF(data: InvoiceData): typeof PDFDocument.protot
     y += 20;
   }
 
-  // Per-event fee line
-  if (data.perEventFee > 0 && data.eventCount > 0) {
+  // Per-event fee lines
+  if (data.eventFees && data.eventFees.length > 0) {
+    for (const ef of data.eventFees) {
+      if (ef.fee <= 0) continue;
+      doc.text(ef.name, colX[0]! + 8, y, { width: 220 });
+      doc.text("1", colX[1]! + 8, y, { width: 80 });
+      doc.text(fmtInr(ef.fee), colX[2]! + 8, y, { width: 80 });
+      doc.text(fmtInr(ef.fee), colX[3]! + 8, y, { width: 80 });
+      y += 20;
+    }
+  } else if (data.perEventFee > 0 && data.eventCount > 0) {
     doc.text("Event Fee", colX[0]! + 8, y, { width: 220 });
     doc.text(String(data.eventCount), colX[1]! + 8, y, { width: 80 });
     doc.text(fmtInr(data.perEventFee), colX[2]! + 8, y, { width: 80 });

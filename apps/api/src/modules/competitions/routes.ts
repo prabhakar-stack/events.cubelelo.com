@@ -25,7 +25,7 @@ export async function registerCompetitionRoutes(
         id: c.id, title: c.title, type: c.type,
         status: effectiveCompStatus(c),
         description: c.description,
-        coverUrl: c.coverUrl, coverCaption: c.coverCaption, bannerUrl: c.bannerUrl,
+        coverUrl: c.coverUrl, coverCaption: c.coverCaption, bannerUrl: c.bannerUrl, mobileBannerUrl: c.mobileBannerUrl,
         registrationOpensAt: c.registrationOpensAt ?? null,
         registrationDeadline: c.registrationDeadline ?? null,
         startsAt: c.startsAt ?? null,
@@ -83,7 +83,7 @@ export async function registerCompetitionRoutes(
             registrationDeadline: c.registrationDeadline ?? null,
             startsAt: c.startsAt ?? null,
             endsAt: c.endsAt ?? null,
-            coverUrl: c.coverUrl, bannerUrl: c.bannerUrl,
+            coverUrl: c.coverUrl, bannerUrl: c.bannerUrl, mobileBannerUrl: c.mobileBannerUrl,
             featured: c.featured,
             featuredOrder: c.featuredOrder,
             createdAt: c.createdAt,
@@ -112,10 +112,11 @@ export async function registerCompetitionRoutes(
         return reply.code(404).send({ error: "competition_not_found" });
       }
 
-      const [events, rounds, regCount] = await Promise.all([
+      const [events, rounds, regCount, publisher] = await Promise.all([
         repo.competitionEvents.findByCompetition(competition.id),
         repo.rounds.findByCompetition(competition.id),
         repo.competitions.countRegistrations(competition.id),
+        competition.publishedBy ? repo.users.findById(competition.publishedBy) : null,
       ]);
 
       return {
@@ -133,8 +134,11 @@ export async function registerCompetitionRoutes(
         endsAt: competition.endsAt ?? null,
         coverUrl: competition.coverUrl,
         bannerUrl: competition.bannerUrl,
+        mobileBannerUrl: competition.mobileBannerUrl,
         featured: competition.featured,
         createdBy: competition.createdBy,
+        publishedBy: competition.publishedBy ?? null,
+        publishedByName: publisher?.name ?? null,
         createdAt: competition.createdAt,
         registrationCount: regCount,
         cancellationReason: competition.cancellationReason ?? null,
@@ -168,6 +172,7 @@ export async function registerCompetitionRoutes(
               roundCount: e.roundCount,
               cutoffMs: e.cutoffMs,
               timeLimitMs: e.timeLimitMs,
+              fee: e.fee,
               rounds: roundsWithScramble,
             };
           }),
@@ -427,6 +432,7 @@ export async function registerCompetitionRoutes(
           roundCount: event.roundCount,
           cutoffMs: event.cutoffMs ?? null,
           timeLimitMs: event.timeLimitMs ?? null,
+          fee: event.fee,
         },
         rounds,
         userStatus,

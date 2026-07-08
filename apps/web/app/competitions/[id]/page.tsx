@@ -6,6 +6,7 @@ import Link from "next/link";
 import { eventDisplayName } from "@/lib/eventNames";
 import { EventIcon } from "@/components/EventIcon";
 import {
+  assetUrl,
   fetchCompetition,
   fetchMyRegistrations,
   fetchMyProgress,
@@ -164,11 +165,11 @@ export default function CompetitionDetailPage() {
 
       <div className="lg:pl-56">
         <main className="mx-auto max-w-6xl px-6 py-10">
-          {/* Cover hero — only renders once a cover image has been set (admin upload not yet built) */}
+          {/* Cover hero */}
           {comp.coverUrl && (
             <div
               className="relative mb-6 h-56 overflow-hidden rounded-2xl bg-cover bg-center md:h-64"
-              style={{ backgroundImage: `url(${comp.coverUrl})` }}
+              style={{ backgroundImage: `url(${assetUrl(comp.coverUrl)})` }}
             >
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
               <div className="absolute inset-x-0 bottom-0 p-6">
@@ -181,7 +182,27 @@ export default function CompetitionDetailPage() {
             </div>
           )}
 
-          {/* Header (no cover image) */}
+          {/* Banner hero (when no cover image) */}
+          {!comp.coverUrl && (comp.bannerUrl || comp.mobileBannerUrl) && (
+            <div className="mb-6 w-full overflow-hidden rounded-2xl">
+              {comp.bannerUrl && (
+                <img
+                  src={assetUrl(comp.bannerUrl)}
+                  alt={comp.title}
+                  className={`aspect-[3/1] w-full rounded-2xl object-cover object-top ${comp.mobileBannerUrl ? "hidden sm:block" : ""}`}
+                />
+              )}
+              {comp.mobileBannerUrl && (
+                <img
+                  src={assetUrl(comp.mobileBannerUrl)}
+                  alt={comp.title}
+                  className={`aspect-[3/2] w-full rounded-2xl object-cover object-top ${comp.bannerUrl ? "sm:hidden" : ""}`}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Header (no cover or banner) */}
           {!comp.coverUrl && (
             <>
               <div className="mb-4 flex items-center gap-3">

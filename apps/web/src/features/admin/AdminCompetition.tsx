@@ -1,15 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   cancelRound,
+  createPracticeEvent,
   downloadCertificatesZip,
+  downloadCsvCertificates,
   exportCompetitionCSV,
   sendBulkEmail,
   sendRoundNotification,
   fetchCompetition,
   updateCompetition,
+  uploadCompetitionBanner,
+  uploadCompetitionMobileBanner,
   updateRound,
   type AdvancementCriteria,
   type CompetitionDetail,
@@ -45,6 +49,8 @@ export function AdminCompetition({ id }: { id: string }) {
   const [editRules, setEditRules] = useState("");
   const [editBaseFee, setEditBaseFee] = useState("");
   const [editPerEventFee, setEditPerEventFee] = useState("");
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [mobileBannerFile, setMobileBannerFile] = useState<File | null>(null);
 
   // Schedule editor local state — synced from detail on load
   const [regOpens, setRegOpens] = useState("");
@@ -52,6 +58,8 @@ export function AdminCompetition({ id }: { id: string }) {
   const [compStarts, setCompStarts] = useState("");
   const [compEnds, setCompEnds] = useState("");
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showPracticeModal, setShowPracticeModal] = useState(false);
+  const csvCertRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     fetchCompetition(id)
@@ -71,6 +79,8 @@ export function AdminCompetition({ id }: { id: string }) {
       setEditRules(detail.rulesMd ?? "");
       setEditBaseFee(String((detail.baseFee ?? 0) / 100));
       setEditPerEventFee(String((detail.perEventFee ?? 0) / 100));
+      setBannerFile(null);
+      setMobileBannerFile(null);
       setRegOpens(toLocal(detail.registrationOpensAt));
       setRegCloses(toLocal(detail.registrationDeadline));
       setCompStarts(toLocal(detail.startsAt));
@@ -109,6 +119,54 @@ export function AdminCompetition({ id }: { id: string }) {
       }
     },
     [load],
+  );
+
+  const handleCsvCertUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = reader.result as string;
+        const lines = text.split(/\r?\n/).filter((l) => l.trim());
+        if (lines.length < 2) {
+          setError("CSV must have a header row and at least one data row");
+          return;
+        }
+        const headers = lines[0]!.split(",").map((h) => h.trim().toLowerCase());
+        const nameIdx = headers.indexOf("name");
+        if (nameIdx === -1) {
+          setError("CSV must have a 'name' column");
+          return;
+        }
+        const clIdIdx = headers.indexOf("clid");
+        const eventIdx = headers.indexOf("event");
+        const rankIdx = headers.indexOf("rank");
+        const bestIdx = headers.indexOf("bestsingle");
+        const avgIdx = headers.indexOf("average");
+
+        const winners = lines.slice(1).map((line) => {
+          const cols = line.split(",").map((c) => c.trim());
+          return {
+            name: cols[nameIdx] ?? "",
+            clId: clIdIdx >= 0 ? cols[clIdIdx] : undefined,
+            event: eventIdx >= 0 ? cols[eventIdx] : undefined,
+            rank: rankIdx >= 0 && cols[rankIdx] ? Number(cols[rankIdx]) : undefined,
+            bestSingle: bestIdx >= 0 ? cols[bestIdx] : undefined,
+            average: avgIdx >= 0 ? cols[avgIdx] : undefined,
+          };
+        }).filter((w) => w.name);
+
+        if (winners.length === 0) {
+          setError("No valid rows found in CSV");
+          return;
+        }
+        run("csvCerts", () => downloadCsvCertificates(id, winners));
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    },
+    [id, run],
   );
 
   if (error && !detail) {
@@ -193,6 +251,9 @@ export function AdminCompetition({ id }: { id: string }) {
             {detail.events.map((e) => e.eventType).join(", ")}
           </span>
           <span><span className="text-zinc-400 dark:text-zinc-500">Registered</span> {detail.registrationCount ?? 0}</span>
+          {detail.publishedByName && (
+            <span><span className="text-zinc-400 dark:text-zinc-500">Published by</span> {detail.publishedByName}</span>
+          )}
           <div className="ml-auto flex items-center gap-2">
             <button
               onClick={() => setShowEmailModal(true)}
@@ -207,12 +268,32 @@ export function AdminCompetition({ id }: { id: string }) {
             >
               {busy === "certs" ? "Generating…" : "Certificates"}
             </button>
+            <input
+              ref={csvCertRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleCsvCertUpload}
+            />
+            <button
+              disabled={busy === "csvCerts"}
+              onClick={() => csvCertRef.current?.click()}
+              className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
+            >
+              {busy === "csvCerts" ? "Generating…" : "CSV Certificates"}
+            </button>
             <button
               disabled={busy === "export"}
               onClick={() => run("export", () => exportCompetitionCSV(id))}
               className="rounded border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
             >
               {busy === "export" ? "Exporting…" : "Export CSV"}
+            </button>
+            <button
+              onClick={() => setShowPracticeModal(true)}
+              className="rounded border border-emerald-800/50 px-3 py-1.5 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-900/30"
+            >
+              Practice Event
             </button>
           </div>
         </div>
@@ -286,12 +367,44 @@ export function AdminCompetition({ id }: { id: string }) {
                 </div>
               </>
             )}
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Desktop Banner <span className="text-zinc-400">(1200×400 recommended)</span></label>
+              {detail.bannerUrl && !bannerFile && (
+                <div className="mb-2">
+                  <img src={detail.bannerUrl} alt="Current desktop banner" className="h-16 rounded-lg object-cover" />
+                  <p className="mt-1 text-xs text-zinc-500">Current — upload a new one to replace</p>
+                </div>
+              )}
+              {bannerFile && <p className="mb-1 text-xs text-emerald-500">Selected: {bannerFile.name}</p>}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 file:mr-3 file:rounded file:border-0 file:bg-emerald-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Mobile Banner <span className="text-zinc-400">(600×400 recommended)</span></label>
+              {detail.mobileBannerUrl && !mobileBannerFile && (
+                <div className="mb-2">
+                  <img src={detail.mobileBannerUrl} alt="Current mobile banner" className="h-16 rounded-lg object-cover" />
+                  <p className="mt-1 text-xs text-zinc-500">Current — upload a new one to replace</p>
+                </div>
+              )}
+              {mobileBannerFile && <p className="mb-1 text-xs text-emerald-500">Selected: {mobileBannerFile.name}</p>}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={(e) => setMobileBannerFile(e.target.files?.[0] ?? null)}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 file:mr-3 file:rounded file:border-0 file:bg-zinc-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white"
+              />
+            </div>
           </div>
           <button
             disabled={busy === "details"}
             onClick={() =>
-              run("details", () =>
-                updateCompetition(id, {
+              run("details", async () => {
+                await updateCompetition(id, {
                   title: editTitle,
                   description: editDescription,
                   rulesMd: editRules,
@@ -299,8 +412,10 @@ export function AdminCompetition({ id }: { id: string }) {
                     baseFee: Math.round(Number(editBaseFee) * 100),
                     perEventFee: Math.round(Number(editPerEventFee) * 100),
                   } : {}),
-                }),
-              )
+                });
+                if (bannerFile) await uploadCompetitionBanner(id, bannerFile);
+                if (mobileBannerFile) await uploadCompetitionMobileBanner(id, mobileBannerFile);
+              })
             }
             className="mt-3 rounded-lg bg-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-600 disabled:opacity-50"
           >
@@ -362,6 +477,11 @@ export function AdminCompetition({ id }: { id: string }) {
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
               {ev.eventType} — {ev.roundCount} round
               {ev.roundCount !== 1 ? "s" : ""}
+              {ev.fee != null && (
+                <span className="ml-2 normal-case tracking-normal text-emerald-500">
+                  ₹{(ev.fee / 100).toFixed(0)}/event
+                </span>
+              )}
             </h3>
             <div className="space-y-2">
               {ev.rounds.map((r) => (
@@ -383,6 +503,14 @@ export function AdminCompetition({ id }: { id: string }) {
         <BulkEmailModal
           competitionId={id}
           onClose={() => setShowEmailModal(false)}
+        />
+      )}
+
+      {/* ── Practice Event Modal ── */}
+      {showPracticeModal && (
+        <PracticeEventModal
+          competitionId={id}
+          onClose={() => setShowPracticeModal(false)}
         />
       )}
 
@@ -409,12 +537,58 @@ function BulkEmailModal({
     recipients: string[];
   } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [csvRecipients, setCsvRecipients] = useState<Array<{ email: string; name: string }>>([]);
+  const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const csvRef = useRef<HTMLInputElement>(null);
+
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length < 2) {
+        setErr("CSV must have a header row and at least one data row");
+        return;
+      }
+      const headers = lines[0]!.split(",").map((h) => h.trim().toLowerCase());
+      const emailIdx = headers.indexOf("email");
+      const nameIdx = headers.indexOf("name");
+      if (emailIdx === -1) {
+        setErr("CSV must have an 'email' column");
+        return;
+      }
+      const parsed = lines.slice(1).map((line) => {
+        const cols = line.split(",").map((c) => c.trim());
+        return {
+          email: cols[emailIdx] ?? "",
+          name: nameIdx >= 0 ? (cols[nameIdx] ?? "") : "",
+        };
+      }).filter((r) => r.email);
+
+      if (parsed.length === 0) {
+        setErr("No valid email rows found in CSV");
+        return;
+      }
+      setCsvRecipients(parsed);
+      setCsvFileName(file.name);
+      setErr(null);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const handleSend = async () => {
     setSending(true);
     setErr(null);
     try {
-      const res = await sendBulkEmail(competitionId, { subject, bodyHtml });
+      const body: { subject: string; bodyHtml: string; recipients?: Array<{ email: string; name: string }> } = {
+        subject,
+        bodyHtml,
+      };
+      if (csvRecipients.length > 0) body.recipients = csvRecipients;
+      const res = await sendBulkEmail(competitionId, body);
       setResult(res);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -451,6 +625,41 @@ function BulkEmailModal({
         ) : (
           <div className="space-y-4">
             <div>
+              <label className="mb-1 block text-xs text-zinc-500">Recipients</label>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={csvRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleCsvUpload}
+                />
+                <button
+                  type="button"
+                  onClick={() => csvRef.current?.click()}
+                  className="rounded border border-zinc-600 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-800"
+                >
+                  Upload CSV
+                </button>
+                {csvFileName ? (
+                  <span className="flex items-center gap-1 text-xs text-emerald-400">
+                    {csvFileName} ({csvRecipients.length} recipients)
+                    <button
+                      type="button"
+                      onClick={() => { setCsvRecipients([]); setCsvFileName(null); }}
+                      className="ml-1 text-zinc-500 hover:text-zinc-300"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ) : (
+                  <span className="text-xs text-zinc-500">
+                    All registrants (default)
+                  </span>
+                )}
+              </div>
+            </div>
+            <div>
               <label className="mb-1 block text-xs text-zinc-500">Subject</label>
               <input
                 type="text"
@@ -485,7 +694,11 @@ function BulkEmailModal({
                 onClick={handleSend}
                 className="flex-1 rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
               >
-                {sending ? "Sending…" : "Send to All Registrants"}
+                {sending
+                  ? "Sending…"
+                  : csvRecipients.length > 0
+                    ? `Send to ${csvRecipients.length} CSV Recipients`
+                    : "Send to All Registrants"}
               </button>
             </div>
           </div>
@@ -742,6 +955,110 @@ function RoundRow({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Practice event modal ── */
+
+function PracticeEventModal({
+  competitionId,
+  onClose,
+}: {
+  competitionId: string;
+  onClose: () => void;
+}) {
+  const [startsAt, setStartsAt] = useState("");
+  const [endsAt, setEndsAt] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [result, setResult] = useState<{ id: string; title: string; participantsCopied: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    setErr(null);
+    try {
+      const res = await createPracticeEvent(competitionId, {
+        startsAt: startsAt ? new Date(startsAt).toISOString() : undefined,
+        endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
+      });
+      setResult(res);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
+        <h3 className="mb-4 text-lg font-bold text-zinc-100">Create Practice Event</h3>
+        <p className="mb-4 text-sm text-zinc-400">
+          Creates a practice competition with all registered participants automatically added.
+        </p>
+
+        {result ? (
+          <div className="space-y-3">
+            <div className="rounded bg-emerald-900/30 px-4 py-3 text-sm text-emerald-300">
+              Created &ldquo;{result.title}&rdquo; with {result.participantsCopied} participants.
+            </div>
+            <div className="flex justify-end gap-2">
+              <a
+                href={`/admin/competitions/${result.id}`}
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+              >
+                Open Practice Event
+              </a>
+              <button
+                onClick={onClose}
+                className="rounded border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {err && <div className="mb-3 rounded bg-red-900/30 px-4 py-2 text-sm text-red-300">{err}</div>}
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-zinc-400">Starts At</label>
+                <input
+                  type="datetime-local"
+                  value={startsAt}
+                  onChange={(e) => setStartsAt(e.target.value)}
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-zinc-400">Ends At</label>
+                <input
+                  type="datetime-local"
+                  value={endsAt}
+                  onChange={(e) => setEndsAt(e.target.value)}
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={onClose}
+                className="rounded border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={creating}
+                onClick={handleCreate}
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
+              >
+                {creating ? "Creating…" : "Create Practice Event"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -31,9 +31,6 @@ export async function registerRegistrationRoutes(
         return reply.code(400).send({ error: "no_events_selected" });
       }
 
-      const totalFee = comp.baseFee + comp.perEventFee * eventIds.length;
-      const isFree = totalFee === 0;
-
       if (!user.emailVerified) {
         return reply.code(403).send({ error: "email_not_verified" });
       }
@@ -44,6 +41,7 @@ export async function registerRegistrationRoutes(
       // Validate event IDs belong to this competition and have at least one non-cancelled round
       const compEvents = await repo.competitionEvents.findByCompetition(comp.id);
       const compEventIds = new Set(compEvents.map((e) => e.id));
+      const compEventMap = new Map(compEvents.map((e) => [e.id, e]));
       const rounds = await repo.rounds.findByCompetition(comp.id);
       const eventsWithRounds = new Set(
         rounds.filter((r) => r.status !== "cancelled").map((r) => r.competitionEventId),
@@ -56,6 +54,13 @@ export async function registerRegistrationRoutes(
           return reply.code(400).send({ error: "event_not_available" });
         }
       }
+
+      const eventFeeSum = eventIds.reduce((sum, eid) => {
+        const ev = compEventMap.get(eid);
+        return sum + (ev?.fee ?? comp.perEventFee);
+      }, 0);
+      const totalFee = comp.baseFee + eventFeeSum;
+      const isFree = totalFee === 0;
 
       const registration: Registration = {
         id: randomUUID(),

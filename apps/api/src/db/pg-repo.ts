@@ -82,12 +82,14 @@ function toComp(r: Row): Competition {
     endsAt: r.ends_at ? ts(r.ends_at) : undefined,
     coverUrl: (r.cover_url as string) ?? undefined,
     bannerUrl: (r.banner_url as string) ?? undefined,
+    mobileBannerUrl: (r.mobile_banner_url as string) ?? undefined,
     featured: (r.featured as boolean) ?? false,
     featuredOrder: (r.featured_order as number) ?? undefined,
     coverCaption: (r.cover_caption as string) ?? undefined,
     cancellationReason: (r.cancellation_reason as string) ?? undefined,
     videoDeadlineMinutes: (r.video_deadline_minutes as number) ?? 1440,
     createdBy: (r.created_by as string) ?? undefined,
+    publishedBy: (r.published_by as string) ?? undefined,
     createdAt: ts(r.created_at),
   };
 }
@@ -114,6 +116,7 @@ function toEvent(r: Row): CompetitionEvent {
     roundCount: r.round_count as number,
     cutoffMs: (r.cutoff_ms as number) ?? undefined,
     timeLimitMs: (r.time_limit_ms as number) ?? undefined,
+    fee: (r.fee as number) ?? undefined,
   };
 }
 
@@ -359,19 +362,19 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       async create(comp) {
         await pool.query(
           `INSERT INTO competitions
-             (id, title, type, status, cover_url, banner_url, description, rules_md,
+             (id, title, type, status, cover_url, banner_url, mobile_banner_url, description, rules_md,
               base_fee, per_event_fee, registration_opens_at, registration_deadline,
-              starts_at, ends_at, featured, created_by, cancellation_reason, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)`,
+              starts_at, ends_at, featured, created_by, cancellation_reason, published_by, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$20)`,
           [
             comp.id, comp.title, comp.type, comp.status,
-            comp.coverUrl ?? null, comp.bannerUrl ?? null,
+            comp.coverUrl ?? null, comp.bannerUrl ?? null, comp.mobileBannerUrl ?? null,
             comp.description ?? null, comp.rulesMd ?? null,
             comp.baseFee, comp.perEventFee,
             comp.registrationOpensAt ?? null, comp.registrationDeadline ?? null,
             comp.startsAt ?? null, comp.endsAt ?? null,
             comp.featured ?? false, comp.createdBy ?? null,
-            comp.cancellationReason ?? null, comp.createdAt,
+            comp.cancellationReason ?? null, comp.publishedBy ?? null, comp.createdAt,
           ],
         );
       },
@@ -395,9 +398,10 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           registrationOpensAt: "registration_opens_at",
           registrationDeadline: "registration_deadline",
           startsAt: "starts_at", endsAt: "ends_at",
-          coverUrl: "cover_url", bannerUrl: "banner_url",
+          coverUrl: "cover_url", bannerUrl: "banner_url", mobileBannerUrl: "mobile_banner_url",
           featured: "featured", featuredOrder: "featured_order", coverCaption: "cover_caption",
           cancellationReason: "cancellation_reason", videoDeadlineMinutes: "video_deadline_minutes",
+          publishedBy: "published_by",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -450,17 +454,18 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       async create(event) {
         await pool.query(
           `INSERT INTO competition_events
-             (id, competition_id, event_type, round_count, cutoff_ms, time_limit_ms)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
+             (id, competition_id, event_type, round_count, cutoff_ms, time_limit_ms, fee)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
           [
             event.id, event.competitionId, event.eventType, event.roundCount,
-            event.cutoffMs ?? null, event.timeLimitMs ?? null,
+            event.cutoffMs ?? null, event.timeLimitMs ?? null, event.fee ?? null,
           ],
         );
       },
       async update(id, fields) {
         const COL: Record<string, string> = {
           roundCount: "round_count", cutoffMs: "cutoff_ms", timeLimitMs: "time_limit_ms",
+          fee: "fee",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -1347,6 +1352,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           discountValue: r.discount_value as number,
           maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
           competitionId: (r.competition_id as string) ?? undefined,
+          competitionEventId: (r.competition_event_id as string) ?? undefined,
           validFrom: r.valid_from ? ts(r.valid_from) : undefined,
           validTo: r.valid_until ? ts(r.valid_until) : undefined,
           active: r.active as boolean, createdAt: ts(r.created_at),
@@ -1361,6 +1367,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           discountValue: r.discount_value as number,
           maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
           competitionId: (r.competition_id as string) ?? undefined,
+          competitionEventId: (r.competition_event_id as string) ?? undefined,
           validFrom: r.valid_from ? ts(r.valid_from) : undefined,
           validTo: r.valid_until ? ts(r.valid_until) : undefined,
           active: r.active as boolean, createdAt: ts(r.created_at) };
@@ -1374,22 +1381,24 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           discountValue: r.discount_value as number,
           maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
           competitionId: (r.competition_id as string) ?? undefined,
+          competitionEventId: (r.competition_event_id as string) ?? undefined,
           validFrom: r.valid_from ? ts(r.valid_from) : undefined,
           validTo: r.valid_until ? ts(r.valid_until) : undefined,
           active: r.active as boolean, createdAt: ts(r.created_at) };
       },
       async create(promo: PromoCode) {
         await pool.query(
-          `INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, used_count, competition_id, valid_from, valid_until, active, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          `INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, used_count, competition_id, competition_event_id, valid_from, valid_until, active, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
           [promo.id, promo.code, promo.discountType, promo.discountValue, promo.maxUses, promo.usedCount,
-           promo.competitionId ?? null, promo.validFrom ?? null, promo.validTo ?? null, promo.active, promo.createdAt],
+           promo.competitionId ?? null, promo.competitionEventId ?? null, promo.validFrom ?? null, promo.validTo ?? null, promo.active, promo.createdAt],
         );
       },
       async update(id: string, fields: Partial<PromoCode>) {
         const COL: Record<string, string> = {
           code: "code", discountType: "discount_type", discountValue: "discount_value",
           maxUses: "max_uses", active: "active", validFrom: "valid_from", validTo: "valid_until",
+          competitionEventId: "competition_event_id",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);

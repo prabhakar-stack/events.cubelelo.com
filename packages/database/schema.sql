@@ -47,12 +47,14 @@ create table competitions (
   status                comp_status not null default 'draft',
   cover_url             text,
   banner_url            text,
+  mobile_banner_url     text,
   description           text,
   rules_md              text,
   base_fee              integer not null default 0,   -- paise
   per_event_fee         integer not null default 0,   -- paise
   registration_deadline timestamptz,
   created_by            uuid references users(id),
+  published_by          uuid references users(id),
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
 );
@@ -65,6 +67,7 @@ create table competition_events (
   round_count    integer not null default 1,
   cutoff_ms      integer,
   time_limit_ms  integer,
+  fee            integer,                          -- paise, null = use competition perEventFee
   created_at     timestamptz not null default now(),
   unique (competition_id, event_type)
 );

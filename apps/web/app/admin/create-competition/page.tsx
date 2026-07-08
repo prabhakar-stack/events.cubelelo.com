@@ -6,6 +6,8 @@ import { EVENT_IDS } from "@cubers/scramble-core";
 import {
   createCompetition,
   updateCompetition,
+  uploadCompetitionBanner,
+  uploadCompetitionMobileBanner,
   type AdvancementCriteria,
 } from "@/lib/api";
 import { eventDisplayName } from "@/lib/eventNames";
@@ -21,6 +23,7 @@ interface EventSpec {
   roundCount: number;
   cutoffMs?: number;
   timeLimitMs?: number;
+  fee?: number;
   durationMinutes?: number;
   roundCriteria?: (AdvancementCriteria | undefined)[];
   roundSchedule?: (RoundSchedule | undefined)[];
@@ -48,6 +51,8 @@ export default function CreateCompetitionPage() {
   const [events, setEvents] = useState<EventSpec[]>([
     { eventType: "333", roundCount: 1 },
   ]);
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [mobileBannerFile, setMobileBannerFile] = useState<File | null>(null);
   const [featured, setFeatured] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +110,8 @@ export default function CreateCompetitionPage() {
           updates as Parameters<typeof updateCompetition>[1],
         );
       }
+      if (bannerFile) await uploadCompetitionBanner(id, bannerFile);
+      if (mobileBannerFile) await uploadCompetitionMobileBanner(id, mobileBannerFile);
       router.push("/admin");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -186,6 +193,38 @@ export default function CreateCompetitionPage() {
               placeholder="WCA regulations apply..."
               rows={3}
               className={INPUT}
+            />
+          </div>
+        </div>
+
+        {/* Banners */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-zinc-500">
+              Desktop Banner <span className="text-zinc-400">(1200×400 recommended)</span>
+            </label>
+            {bannerFile && (
+              <p className="mb-1 text-xs text-emerald-500">Selected: {bannerFile.name}</p>
+            )}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)}
+              className={INPUT + " file:mr-3 file:rounded file:border-0 file:bg-emerald-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white"}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-zinc-500">
+              Mobile Banner <span className="text-zinc-400">(600×400 recommended)</span>
+            </label>
+            {mobileBannerFile && (
+              <p className="mb-1 text-xs text-emerald-500">Selected: {mobileBannerFile.name}</p>
+            )}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              onChange={(e) => setMobileBannerFile(e.target.files?.[0] ?? null)}
+              className={INPUT + " file:mr-3 file:rounded file:border-0 file:bg-zinc-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white"}
             />
           </div>
         </div>
@@ -345,6 +384,23 @@ export default function CreateCompetitionPage() {
                       className={`w-16 ${SMALL_INPUT}`}
                     />
                   </label>
+                  {type === "paid" && (
+                    <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                      Fee (paise)
+                      <input
+                        type="number"
+                        min={0}
+                        value={ev.fee ?? ""}
+                        placeholder="default"
+                        onChange={(e) =>
+                          updateEvent(i, {
+                            fee: e.target.value ? Number(e.target.value) : undefined,
+                          })
+                        }
+                        className={`w-24 ${SMALL_INPUT}`}
+                      />
+                    </label>
+                  )}
                   {events.length > 1 && (
                     <button
                       onClick={() => removeEvent(i)}

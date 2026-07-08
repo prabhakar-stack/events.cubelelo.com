@@ -52,6 +52,7 @@ export async function registerAdminRoutes(
         roundCount?: number;
         cutoffMs?: number;
         timeLimitMs?: number;
+        fee?: number;
         advancementCount?: number;
         advancementCriteria?: { method: string; rankLimit?: number; timeLimitMs?: number };
         roundCriteria?: Array<{ method: string; rankLimit?: number; timeLimitMs?: number } | null>;
@@ -110,6 +111,7 @@ export async function registerAdminRoutes(
         roundCount: rounds,
         cutoffMs: spec.cutoffMs,
         timeLimitMs: spec.timeLimitMs,
+        fee: spec.fee,
       };
       await repo.competitionEvents.create(event);
 
@@ -146,7 +148,7 @@ export async function registerAdminRoutes(
 
     // saveAsDraft = true keeps it as draft (default). If false, publish immediately.
     if (saveAsDraft === false) {
-      await repo.competitions.update(compId, { status: "published" });
+      await repo.competitions.update(compId, { status: "published", publishedBy: req.authClaims!.sub });
     }
 
     return reply.code(201).send({ id: compId, status: saveAsDraft === false ? "published" : "draft" });
@@ -171,13 +173,14 @@ export async function registerAdminRoutes(
       coverCaption?: string;
       coverUrl?: string;
       bannerUrl?: string;
+      mobileBannerUrl?: string;
       cancellationReason?: string;
     };
   }>("/api/v1/admin/competitions/:id", adminOnly, async (req, reply) => {
     const {
       title, status, description, rulesMd, baseFee, perEventFee,
       registrationOpensAt, registrationDeadline, startsAt, endsAt,
-      featured, featuredOrder, coverCaption, coverUrl, bannerUrl,
+      featured, featuredOrder, coverCaption, coverUrl, bannerUrl, mobileBannerUrl,
       cancellationReason,
     } = req.body ?? {};
 
@@ -197,6 +200,7 @@ export async function registerAdminRoutes(
     if (typeof coverCaption === "string") fields.coverCaption = coverCaption;
     if (typeof coverUrl === "string") fields.coverUrl = coverUrl;
     if (typeof bannerUrl === "string") fields.bannerUrl = bannerUrl;
+    if (typeof mobileBannerUrl === "string") fields.mobileBannerUrl = mobileBannerUrl;
     if (typeof cancellationReason === "string") fields.cancellationReason = cancellationReason;
 
     if (status === "cancelled" && !cancellationReason?.trim()) {
@@ -231,6 +235,9 @@ export async function registerAdminRoutes(
       }
     }
 
+    if (fields.status === "published") {
+      (fields as Record<string, unknown>).publishedBy = req.authClaims!.sub;
+    }
     const updated = await repo.competitions.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "competition_not_found" });
     return {
@@ -245,10 +252,74 @@ export async function registerAdminRoutes(
     };
   });
 
+  // Upload competition desktop banner
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/competitions/:id/upload-banner",
+    adminOnly,
+    async (req, reply) => {
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const data = await req.file();
+      if (!data) return reply.code(400).send({ error: "no_file" });
+
+      const ext = data.filename.split(".").pop()?.toLowerCase() ?? "png";
+      if (!["jpg", "jpeg", "png", "gif", "webp"].includes(ext))
+        return reply.code(400).send({ error: "invalid_file_type" });
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of data.file) chunks.push(chunk as Buffer);
+      const buffer = Buffer.concat(chunks);
+
+      if (buffer.length > 5 * 1024 * 1024)
+        return reply.code(400).send({ error: "file_too_large_max_5mb" });
+
+      const { getStorage } = await import("../../lib/storage");
+      const filename = `competitions/${comp.id}_banner_${randomUUID().slice(0, 8)}.${ext}`;
+      const storage = getStorage();
+      const bannerUrl = await storage.upload(filename, buffer, `image/${ext === "jpg" ? "jpeg" : ext}`);
+
+      const updated = await repo.competitions.update(comp.id, { bannerUrl });
+      return { bannerUrl: updated?.bannerUrl ?? bannerUrl };
+    },
+  );
+
+  // Upload competition mobile banner
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/competitions/:id/upload-mobile-banner",
+    adminOnly,
+    async (req, reply) => {
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const data = await req.file();
+      if (!data) return reply.code(400).send({ error: "no_file" });
+
+      const ext = data.filename.split(".").pop()?.toLowerCase() ?? "png";
+      if (!["jpg", "jpeg", "png", "gif", "webp"].includes(ext))
+        return reply.code(400).send({ error: "invalid_file_type" });
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of data.file) chunks.push(chunk as Buffer);
+      const buffer = Buffer.concat(chunks);
+
+      if (buffer.length > 5 * 1024 * 1024)
+        return reply.code(400).send({ error: "file_too_large_max_5mb" });
+
+      const { getStorage } = await import("../../lib/storage");
+      const filename = `competitions/${comp.id}_mobile_banner_${randomUUID().slice(0, 8)}.${ext}`;
+      const storage = getStorage();
+      const mobileBannerUrl = await storage.upload(filename, buffer, `image/${ext === "jpg" ? "jpeg" : ext}`);
+
+      const updated = await repo.competitions.update(comp.id, { mobileBannerUrl });
+      return { mobileBannerUrl: updated?.mobileBannerUrl ?? mobileBannerUrl };
+    },
+  );
+
   // Duplicate a competition
   app.post<{
     Params: { id: string };
-    Body: { reuseScrambles?: boolean; type?: CompType };
+    Body: { reuseScrambles?: boolean; type?: CompType; copySchedule?: boolean };
   }>("/api/v1/admin/competitions/:id/duplicate", adminOnly, async (req, reply) => {
     const source = await repo.competitions.findById(req.params.id);
     if (!source) return reply.code(404).send({ error: "competition_not_found" });
@@ -259,6 +330,7 @@ export async function registerAdminRoutes(
       req.body?.type && COMP_TYPES.includes(req.body.type) ? req.body.type : source.type;
     const newCompId = randomUUID();
 
+    const copySched = req.body?.copySchedule !== false;
     const comp: Competition = {
       id: newCompId,
       title: `${source.title} (copy)`,
@@ -268,7 +340,10 @@ export async function registerAdminRoutes(
       rulesMd: source.rulesMd,
       baseFee: overrideType === "free" ? 0 : source.baseFee,
       perEventFee: overrideType === "free" ? 0 : source.perEventFee,
-      registrationDeadline: undefined,
+      registrationDeadline: copySched ? source.registrationDeadline : undefined,
+      registrationOpensAt: copySched ? source.registrationOpensAt : undefined,
+      startsAt: copySched ? source.startsAt : undefined,
+      endsAt: copySched ? source.endsAt : undefined,
       featured: false,
       videoDeadlineMinutes: source.videoDeadlineMinutes,
       createdBy: user?.id,
@@ -286,6 +361,7 @@ export async function registerAdminRoutes(
         roundCount: srcEvent.roundCount,
         cutoffMs: srcEvent.cutoffMs,
         timeLimitMs: srcEvent.timeLimitMs,
+        fee: srcEvent.fee,
       };
       await repo.competitionEvents.create(event);
 
@@ -301,6 +377,9 @@ export async function registerAdminRoutes(
           status: "pending",
           advancementCount: srcRound.advancementCount,
           advancementCriteria: srcRound.advancementCriteria,
+          opensAt: copySched ? srcRound.opensAt : undefined,
+          closesAt: copySched ? srcRound.closesAt : undefined,
+          durationMinutes: copySched ? srcRound.durationMinutes : undefined,
         };
         await repo.rounds.create(round);
 
@@ -321,6 +400,97 @@ export async function registerAdminRoutes(
     }
 
     return reply.code(201).send({ id: newCompId, title: comp.title });
+  });
+
+  // Create practice event from an existing competition, moving all registered participants
+  app.post<{
+    Params: { id: string };
+    Body: { startsAt?: string; endsAt?: string };
+  }>("/api/v1/admin/competitions/:id/practice", adminOnly, async (req, reply) => {
+    const source = await repo.competitions.findById(req.params.id);
+    if (!source) return reply.code(404).send({ error: "competition_not_found" });
+
+    const user = await repo.users.findById(req.authClaims!.sub);
+    const now = new Date().toISOString();
+    const newCompId = randomUUID();
+
+    const comp: Competition = {
+      id: newCompId,
+      title: `${source.title} Practice`,
+      type: "practice",
+      status: "draft",
+      description: source.description,
+      rulesMd: source.rulesMd,
+      baseFee: 0,
+      perEventFee: 0,
+      startsAt: req.body?.startsAt ?? undefined,
+      endsAt: req.body?.endsAt ?? undefined,
+      featured: false,
+      videoDeadlineMinutes: source.videoDeadlineMinutes,
+      createdBy: user?.id,
+      createdAt: now,
+    };
+    await repo.competitions.create(comp);
+
+    const sourceEvents = await repo.competitionEvents.findByCompetition(source.id);
+    const eventMap = new Map<string, string>();
+
+    for (const srcEvent of sourceEvents) {
+      const newEventId = randomUUID();
+      eventMap.set(srcEvent.id, newEventId);
+      await repo.competitionEvents.create({
+        id: newEventId,
+        competitionId: newCompId,
+        eventType: srcEvent.eventType,
+        roundCount: srcEvent.roundCount,
+        cutoffMs: srcEvent.cutoffMs,
+        timeLimitMs: srcEvent.timeLimitMs,
+      });
+
+      const srcRounds = (await repo.rounds.findByCompetition(source.id))
+        .filter((r) => r.competitionEventId === srcEvent.id)
+        .sort((a, b) => a.roundNumber - b.roundNumber);
+
+      for (const srcRound of srcRounds) {
+        await repo.rounds.create({
+          id: randomUUID(),
+          competitionEventId: newEventId,
+          roundNumber: srcRound.roundNumber,
+          status: "pending",
+          advancementCount: srcRound.advancementCount,
+          advancementCriteria: srcRound.advancementCriteria,
+        });
+      }
+    }
+
+    const regs = await repo.registrations.findByCompetition(source.id);
+    const paidRegs = regs.filter(
+      (r) => r.paymentStatus === "paid" || source.type === "free" || source.type === "practice",
+    );
+    const regEventsByReg = await repo.registrations.findEventsForAll(paidRegs.map((r) => r.id));
+
+    let copiedCount = 0;
+    for (const reg of paidRegs) {
+      const newRegId = randomUUID();
+      await repo.registrations.create({
+        id: newRegId,
+        userId: reg.userId,
+        competitionId: newCompId,
+        paymentStatus: "paid",
+        createdAt: now,
+      });
+
+      const srcEvents = regEventsByReg.get(reg.id) ?? [];
+      for (const srcEv of srcEvents) {
+        const mappedId = eventMap.get(srcEv.id);
+        if (mappedId) {
+          await repo.registrations.addEvent(newRegId, mappedId);
+        }
+      }
+      copiedCount++;
+    }
+
+    return reply.code(201).send({ id: newCompId, title: comp.title, participantsCopied: copiedCount });
   });
 
   // ── Announcements ─────────────────────────────────────────────────────────
@@ -642,13 +812,14 @@ export async function registerAdminRoutes(
 
   app.patch<{
     Params: { id: string };
-    Body: { cutoffMs?: number; timeLimitMs?: number; roundCount?: number };
+    Body: { cutoffMs?: number; timeLimitMs?: number; roundCount?: number; fee?: number };
   }>("/api/v1/admin/competition-events/:id", adminOnly, async (req, reply) => {
-    const { cutoffMs, timeLimitMs, roundCount } = req.body ?? {};
+    const { cutoffMs, timeLimitMs, roundCount, fee } = req.body ?? {};
     const fields: Partial<CompetitionEvent> = {};
     if (cutoffMs !== undefined) fields.cutoffMs = cutoffMs;
     if (timeLimitMs !== undefined) fields.timeLimitMs = timeLimitMs;
     if (roundCount !== undefined) fields.roundCount = roundCount;
+    if (fee !== undefined) fields.fee = fee;
     if (Object.keys(fields).length === 0) return reply.code(400).send({ error: "no_valid_fields" });
     const updated = await repo.competitionEvents.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "event_not_found" });
@@ -949,23 +1120,33 @@ export async function registerAdminRoutes(
 
   app.post<{
     Params: { id: string };
-    Body: { subject?: string; bodyHtml?: string };
+    Body: {
+      subject?: string;
+      bodyHtml?: string;
+      recipients?: Array<{ email: string; name: string }>;
+    };
   }>(
     "/api/v1/admin/competitions/:id/email",
     adminOnly,
     async (req, reply) => {
-      const { subject, bodyHtml } = req.body ?? {};
+      const { subject, bodyHtml, recipients: csvRecipients } = req.body ?? {};
       if (!subject?.trim() || !bodyHtml?.trim())
         return reply.code(400).send({ error: "subject_and_body_required" });
 
       const comp = await repo.competitions.findById(req.params.id);
       if (!comp) return reply.code(404).send({ error: "competition_not_found" });
 
-      const regs = await repo.registrations.findByCompetition(comp.id);
-      const recipients: { email: string; name: string }[] = [];
-      for (const reg of regs) {
-        const user = await repo.users.findById(reg.userId);
-        if (user?.email) recipients.push({ email: user.email, name: user.name });
+      let recipients: { email: string; name: string }[];
+
+      if (Array.isArray(csvRecipients) && csvRecipients.length > 0) {
+        recipients = csvRecipients.filter((r) => r.email?.trim());
+      } else {
+        const regs = await repo.registrations.findByCompetition(comp.id);
+        recipients = [];
+        for (const reg of regs) {
+          const user = await repo.users.findById(reg.userId);
+          if (user?.email) recipients.push({ email: user.email, name: user.name });
+        }
       }
 
       if (recipients.length === 0)
@@ -1078,6 +1259,70 @@ export async function registerAdminRoutes(
     },
   );
 
+  app.post<{
+    Params: { id: string };
+    Body: {
+      winners: Array<{
+        name: string;
+        clId?: string;
+        event?: string;
+        rank?: number;
+        bestSingle?: string;
+        average?: string;
+      }>;
+    };
+  }>(
+    "/api/v1/admin/competitions/:id/certificates/csv",
+    adminOnly,
+    async (req, reply) => {
+      const { winners } = req.body ?? {};
+      if (!Array.isArray(winners) || winners.length === 0)
+        return reply.code(400).send({ error: "winners_required" });
+
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const compDate = comp.startsAt
+        ? new Date(comp.startsAt).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })
+        : new Date(comp.createdAt).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" });
+
+      const filename = `${comp.title.replace(/[^a-zA-Z0-9_-]/g, "_")}_custom_certificates.zip`;
+      reply
+        .header("Content-Type", "application/zip")
+        .header("Content-Disposition", `attachment; filename="${filename}"`);
+
+      const archive = new ZipArchive({ zlib: { level: 5 } });
+      archive.on("error", (err: Error) => reply.log.error(err, "archive error"));
+
+      for (const w of winners) {
+        if (!w.name?.trim()) continue;
+        const rank = w.rank ?? null;
+        const data = {
+          participantName: w.name.trim(),
+          clId: w.clId?.trim() ?? "",
+          competitionTitle: comp.title,
+          competitionDate: compDate,
+          events: w.event
+            ? [{
+                eventType: w.event.trim(),
+                rank,
+                bestSingleMs: w.bestSingle ? Math.round(parseFloat(w.bestSingle) * 1000) : null,
+                ao5Ms: w.average ? Math.round(parseFloat(w.average) * 1000) : null,
+              }]
+            : [],
+          isPodium: rank !== null && rank <= 3,
+          podiumRank: rank !== null && rank <= 3 ? rank : undefined,
+        };
+        const pdf = generateCertificatePDF(data);
+        const pdfName = `${data.participantName.replace(/[^a-zA-Z0-9_-]/g, "_")}_cert.pdf`;
+        archive.append(pdf as never, { name: pdfName });
+      }
+
+      archive.finalize();
+      return reply.send(archive);
+    },
+  );
+
   // ── Promo codes (admin CRUD) ──────────────────────────────────────────────
 
   app.get("/api/v1/admin/promo-codes", adminOnly, async () => {
@@ -1091,11 +1336,12 @@ export async function registerAdminRoutes(
       discountValue?: number;
       maxUses?: number;
       competitionId?: string;
+      competitionEventId?: string;
       validFrom?: string;
       validTo?: string;
     };
   }>("/api/v1/admin/promo-codes", adminOnly, async (req, reply) => {
-    const { code, discountType, discountValue, maxUses, competitionId, validFrom, validTo } = req.body ?? {};
+    const { code, discountType, discountValue, maxUses, competitionId, competitionEventId, validFrom, validTo } = req.body ?? {};
     if (!code?.trim() || !discountType || discountValue == null || discountValue <= 0)
       return reply.code(400).send({ error: "code_type_and_value_required" });
     if (discountType === "percentage" && discountValue > 100)
@@ -1112,6 +1358,7 @@ export async function registerAdminRoutes(
       maxUses: maxUses ?? 0,
       usedCount: 0,
       competitionId,
+      competitionEventId,
       validFrom,
       validTo,
       active: true,
@@ -1123,7 +1370,7 @@ export async function registerAdminRoutes(
 
   app.patch<{
     Params: { id: string };
-    Body: Partial<Pick<PromoCode, "code" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "validFrom" | "validTo" | "active">>;
+    Body: Partial<Pick<PromoCode, "code" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "competitionEventId" | "validFrom" | "validTo" | "active">>;
   }>("/api/v1/admin/promo-codes/:id", adminOnly, async (req, reply) => {
     const updated = await repo.promoCodes.update(req.params.id, req.body ?? {});
     if (!updated) return reply.code(404).send({ error: "promo_not_found" });
@@ -1144,9 +1391,9 @@ export async function registerAdminRoutes(
   // ── Promo code validation (public, auth required) ────────────────────────
 
   app.post<{
-    Body: { code?: string; competitionId?: string };
+    Body: { code?: string; competitionId?: string; eventIds?: string[] };
   }>("/api/v1/promo/validate", async (req, reply) => {
-    const { code, competitionId } = req.body ?? {};
+    const { code, competitionId, eventIds } = req.body ?? {};
     if (!code?.trim()) return reply.code(400).send({ error: "code_required" });
 
     const promo = await repo.promoCodes.findByCode(code.trim());
@@ -1165,11 +1412,15 @@ export async function registerAdminRoutes(
     if (promo.competitionId && competitionId && promo.competitionId !== competitionId)
       return reply.code(409).send({ error: "code_not_for_this_competition" });
 
+    if (promo.competitionEventId && eventIds && !eventIds.includes(promo.competitionEventId))
+      return reply.code(409).send({ error: "code_not_for_selected_events" });
+
     return {
       valid: true,
       code: promo.code,
       discountType: promo.discountType,
       discountValue: promo.discountValue,
+      competitionEventId: promo.competitionEventId,
     };
   });
 
