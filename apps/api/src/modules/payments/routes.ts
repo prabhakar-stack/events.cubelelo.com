@@ -66,14 +66,39 @@ export async function registerPaymentRoutes(
         if (promo.competitionEventId && !regEvents.some((e) => e.id === promo.competitionEventId)) {
           return reply.code(400).send({ error: "promo_not_for_selected_events" });
         }
-        const now = new Date().toISOString();
-        if ((promo.validFrom && now < promo.validFrom) || (promo.validTo && now > promo.validTo)) {
-          return reply.code(400).send({ error: "promo_expired" });
+        // Competition coupons: valid only while registration is open
+        if (promo.type === "competition" && comp) {
+          const regOpen = comp.status === "registration_open" || comp.status === "published";
+          if (!regOpen) {
+            return reply.code(400).send({ error: "promo_registration_closed" });
+          }
+        }
+        // Welcome coupons: only for users who never paid for a competition
+        if (promo.type === "welcome") {
+          const hasPaid = await repo.registrations.hasPaidRegistration(user.id);
+          if (hasPaid) {
+            return reply.code(400).send({ error: "promo_welcome_only" });
+          }
+        }
+        // Date-based validity (welcome / general / special coupons)
+        if (promo.type !== "competition") {
+          const now = new Date().toISOString();
+          if ((promo.validFrom && now < promo.validFrom) || (promo.validTo && now > promo.validTo)) {
+            return reply.code(400).send({ error: "promo_expired" });
+          }
+        }
+        // Per-user usage limit (welcome coupons: 1 per user)
+        if (promo.maxUsesPerUser > 0) {
+          const userUses = await repo.promoCodes.userUsageCount(promo.id, user.id);
+          if (userUses >= promo.maxUsesPerUser) {
+            return reply.code(409).send({ error: "promo_already_used" });
+          }
         }
         const claimed = await repo.promoCodes.incrementUsed(promo.id);
         if (!claimed) {
           return reply.code(409).send({ error: "promo_fully_redeemed" });
         }
+        await repo.promoCodes.recordUsage(promo.id, user.id);
         if (promo.competitionEventId) {
           const targetEvent = regEvents.find((e) => e.id === promo.competitionEventId);
           const eventFee = targetEvent?.fee ?? comp?.perEventFee ?? 0;

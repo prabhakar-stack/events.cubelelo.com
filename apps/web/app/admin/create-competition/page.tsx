@@ -80,14 +80,15 @@ export default function CreateCompetitionPage() {
         type,
         description: description.trim() || undefined,
         rulesMd: rulesMd.trim() || undefined,
-        baseFee: type === "paid" ? baseFee : 0,
-        perEventFee: type === "paid" ? perEventFee : 0,
+        baseFee: type === "paid" ? Math.round(baseFee * 100) : 0,
+        perEventFee: type === "paid" ? Math.round(perEventFee * 100) : 0,
         registrationOpensAt: toISO(registrationOpensAt),
         registrationDeadline: toISO(registrationDeadline),
         startsAt: toISO(startsAt),
         endsAt: toISO(endsAt),
         events: events.map((ev) => ({
           ...ev,
+          fee: ev.fee != null ? Math.round(ev.fee * 100) : undefined,
           roundSchedule: ev.roundSchedule?.map((rs) =>
             rs
               ? {
@@ -261,7 +262,7 @@ export default function CreateCompetitionPage() {
             <>
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-500">
-                  Base fee (paise)
+                  Base Fee (₹)
                 </label>
                 <input
                   type="number"
@@ -273,7 +274,7 @@ export default function CreateCompetitionPage() {
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-500">
-                  Per-event fee (paise)
+                  Per-Event Fee (₹)
                 </label>
                 <input
                   type="number"
@@ -386,7 +387,7 @@ export default function CreateCompetitionPage() {
                   </label>
                   {type === "paid" && (
                     <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                      Fee (paise)
+                      Fee (₹)
                       <input
                         type="number"
                         min={0}

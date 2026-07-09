@@ -306,7 +306,7 @@ export function CompetitionTerminal({
     return (
       <CenterMessage>
         <div className="space-y-2 text-center">
-          <p className="text-red-400">Could not load this round.</p>
+          <p className="text-red-600 dark:text-red-400">Could not load this round.</p>
           <p className="font-mono text-xs text-zinc-500">{load.message}</p>
           <p className="text-sm text-zinc-500">
             Is the API running on the configured URL?
@@ -317,13 +317,13 @@ export function CompetitionTerminal({
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 select-none">
+    <div className="flex h-screen flex-col overflow-hidden bg-white text-zinc-900 select-none dark:bg-zinc-950 dark:text-zinc-100">
       {/* ── Header ── */}
-      <header className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-4 py-2 text-sm">
+      <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowExitConfirm(true)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             title="Leave competition"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -335,12 +335,12 @@ export function CompetitionTerminal({
         </div>
         <div className="flex items-center gap-4">
           {load.kind === "ready" && load.cutoffMs && (
-            <span className="text-xs text-amber-400">
+            <span className="text-xs text-amber-600 dark:text-amber-400">
               Cutoff: {formatTime(load.cutoffMs)}
             </span>
           )}
           {load.kind === "ready" && load.timeLimitMs && (
-            <span className="text-xs text-red-400">
+            <span className="text-xs text-red-600 dark:text-red-400">
               Limit: {formatTime(load.timeLimitMs)}
             </span>
           )}
@@ -354,20 +354,20 @@ export function CompetitionTerminal({
       {/* ── Exit confirmation dialog ── */}
       {showExitConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="mx-4 w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-900/30">
+          <div className="mx-4 w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
               <svg className="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="mb-2 text-lg font-bold text-white">Leave Competition?</h3>
-            <p className="mb-6 text-sm text-zinc-400">
+            <h3 className="mb-2 text-lg font-bold text-zinc-900 dark:text-white">Leave Competition?</h3>
+            <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
               Your progress in this round will be lost. Any unsubmitted solves will not be saved.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowExitConfirm(false)}
-                className="flex-1 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800"
+                className="flex-1 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 Stay
               </button>
@@ -400,7 +400,7 @@ export function CompetitionTerminal({
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
         >
-          <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} size="xl" theme="dark" />
+          <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} size="xl" theme="auto" />
           <p className="text-sm text-zinc-500">{instruction(snapshot.phase)}</p>
         </div>
       ) : (
@@ -408,10 +408,10 @@ export function CompetitionTerminal({
           {/* ══════ TOP: info panel ══════ */}
           <div className="flex-shrink-0">
             {/* Scramble text — locked, no select/copy */}
-            <div className="flex items-start gap-2 border-b border-zinc-800 px-4 py-3">
+            <div className="flex items-start gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
               <div className="min-w-0 flex-1">
                 <div
-                  className="font-mono text-sm leading-relaxed text-zinc-200"
+                  className="font-mono text-sm leading-relaxed text-zinc-800 dark:text-zinc-200"
                   style={{ userSelect: "none", WebkitUserSelect: "none" }}
                   onCopy={(e) => e.preventDefault()}
                   onCut={(e) => e.preventDefault()}
@@ -421,8 +421,8 @@ export function CompetitionTerminal({
                       key={i}
                       className={
                         i < scrambleStep
-                          ? "text-zinc-200"
-                          : "text-zinc-600"
+                          ? "text-zinc-800 dark:text-zinc-200"
+                          : "text-zinc-400 dark:text-zinc-600"
                       }
                     >
                       {move}
@@ -436,14 +436,14 @@ export function CompetitionTerminal({
                 <button
                   onClick={() => setScrambleStep((s) => Math.max(0, s - 1))}
                   disabled={scrambleStep <= 0}
-                  className="rounded border border-zinc-700 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-30"
+                  className="rounded border border-zinc-300 px-3 py-1 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-30 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   prev
                 </button>
                 <button
                   onClick={() => setScrambleStep((s) => Math.min(totalSteps, s + 1))}
                   disabled={scrambleStep >= totalSteps}
-                  className="rounded border border-zinc-700 px-3 py-1 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-30"
+                  className="rounded border border-zinc-300 px-3 py-1 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-30 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   next
                 </button>
@@ -453,7 +453,7 @@ export function CompetitionTerminal({
             {/* 2D visualizer + solve status grid */}
             <div className="grid grid-cols-1 gap-3 px-4 pb-2 pt-2 md:grid-cols-2">
               {/* 2D scramble visualizer — shows state at current step */}
-              <div className="flex items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/40 p-2">
+              <div className="flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/40">
                 <TwistyPlayer
                   puzzle={event.puzzle}
                   scramble={visibleScrambleAlg}
@@ -462,16 +462,16 @@ export function CompetitionTerminal({
               </div>
 
               {/* Solve status for this round */}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
                 {/* Progress bar — scoped to solves panel */}
                 <div className="mb-2">
                   <ProgressBar current={solves.length} total={SOLVES_PER_ROUND} />
                 </div>
                 <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="text-zinc-400">This round</span>
-                  <span className="text-zinc-400">
+                  <span className="text-zinc-500 dark:text-zinc-400">This round</span>
+                  <span className="text-zinc-500 dark:text-zinc-400">
                     ao5:{" "}
-                    <span className="font-mono text-zinc-100">
+                    <span className="font-mono text-zinc-900 dark:text-zinc-100">
                       {runningAo5 === null ? "—" : formatTime(runningAo5)}
                     </span>
                   </span>
@@ -480,11 +480,11 @@ export function CompetitionTerminal({
                   {Array.from({ length: SOLVES_PER_ROUND }).map((_, i) => (
                     <li
                       key={i}
-                      className={`flex justify-between rounded px-2 py-1 ${i === index ? "bg-zinc-800/60" : ""
+                      className={`flex justify-between rounded px-2 py-1 ${i === index ? "bg-zinc-200/60 dark:bg-zinc-800/60" : ""
                         }`}
                     >
                       <span className="text-zinc-500">Solve {i + 1}</span>
-                      <span className={solves[i] ? "text-zinc-100" : "text-zinc-700"}>
+                      <span className={solves[i] ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-400 dark:text-zinc-700"}>
                         {solves[i] ? formatSolve(solves[i]!) : "—"}
                       </span>
                     </li>
@@ -495,7 +495,7 @@ export function CompetitionTerminal({
           </div>
 
           {/* ══════ DIVIDER ══════ */}
-          <div className="border-t border-zinc-800" />
+          <div className="border-t border-zinc-200 dark:border-zinc-800" />
 
           {/* ══════ BOTTOM: timer area ══════ */}
           <div
@@ -503,7 +503,7 @@ export function CompetitionTerminal({
             onPointerDown={onPointerDown}
             onPointerUp={onPointerUp}
           >
-            <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} size="xl" theme="dark" />
+            <TimerDisplay snapshot={snapshot} pendingPenalty={pendingPenalty} size="xl" theme="auto" />
             {snapshot.phase === "stopped" ? (
               <div className="flex items-center gap-3">
                 <PenaltyButtons value={pendingPenalty} onChange={setPendingPenalty} />
@@ -531,7 +531,7 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   const pct = (current / total) * 100;
   return (
     <div className="flex items-center gap-3">
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-800">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
         <div
           className="h-full rounded-full bg-emerald-500 transition-all duration-300"
           style={{ width: `${pct}%` }}
@@ -562,7 +562,7 @@ function instruction(phase: string): string {
 
 function CenterMessage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+    <div className="flex min-h-screen items-center justify-center bg-white text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
       {children}
     </div>
   );
@@ -595,7 +595,7 @@ function RoundComplete({
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10">
       {cutoffFailed ? (
         <div className="text-center">
-          <div className="text-sm uppercase tracking-wider text-red-400">Did not make cutoff</div>
+          <div className="text-sm uppercase tracking-wider text-red-600 dark:text-red-400">Did not make cutoff</div>
           <div className="mt-2 font-mono text-5xl font-bold text-red-500">DNF</div>
           <div className="mt-2 font-mono text-sm text-zinc-500">
             {solves.map((s) => formatSolve(s)).join("   ")}
@@ -607,7 +607,7 @@ function RoundComplete({
       ) : (
         <div className="text-center">
           <div className="text-sm uppercase tracking-wider text-zinc-500">Final ao5</div>
-          <div className="font-mono text-7xl font-bold text-emerald-400">
+          <div className="font-mono text-7xl font-bold text-emerald-600 dark:text-emerald-400">
             {finalAo5 === null ? "DNF" : formatTime(finalAo5)}
           </div>
           <div className="mt-2 font-mono text-sm text-zinc-500">
@@ -617,7 +617,7 @@ function RoundComplete({
       )}
 
       {submit.kind === "done" ? (
-        <div className="text-center text-sm text-zinc-400">
+        <div className="text-center text-sm text-zinc-500 dark:text-zinc-400">
           Submitted! Redirecting…
         </div>
       ) : !signedIn ? (
@@ -638,7 +638,7 @@ function RoundComplete({
           </button>
           <p className="text-xs text-zinc-500">You can upload your video from the event page after submitting.</p>
           {submit.kind === "error" && (
-            <p className="text-sm text-red-400">{submit.message}</p>
+            <p className="text-sm text-red-600 dark:text-red-400">{submit.message}</p>
           )}
         </div>
       )}
@@ -658,27 +658,27 @@ function LeaderboardCard({
   userId: string;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
       <div className="mb-3 flex items-center justify-between text-sm">
-        <span className="text-zinc-400">Live leaderboard</span>
+        <span className="text-zinc-500 dark:text-zinc-400">Live leaderboard</span>
         <span className="text-zinc-500">
           {board.length} competitor{board.length === 1 ? "" : "s"}
         </span>
       </div>
       {board.length === 0 ? (
-        <p className="text-sm text-zinc-600">No submissions yet.</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-600">No submissions yet.</p>
       ) : (
         <ol className="space-y-1 font-mono text-sm">
           {board.map((r) => (
             <li
               key={r.id}
-              className={`flex justify-between rounded px-2 py-1 ${r.userId === userId ? "bg-emerald-900/30" : ""
+              className={`flex justify-between rounded px-2 py-1 ${r.userId === userId ? "bg-emerald-100 dark:bg-emerald-900/30" : ""
                 }`}
             >
-              <span className="text-zinc-400">
+              <span className="text-zinc-500 dark:text-zinc-400">
                 #{r.rank} {r.userId === userId ? "(you)" : r.userId.slice(0, 8)}
               </span>
-              <span className="text-zinc-100">
+              <span className="text-zinc-900 dark:text-zinc-100">
                 {r.ao5Ms === null ? "DNF" : formatTime(r.ao5Ms)}
               </span>
             </li>
@@ -703,7 +703,7 @@ function PenaltyButtons({
     { key: "dnf", label: "DNF" },
   ];
   return (
-    <div className="flex overflow-hidden rounded-lg border border-zinc-700">
+    <div className="flex overflow-hidden rounded-lg border border-zinc-300 dark:border-zinc-700">
       {opts.map((o) => (
         <button
           key={o.key}
@@ -711,8 +711,8 @@ function PenaltyButtons({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onChange(o.key)}
           className={`px-4 py-2 text-sm font-semibold transition ${value === o.key
-              ? "bg-zinc-200 text-zinc-900"
-              : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+              ? "bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900"
+              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
             }`}
         >
           {o.label}

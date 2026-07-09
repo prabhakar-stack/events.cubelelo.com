@@ -96,10 +96,10 @@ export default function AdminStaffPage() {
 
   const roleColor = (role: string) => {
     switch (role) {
-      case "admin": return "text-red-400 bg-red-900/30";
-      case "moderator": return "text-purple-400 bg-purple-900/30";
-      case "judge": return "text-blue-400 bg-blue-900/30";
-      default: return "text-zinc-400 bg-zinc-800";
+      case "admin": return "text-red-700 bg-red-100 dark:text-red-400 dark:bg-red-900/30";
+      case "moderator": return "text-purple-700 bg-purple-100 dark:text-purple-400 dark:bg-purple-900/30";
+      case "judge": return "text-blue-700 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/30";
+      default: return "text-zinc-600 bg-zinc-200 dark:text-zinc-400 dark:bg-zinc-800";
     }
   };
 

@@ -216,11 +216,11 @@ export default function AdminContentPage() {
               <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {b.active ? (
-                    <span className="rounded-full bg-emerald-900/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Active</span>
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Active</span>
                   ) : (
-                    <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Inactive</span>
+                    <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:bg-zinc-800">Inactive</span>
                   )}
-                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">#{b.order}</span>
+                  <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">#{b.order}</span>
                   <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{b.title}</h3>
                 </div>
                 <span className="text-xs text-zinc-600">

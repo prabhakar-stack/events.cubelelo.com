@@ -1332,16 +1332,18 @@ export async function registerAdminRoutes(
   app.post<{
     Body: {
       code?: string;
+      type?: "competition" | "welcome" | "general";
       discountType?: "percentage" | "flat";
       discountValue?: number;
       maxUses?: number;
+      maxUsesPerUser?: number;
       competitionId?: string;
       competitionEventId?: string;
       validFrom?: string;
       validTo?: string;
     };
   }>("/api/v1/admin/promo-codes", adminOnly, async (req, reply) => {
-    const { code, discountType, discountValue, maxUses, competitionId, competitionEventId, validFrom, validTo } = req.body ?? {};
+    const { code, type, discountType, discountValue, maxUses, maxUsesPerUser, competitionId, competitionEventId, validFrom, validTo } = req.body ?? {};
     if (!code?.trim() || !discountType || discountValue == null || discountValue <= 0)
       return reply.code(400).send({ error: "code_type_and_value_required" });
     if (discountType === "percentage" && discountValue > 100)
@@ -1350,12 +1352,16 @@ export async function registerAdminRoutes(
     const existing = await repo.promoCodes.findByCode(code);
     if (existing) return reply.code(409).send({ error: "code_already_exists" });
 
+    const promoType = type ?? (competitionId ? "competition" : "general");
+
     const promo: PromoCode = {
       id: randomUUID(),
       code: code.toUpperCase().trim(),
+      type: promoType,
       discountType,
       discountValue,
       maxUses: maxUses ?? 0,
+      maxUsesPerUser: promoType === "welcome" ? (maxUsesPerUser ?? 1) : (maxUsesPerUser ?? 0),
       usedCount: 0,
       competitionId,
       competitionEventId,

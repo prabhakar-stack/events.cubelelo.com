@@ -794,12 +794,16 @@ export async function uploadAnnouncementImage(id: string, file: File): Promise<A
 
 // ── Admin: promo codes ───────────────────────────────────────────────────
 
+export type PromoCodeType = "competition" | "welcome" | "general" | "special";
+
 export interface PromoCodeDto {
   id: string;
   code: string;
+  type: PromoCodeType;
   discountType: "percentage" | "flat";
   discountValue: number;
   maxUses: number;
+  maxUsesPerUser: number;
   usedCount: number;
   competitionId?: string;
   competitionEventId?: string;
@@ -815,9 +819,11 @@ export function fetchPromoCodes(): Promise<PromoCodeDto[]> {
 
 export function createPromoCode(body: {
   code: string;
+  type?: PromoCodeType;
   discountType: "percentage" | "flat";
   discountValue: number;
   maxUses?: number;
+  maxUsesPerUser?: number;
   competitionId?: string;
   competitionEventId?: string;
   validFrom?: string;
@@ -1166,9 +1172,10 @@ export interface RankingEntry {
   bestAo5Ms: number | null;
 }
 
-export function fetchRankings(event?: string): Promise<RankingEntry[]> {
+export async function fetchRankings(event?: string): Promise<RankingEntry[]> {
   const qs = event ? `?event=${encodeURIComponent(event)}` : "";
-  return getJson<RankingEntry[]>(`/api/v1/rankings${qs}`);
+  const res = await getJson<{ rankings: RankingEntry[] }>(`/api/v1/rankings${qs}`);
+  return res.rankings;
 }
 
 // ── Banners ──────────────────────────────────────────────────────────────

@@ -23,9 +23,9 @@ export default function AdminMigrationPage() {
       <h1 className="mb-2 text-xl font-bold text-zinc-900 dark:text-zinc-100">Legacy Migration</h1>
       <p className="mb-6 text-sm text-zinc-500">
         Manage the import of historical cubelelo-event data. The ETL script populates
-        <code className="mx-1 rounded bg-zinc-800 px-1 py-0.5 text-xs text-zinc-300">migrated_stub</code>
+        <code className="mx-1 rounded bg-zinc-100 px-1 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">migrated_stub</code>
         accounts for every legacy user. Users claim their stub at{" "}
-        <Link href="/register/migrate" className="text-emerald-400 hover:underline">/register/migrate</Link>.
+        <Link href="/register/migrate" className="text-emerald-600 hover:underline dark:text-emerald-400">/register/migrate</Link>.
       </p>
 
       {error && <div className="mb-4 rounded bg-red-100 px-4 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}

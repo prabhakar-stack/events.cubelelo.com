@@ -135,7 +135,7 @@ export default function AdminRankTiersPage() {
                 type="color"
                 value={form.color}
                 onChange={(e) => setForm({ ...form, color: e.target.value })}
-                className="h-9 w-12 cursor-pointer rounded border border-zinc-700"
+                className="h-9 w-12 cursor-pointer rounded border border-zinc-300 dark:border-zinc-700"
               />
               <button
                 onClick={handleCreate}

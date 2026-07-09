@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import type { Repository } from "./repo";
 import { getRedis } from "../lib/redis";
@@ -117,6 +118,23 @@ function toEvent(r: Row): CompetitionEvent {
     cutoffMs: (r.cutoff_ms as number) ?? undefined,
     timeLimitMs: (r.time_limit_ms as number) ?? undefined,
     fee: (r.fee as number) ?? undefined,
+  };
+}
+
+function toPromo(r: Row): PromoCode {
+  return {
+    id: r.id as string, code: r.code as string,
+    type: (r.type as PromoCode["type"]) ?? "general",
+    discountType: r.discount_type as PromoCode["discountType"],
+    discountValue: r.discount_value as number,
+    maxUses: (r.max_uses as number) ?? 0,
+    maxUsesPerUser: (r.max_uses_per_user as number) ?? 0,
+    usedCount: r.used_count as number,
+    competitionId: (r.competition_id as string) ?? undefined,
+    competitionEventId: (r.competition_event_id as string) ?? undefined,
+    validFrom: r.valid_from ? ts(r.valid_from) : undefined,
+    validTo: r.valid_until ? ts(r.valid_until) : undefined,
+    active: r.active as boolean, createdAt: ts(r.created_at),
   };
 }
 
@@ -748,6 +766,13 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         }
         return map;
       },
+      async hasPaidRegistration(userId: string) {
+        const { rows } = await pool.query(
+          "SELECT 1 FROM registrations WHERE user_id = $1 AND payment_status = 'paid' LIMIT 1",
+          [userId],
+        );
+        return rows.length > 0;
+      },
     },
 
     // ── payments ───────────────────────────────────────────────────────────
@@ -1346,58 +1371,29 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
     promoCodes: {
       async findAll() {
         const { rows } = await pool.query("SELECT * FROM promo_codes ORDER BY created_at DESC");
-        return rows.map((r: Row): PromoCode => ({
-          id: r.id as string, code: r.code as string,
-          discountType: r.discount_type as PromoCode["discountType"],
-          discountValue: r.discount_value as number,
-          maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
-          competitionId: (r.competition_id as string) ?? undefined,
-          competitionEventId: (r.competition_event_id as string) ?? undefined,
-          validFrom: r.valid_from ? ts(r.valid_from) : undefined,
-          validTo: r.valid_until ? ts(r.valid_until) : undefined,
-          active: r.active as boolean, createdAt: ts(r.created_at),
-        }));
+        return rows.map((r: Row) => toPromo(r));
       },
       async findById(id: string) {
         const { rows } = await pool.query("SELECT * FROM promo_codes WHERE id = $1", [id]);
-        if (!rows[0]) return null;
-        const r = rows[0] as Row;
-        return { id: r.id as string, code: r.code as string,
-          discountType: r.discount_type as PromoCode["discountType"],
-          discountValue: r.discount_value as number,
-          maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
-          competitionId: (r.competition_id as string) ?? undefined,
-          competitionEventId: (r.competition_event_id as string) ?? undefined,
-          validFrom: r.valid_from ? ts(r.valid_from) : undefined,
-          validTo: r.valid_until ? ts(r.valid_until) : undefined,
-          active: r.active as boolean, createdAt: ts(r.created_at) };
+        return rows[0] ? toPromo(rows[0] as Row) : null;
       },
       async findByCode(code: string) {
         const { rows } = await pool.query("SELECT * FROM promo_codes WHERE UPPER(code) = UPPER($1)", [code]);
-        if (!rows[0]) return null;
-        const r = rows[0] as Row;
-        return { id: r.id as string, code: r.code as string,
-          discountType: r.discount_type as PromoCode["discountType"],
-          discountValue: r.discount_value as number,
-          maxUses: (r.max_uses as number) ?? 0, usedCount: r.used_count as number,
-          competitionId: (r.competition_id as string) ?? undefined,
-          competitionEventId: (r.competition_event_id as string) ?? undefined,
-          validFrom: r.valid_from ? ts(r.valid_from) : undefined,
-          validTo: r.valid_until ? ts(r.valid_until) : undefined,
-          active: r.active as boolean, createdAt: ts(r.created_at) };
+        return rows[0] ? toPromo(rows[0] as Row) : null;
       },
       async create(promo: PromoCode) {
         await pool.query(
-          `INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, used_count, competition_id, competition_event_id, valid_from, valid_until, active, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-          [promo.id, promo.code, promo.discountType, promo.discountValue, promo.maxUses, promo.usedCount,
+          `INSERT INTO promo_codes (id, code, type, discount_type, discount_value, max_uses, max_uses_per_user, used_count, competition_id, competition_event_id, valid_from, valid_until, active, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          [promo.id, promo.code, promo.type, promo.discountType, promo.discountValue, promo.maxUses, promo.maxUsesPerUser, promo.usedCount,
            promo.competitionId ?? null, promo.competitionEventId ?? null, promo.validFrom ?? null, promo.validTo ?? null, promo.active, promo.createdAt],
         );
       },
       async update(id: string, fields: Partial<PromoCode>) {
         const COL: Record<string, string> = {
-          code: "code", discountType: "discount_type", discountValue: "discount_value",
-          maxUses: "max_uses", active: "active", validFrom: "valid_from", validTo: "valid_until",
+          code: "code", type: "type", discountType: "discount_type", discountValue: "discount_value",
+          maxUses: "max_uses", maxUsesPerUser: "max_uses_per_user", active: "active",
+          validFrom: "valid_from", validTo: "valid_until",
           competitionEventId: "competition_event_id",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
@@ -1411,10 +1407,23 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
       async incrementUsed(id: string) {
         const { rowCount } = await pool.query(
-          "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = $1 AND used_count < max_uses",
+          "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = $1 AND (max_uses = 0 OR used_count < max_uses)",
           [id],
         );
         return (rowCount ?? 0) > 0;
+      },
+      async recordUsage(promoCodeId: string, userId: string) {
+        await pool.query(
+          `INSERT INTO promo_code_usages (id, promo_code_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          [randomUUID(), promoCodeId, userId],
+        );
+      },
+      async userUsageCount(promoCodeId: string, userId: string): Promise<number> {
+        const { rows } = await pool.query(
+          "SELECT COUNT(*)::int AS cnt FROM promo_code_usages WHERE promo_code_id = $1 AND user_id = $2",
+          [promoCodeId, userId],
+        );
+        return (rows[0] as Row)?.cnt as number ?? 0;
       },
     },
 

@@ -102,6 +102,7 @@ export interface Repository {
     findEvents(registrationId: string): Promise<CompetitionEvent[]>;
     /** Events for many registrations at once, keyed by registration id. */
     findEventsForAll(registrationIds: string[]): Promise<Map<string, CompetitionEvent[]>>;
+    hasPaidRegistration(userId: string): Promise<boolean>;
   };
 
   payments: {
@@ -208,6 +209,8 @@ export interface Repository {
     update(id: string, fields: Partial<PromoCode>): Promise<PromoCode | null>;
     delete(id: string): Promise<void>;
     incrementUsed(id: string): Promise<boolean>;
+    recordUsage(promoCodeId: string, userId: string): Promise<void>;
+    userUsageCount(promoCodeId: string, userId: string): Promise<number>;
   };
 
   banners: {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import {
   fetchPromoCodes,
   fetchCompetitions,
@@ -10,6 +9,7 @@ import {
   updatePromoCode,
   deletePromoCode,
   type PromoCodeDto,
+  type PromoCodeType,
   type CompetitionSummary,
   type EventDetail,
 } from "@/lib/api";
@@ -17,6 +17,22 @@ import { ConfirmModal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { EmptyState } from "@/components/EmptyState";
 
+const INPUT = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600";
+const SELECT = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100";
+
+const TYPE_LABELS: Record<PromoCodeType, string> = {
+  competition: "Competition",
+  welcome: "Welcome",
+  general: "General",
+  special: "Special",
+};
+
+const TYPE_DESCRIPTIONS: Record<PromoCodeType, string> = {
+  competition: "Tied to a specific competition — valid while registration is open",
+  welcome: "For new users only (no paid participation yet) — 1 per user, date range",
+  general: "Available to everyone — 1 per user, date range",
+  special: "Available to everyone — 1 per user, limited total count, date range",
+};
 
 export default function AdminPromoCodesPage() {
   const toast = useToast();
@@ -30,6 +46,7 @@ export default function AdminPromoCodesPage() {
   const [deleting, setDeleting] = useState(false);
 
   // Form state
+  const [couponType, setCouponType] = useState<PromoCodeType>("competition");
   const [code, setCode] = useState("");
   const [discountType, setDiscountType] = useState<"percentage" | "flat">("percentage");
   const [discountValue, setDiscountValue] = useState("");
@@ -66,6 +83,7 @@ export default function AdminPromoCodesPage() {
     : codes;
 
   const resetForm = () => {
+    setCouponType("competition");
     setCode("");
     setDiscountType("percentage");
     setDiscountValue("");
@@ -84,8 +102,9 @@ export default function AdminPromoCodesPage() {
     try {
       await createPromoCode({
         code,
+        type: couponType,
         discountType,
-        discountValue: Number(discountValue),
+        discountValue: discountType === "flat" ? Math.round(Number(discountValue) * 100) : Number(discountValue),
         maxUses: maxUses ? Number(maxUses) : undefined,
         competitionId: competitionId || undefined,
         competitionEventId: competitionEventId || undefined,
@@ -154,6 +173,29 @@ export default function AdminPromoCodesPage() {
       {showForm && (
         <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-5">
           <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Create Promo Code</h2>
+
+          {/* Coupon type selector */}
+          <div className="mb-4 flex gap-2">
+            {(Object.keys(TYPE_LABELS) as PromoCodeType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => {
+                  setCouponType(t);
+                  if (t === "competition") { setValidFrom(""); setValidTo(""); }
+                  if (t !== "competition") { setCompetitionId(""); setCompetitionEventId(""); }
+                }}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                  couponType === t
+                    ? "bg-emerald-600 text-white"
+                    : "border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {TYPE_LABELS[t]}
+              </button>
+            ))}
+          </div>
+          <p className="mb-4 text-xs text-zinc-500">{TYPE_DESCRIPTIONS[couponType]}</p>
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs text-zinc-500">Code</label>
@@ -162,7 +204,7 @@ export default function AdminPromoCodesPage() {
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
                 placeholder="e.g. CUBELELO20"
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+                className={INPUT}
               />
             </div>
             <div>
@@ -170,85 +212,138 @@ export default function AdminPromoCodesPage() {
               <select
                 value={discountType}
                 onChange={(e) => setDiscountType(e.target.value as "percentage" | "flat")}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                className={SELECT}
               >
                 <option value="percentage">Percentage (%)</option>
-                <option value="flat">Flat (paise)</option>
+                <option value="flat">Flat (₹)</option>
               </select>
             </div>
             <div>
               <label className="mb-1 block text-xs text-zinc-500">
-                Discount Value {discountType === "percentage" ? "(%)" : "(paise)"}
+                Discount Value {discountType === "percentage" ? "(%)" : "(₹)"}
               </label>
               <input
                 type="number"
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
-                placeholder={discountType === "percentage" ? "e.g. 20" : "e.g. 10000"}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+                placeholder={discountType === "percentage" ? "e.g. 20" : "e.g. 100"}
+                className={INPUT}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Max Uses (0 = unlimited)</label>
-              <input
-                type="number"
-                value={maxUses}
-                onChange={(e) => setMaxUses(e.target.value)}
-                placeholder="0"
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Competition</label>
-              <select
-                value={competitionId}
-                onChange={(e) => { setCompetitionId(e.target.value); setCompetitionEventId(""); }}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-              >
-                <option value="">All competitions</option>
-                {comps.map((c) => (
-                  <option key={c.id} value={c.id}>{c.title}</option>
-                ))}
-              </select>
-            </div>
-            {compEvents.length > 0 && (
+
+            {/* Max uses — shown for competition & general */}
+            {couponType !== "welcome" && (
               <div>
-                <label className="mb-1 block text-xs text-zinc-500">Event (optional)</label>
-                <select
-                  value={competitionEventId}
-                  onChange={(e) => setCompetitionEventId(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                >
-                  <option value="">All events</option>
-                  {compEvents.map((ev) => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.eventType}{ev.fee != null ? ` (₹${(ev.fee / 100).toFixed(0)})` : ""}
-                    </option>
-                  ))}
-                </select>
+                <label className="mb-1 block text-xs text-zinc-500">Max Uses (0 = unlimited)</label>
+                <input
+                  type="number"
+                  value={maxUses}
+                  onChange={(e) => setMaxUses(e.target.value)}
+                  placeholder="0"
+                  className={INPUT}
+                />
               </div>
             )}
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Valid From</label>
-              <input
-                type="datetime-local"
-                value={validFrom}
-                onChange={(e) => setValidFrom(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Valid To</label>
-              <input
-                type="datetime-local"
-                value={validTo}
-                onChange={(e) => setValidTo(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-            </div>
+
+            {/* Competition selector — for competition type */}
+            {couponType === "competition" && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-500">Competition</label>
+                  <select
+                    value={competitionId}
+                    onChange={(e) => { setCompetitionId(e.target.value); setCompetitionEventId(""); }}
+                    className={SELECT}
+                  >
+                    <option value="">Select competition...</option>
+                    {comps.map((c) => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                  </select>
+                </div>
+                {compEvents.length > 0 && (
+                  <div>
+                    <label className="mb-1 block text-xs text-zinc-500">Event (optional)</label>
+                    <select
+                      value={competitionEventId}
+                      onChange={(e) => setCompetitionEventId(e.target.value)}
+                      className={SELECT}
+                    >
+                      <option value="">All events</option>
+                      {compEvents.map((ev) => (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.eventType}{ev.fee != null ? ` (₹${(ev.fee / 100).toFixed(0)})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Date range — for welcome & general */}
+            {couponType !== "competition" && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-500">Valid From</label>
+                  <input
+                    type="datetime-local"
+                    value={validFrom}
+                    onChange={(e) => setValidFrom(e.target.value)}
+                    className={INPUT}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-500">Valid To</label>
+                  <input
+                    type="datetime-local"
+                    value={validTo}
+                    onChange={(e) => setValidTo(e.target.value)}
+                    className={INPUT}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* General & Special types get optional competition scope */}
+            {(couponType === "general" || couponType === "special") && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-500">Competition (optional)</label>
+                  <select
+                    value={competitionId}
+                    onChange={(e) => { setCompetitionId(e.target.value); setCompetitionEventId(""); }}
+                    className={SELECT}
+                  >
+                    <option value="">All competitions</option>
+                    {comps.map((c) => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                  </select>
+                </div>
+                {compEvents.length > 0 && (
+                  <div>
+                    <label className="mb-1 block text-xs text-zinc-500">Event (optional)</label>
+                    <select
+                      value={competitionEventId}
+                      onChange={(e) => setCompetitionEventId(e.target.value)}
+                      className={SELECT}
+                    >
+                      <option value="">All events</option>
+                      {compEvents.map((ev) => (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.eventType}{ev.fee != null ? ` (₹${(ev.fee / 100).toFixed(0)})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
           </div>
+
           <button
-            disabled={saving || !code.trim() || !discountValue}
+            disabled={saving || !code.trim() || !discountValue || (couponType === "competition" && !competitionId)}
             onClick={handleCreate}
             className="mt-4 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
           >
@@ -267,7 +362,8 @@ export default function AdminPromoCodesPage() {
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60 text-left text-[11px] uppercase tracking-wider text-zinc-500">
                 <th className="px-4 py-3">Code</th>
-                <th className="px-4 py-3">Competition</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Scope</th>
                 <th className="px-4 py-3">Discount</th>
                 <th className="px-4 py-3 text-center">Usage</th>
                 <th className="px-4 py-3">Validity</th>
@@ -281,10 +377,25 @@ export default function AdminPromoCodesPage() {
                   <td className="px-4 py-3 font-mono font-semibold text-zinc-800 dark:text-zinc-200">
                     {p.code}
                   </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                      p.type === "competition"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                        : p.type === "welcome"
+                          ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400"
+                          : p.type === "special"
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                            : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                    }`}>
+                      {p.type ?? "general"}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-xs text-zinc-500">
-                    {comps.find((c) => c.id === p.competitionId)?.title ?? "—"}
+                    {p.competitionId
+                      ? comps.find((c) => c.id === p.competitionId)?.title ?? "Competition"
+                      : "All"}
                     {p.competitionEventId && (
-                      <span className="ml-1 text-emerald-500">(event-specific)</span>
+                      <span className="ml-1 text-emerald-500">(event)</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">
@@ -294,11 +405,19 @@ export default function AdminPromoCodesPage() {
                   </td>
                   <td className="px-4 py-3 text-center text-zinc-400">
                     {p.usedCount}{p.maxUses > 0 ? ` / ${p.maxUses}` : " / ∞"}
+                    {p.maxUsesPerUser > 0 && (
+                      <span className="ml-1 text-[10px] text-purple-400">({p.maxUsesPerUser}/user)</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-500">
-                    {p.validFrom ? new Date(p.validFrom).toLocaleDateString() : "—"}
-                    {" → "}
-                    {p.validTo ? new Date(p.validTo).toLocaleDateString() : "—"}
+                    {p.type === "competition"
+                      ? "Registration period"
+                      : <>
+                          {p.validFrom ? new Date(p.validFrom).toLocaleDateString() : "—"}
+                          {" → "}
+                          {p.validTo ? new Date(p.validTo).toLocaleDateString() : "—"}
+                        </>
+                    }
                   </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${

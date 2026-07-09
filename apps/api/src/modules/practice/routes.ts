@@ -82,7 +82,7 @@ export async function registerPracticeRoutes(app: FastifyInstance, repo: Reposit
     const { timeMs, scramble, penalty, note } = req.body as {
       timeMs: number; scramble: string; penalty?: string; note?: string;
     };
-    if (!timeMs || !scramble) return reply.code(400).send({ error: "timeMs and scramble required" });
+    if (timeMs == null || !scramble) return reply.code(400).send({ error: "timeMs and scramble required" });
     const solve = {
       id: randomUUID(),
       sessionId: id,

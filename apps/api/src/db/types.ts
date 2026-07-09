@@ -289,12 +289,16 @@ export interface JudgeAssignment {
   assignedAt: string;
 }
 
+export type PromoCodeType = "competition" | "welcome" | "general" | "special";
+
 export interface PromoCode {
   id: string;
   code: string;
+  type: PromoCodeType;
   discountType: "percentage" | "flat";
   discountValue: number;
   maxUses: number;
+  maxUsesPerUser: number;
   usedCount: number;
   competitionId?: string;
   competitionEventId?: string;

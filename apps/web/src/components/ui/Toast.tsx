@@ -17,9 +17,9 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const KIND_STYLES: Record<ToastKind, string> = {
-  success: "border-accent-primary/40 bg-zinc-900 text-accent-primary",
-  error: "border-accent-danger/40 bg-zinc-900 text-accent-danger",
-  info: "border-zinc-700 bg-zinc-900 text-zinc-100",
+  success: "border-accent-primary/40 bg-white text-accent-primary dark:bg-zinc-900",
+  error: "border-accent-danger/40 bg-white text-accent-danger dark:bg-zinc-900",
+  info: "border-zinc-200 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100",
 };
 
 const KIND_ICON: Record<ToastKind, string> = {

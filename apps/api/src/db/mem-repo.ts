@@ -292,6 +292,9 @@ export function createMemRepo(): Repository {
         }
         return map;
       },
+      async hasPaidRegistration(userId) {
+        return [...registrations.values()].some((r) => r.userId === userId && r.paymentStatus === "paid");
+      },
     },
 
     payments: {
@@ -536,10 +539,12 @@ export function createMemRepo(): Repository {
       async delete(id) { promoCodes.delete(id); },
       async incrementUsed(id) {
         const existing = promoCodes.get(id);
-        if (!existing || existing.usedCount >= existing.maxUses) return false;
+        if (!existing || (existing.maxUses > 0 && existing.usedCount >= existing.maxUses)) return false;
         promoCodes.set(id, { ...existing, usedCount: existing.usedCount + 1 });
         return true;
       },
+      async recordUsage() {},
+      async userUsageCount() { return 0; },
     },
 
     banners: {
