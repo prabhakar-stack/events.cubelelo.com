@@ -42,7 +42,7 @@ function RegisterContent() {
 
   useEffect(() => {
     if (params.id) {
-      fetchCompetition(params.id).then(setComp).catch(() => {});
+      fetchCompetition(params.id).then(setComp).catch(() => { });
     }
   }, [params.id]);
 
@@ -69,12 +69,12 @@ function RegisterContent() {
   const discount = promoApplied
     ? promoApplied.competitionEventId
       ? (() => {
-          const ev = comp.events.find((e) => e.id === promoApplied.competitionEventId);
-          const evFee = ev?.fee ?? defaultPerEventFee;
-          return promoApplied.discountType === "percentage"
-            ? Math.round(evFee * promoApplied.discountValue / 100)
-            : Math.min(promoApplied.discountValue, evFee);
-        })()
+        const ev = comp.events.find((e) => e.id === promoApplied.competitionEventId);
+        const evFee = ev?.fee ?? defaultPerEventFee;
+        return promoApplied.discountType === "percentage"
+          ? Math.round(evFee * promoApplied.discountValue / 100)
+          : Math.min(promoApplied.discountValue, evFee);
+      })()
       : promoApplied.discountType === "percentage"
         ? Math.round(subtotal * promoApplied.discountValue / 100)
         : Math.min(promoApplied.discountValue, subtotal)
@@ -199,7 +199,7 @@ function RegisterContent() {
           Your spot is being held. Online payment is temporarily unavailable — please contact the organiser
           with order ID{" "}
           <span className="font-mono text-zinc-700 dark:text-zinc-300">{pendingFallback.orderId}</span>{" "}
-          to complete payment of ₹{(pendingFallback.amount / 100).toFixed(0)}.
+          to complete payment of ₹{(pendingFallback.amount / 100).toFixed(2)}.
         </p>
         <Button variant="secondary" onClick={() => router.push(`/competitions/${comp.id}`)}>
           Back to Competition
@@ -240,11 +240,10 @@ function RegisterContent() {
         {comp.events.map((ev) => (
           <label
             key={ev.id}
-            className={`flex cursor-pointer items-center justify-between rounded-lg border px-4 py-3 transition ${
-              selected.has(ev.id)
+            className={`flex cursor-pointer items-center justify-between rounded-lg border px-4 py-3 transition ${selected.has(ev.id)
                 ? "border-accent-primary/60 bg-accent-primary/10"
                 : "border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700"
-            }`}
+              }`}
           >
             <div className="flex items-center gap-3">
               <input
@@ -262,7 +261,7 @@ function RegisterContent() {
             </div>
             {(ev.fee ?? defaultPerEventFee) > 0 && (
               <span className="text-xs text-zinc-500">
-                +₹{((ev.fee ?? defaultPerEventFee) / 100).toFixed(0)}
+                +₹{((ev.fee ?? defaultPerEventFee) / 100).toFixed(2)}
               </span>
             )}
           </label>
@@ -273,7 +272,7 @@ function RegisterContent() {
         <div className="flex justify-between text-sm">
           <span className="text-zinc-500 dark:text-zinc-400">Base fee</span>
           <span className="text-zinc-800 dark:text-zinc-200">
-            {isFree ? "Free" : `₹${(baseFee / 100).toFixed(0)}`}
+            {isFree ? "Free" : `₹${(baseFee / 100).toFixed(2)}`}
           </span>
         </div>
         {eventFeeSum > 0 && selected.size > 0 && (
@@ -282,7 +281,7 @@ function RegisterContent() {
               {selected.size} event{selected.size > 1 ? "s" : ""}
             </span>
             <span className="text-zinc-800 dark:text-zinc-200">
-              ₹{(eventFeeSum / 100).toFixed(0)}
+              ₹{(eventFeeSum / 100).toFixed(2)}
             </span>
           </div>
         )}
@@ -313,7 +312,7 @@ function RegisterContent() {
                   {promoApplied.code} applied
                   {promoApplied.discountType === "percentage"
                     ? ` (${promoApplied.discountValue}% off)`
-                    : ` (-₹${(promoApplied.discountValue / 100).toFixed(0)})`}
+                    : ` (-₹${(promoApplied.discountValue / 100).toFixed(2)})`}
                 </span>
                 <button
                   onClick={() => { setPromoApplied(null); setPromoInput(""); }}
@@ -329,7 +328,7 @@ function RegisterContent() {
         <div className="mt-2 flex justify-between border-t border-zinc-200 pt-2 font-semibold dark:border-zinc-800">
           <span className="text-zinc-700 dark:text-zinc-300">Total</span>
           <span className="text-zinc-900 dark:text-zinc-100">
-            {isFree ? "Free" : `₹${(totalFee / 100).toFixed(0)}`}
+            {isFree ? "Free" : `₹${(totalFee / 100).toFixed(2)}`}
           </span>
         </div>
       </div>
@@ -345,7 +344,7 @@ function RegisterContent() {
         loading={busy}
         disabled={selected.size === 0}
       >
-        {isFree ? "Register (Free)" : `Pay ₹${(totalFee / 100).toFixed(0)}`}
+        {isFree ? "Register (Free)" : `Pay ₹${(totalFee / 100).toFixed(2)}`}
       </Button>
 
       {/* Email verification popup */}

@@ -72,10 +72,10 @@ export default function CompetitionDetailPage() {
         const reg = regs.find((r) => r.competitionId === params.id) ?? null;
         setMyReg(reg);
       })
-      .catch(() => {});
+      .catch(() => { });
     fetchMyProgress(params.id)
       .then((p) => setMyProgress(p.rounds))
-      .catch(() => {});
+      .catch(() => { });
   }, [user, params.id]);
 
   // Connect to the first open (or first pending) round for real-time roster
@@ -142,7 +142,7 @@ export default function CompetitionDetailPage() {
   const feeText =
     comp.type === "free"
       ? "Free entry"
-      : `₹${((comp.baseFee ?? 0) / 100).toFixed(0)} base + ₹${((comp.perEventFee ?? 0) / 100).toFixed(0)}/event`;
+      : `₹${((comp.baseFee ?? 0) / 100).toFixed(2)} base + ₹${((comp.perEventFee ?? 0) / 100).toFixed(2)}/event`;
 
   return (
     <>
@@ -152,11 +152,10 @@ export default function CompetitionDetailPage() {
           <button
             key={item.id}
             onClick={() => setTab(item.id)}
-            className={`block shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition lg:w-full lg:shrink ${
-              tab === item.id
+            className={`block shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition lg:w-full lg:shrink ${tab === item.id
                 ? "bg-accent-primary/10 font-semibold text-accent-primary"
                 : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
-            }`}
+              }`}
           >
             {item.label}
           </button>
@@ -437,11 +436,10 @@ function HomeTab({
             return (
               <div
                 key={ev.id}
-                className={`rounded-xl border px-5 py-4 transition ${
-                  roundOpen
+                className={`rounded-xl border px-5 py-4 transition ${roundOpen
                     ? "border-accent-primary/40 bg-accent-primary/5 dark:border-accent-primary/30 dark:bg-accent-primary/5"
                     : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40"
-                }`}
+                  }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -524,9 +522,8 @@ function HomeTab({
               {roster.map((c, i) => (
                 <li
                   key={c.userId}
-                  className={`flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
-                    justJoined.has(c.userId) ? "row-count-in bg-accent-primary/10" : ""
-                  } ${c.userId === user?.clId ? "bg-accent-primary/5" : ""}`}
+                  className={`flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${justJoined.has(c.userId) ? "row-count-in bg-accent-primary/10" : ""
+                    } ${c.userId === user?.clId ? "bg-accent-primary/5" : ""}`}
                 >
                   <div className="flex items-center gap-3">
                     <span className="w-5 text-right text-xs text-zinc-400">{i + 1}</span>
@@ -724,11 +721,10 @@ function ScheduleTimeline({ comp }: { comp: CompetitionDetail }) {
           <div key={s.label} className="flex flex-1 items-start">
             <div className="flex flex-col items-center text-center">
               <div
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                  i <= activeIndex
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${i <= activeIndex
                     ? "bg-accent-primary text-zinc-950"
                     : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
-                }`}
+                  }`}
               >
                 {i < activeIndex ? "✓" : i + 1}
               </div>
@@ -839,9 +835,8 @@ function DetailedSchedule({ comp }: { comp: CompetitionDetail }) {
                 return (
                   <div
                     key={`${entry.label}-${entry.at}`}
-                    className={`flex flex-wrap items-center gap-3 px-4 py-3 ${
-                      i > 0 ? "border-t border-zinc-100 dark:border-zinc-800/60" : ""
-                    } ${isPast ? "bg-zinc-50 dark:bg-zinc-900/20" : "bg-white dark:bg-zinc-900/40"}`}
+                    className={`flex flex-wrap items-center gap-3 px-4 py-3 ${i > 0 ? "border-t border-zinc-100 dark:border-zinc-800/60" : ""
+                      } ${isPast ? "bg-zinc-50 dark:bg-zinc-900/20" : "bg-white dark:bg-zinc-900/40"}`}
                   >
                     <span className="w-20 shrink-0 font-mono text-sm text-zinc-500">
                       {new Date(entry.at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
@@ -884,7 +879,7 @@ function ShareCard({ title }: { title: string }) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {}
+    } catch { }
   }, [title]);
 
   return (
@@ -908,13 +903,12 @@ function RegistrationSteps({ paymentStatus }: { paymentStatus: string | null }) 
       {steps.map((label, i) => (
         <div key={label} className="flex items-center gap-2">
           <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-              i < activeIndex
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${i < activeIndex
                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                 : i === activeIndex
                   ? "bg-accent-primary text-zinc-950"
                   : "bg-zinc-100 text-zinc-400 dark:bg-zinc-900 dark:text-zinc-600"
-            }`}
+              }`}
           >
             {i < activeIndex ? "✓" : i + 1} {label}
           </span>
@@ -938,7 +932,7 @@ function ParticipantsTab({ compId }: { compId: string }) {
         setParticipants(d.participants);
         setCount(d.count);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [compId]);
 
@@ -1048,11 +1042,10 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
             <button
               key={e}
               onClick={() => setSelectedEvent(e)}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                selectedEvent === e
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${selectedEvent === e
                   ? "bg-accent-primary text-zinc-950"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-              }`}
+                }`}
             >
               <span><EventIcon eventId={e} size={16} /></span>
               {eventDisplayName(e)}

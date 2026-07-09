@@ -633,6 +633,18 @@ export function updateRound(
   return sendJson("PATCH", `/api/v1/admin/rounds/${roundId}`, body);
 }
 
+export function updateCompetitionEvent(
+  eventId: string,
+  body: {
+    fee?: number | null;
+    cutoffMs?: number | null;
+    timeLimitMs?: number | null;
+    roundCount?: number;
+  },
+): Promise<{ id: string; eventType: string; fee: number | null }> {
+  return sendJson("PATCH", `/api/v1/admin/competition-events/${eventId}`, body);
+}
+
 export function fetchVerificationQueue(
   competitionId: string,
 ): Promise<FlaggedResultDto[]> {

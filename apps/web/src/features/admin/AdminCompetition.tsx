@@ -12,11 +12,13 @@ import {
   sendRoundNotification,
   fetchCompetition,
   updateCompetition,
+  updateCompetitionEvent,
   uploadCompetitionBanner,
   uploadCompetitionMobileBanner,
   updateRound,
   type AdvancementCriteria,
   type CompetitionDetail,
+  type EventDetail,
   type RoundRef,
 } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
@@ -473,28 +475,15 @@ export function AdminCompetition({ id }: { id: string }) {
 
         {/* Rounds management */}
         {detail.events.map((ev) => (
-          <div key={ev.id} className="mt-5">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              {ev.eventType} — {ev.roundCount} round
-              {ev.roundCount !== 1 ? "s" : ""}
-              {ev.fee != null && (
-                <span className="ml-2 normal-case tracking-normal text-emerald-500">
-                  ₹{(ev.fee / 100).toFixed(0)}/event
-                </span>
-              )}
-            </h3>
-            <div className="space-y-2">
-              {ev.rounds.map((r) => (
-                <RoundRow
-                  key={r.id}
-                  round={r}
-                  competitionId={id}
-                  busy={busy}
-                  onRun={run}
-                />
-              ))}
-            </div>
-          </div>
+          <EventRow
+            key={ev.id}
+            event={ev}
+            competitionId={id}
+            defaultPerEventFee={detail.perEventFee ?? 0}
+            isFreeComp={detail.type === "free"}
+            busy={busy}
+            onRun={run}
+          />
         ))}
       </section>
 
@@ -514,6 +503,120 @@ export function AdminCompetition({ id }: { id: string }) {
         />
       )}
 
+    </div>
+  );
+}
+
+/* ── Event row with inline fee editor ── */
+
+function EventRow({
+  event,
+  competitionId,
+  defaultPerEventFee,
+  isFreeComp,
+  busy,
+  onRun,
+}: {
+  event: EventDetail;
+  competitionId: string;
+  defaultPerEventFee: number;
+  isFreeComp: boolean;
+  busy: string | null;
+  onRun: (key: string, fn: () => Promise<unknown>) => void;
+}) {
+  // fee in INR (display units); empty string = use competition default
+  const [feeInput, setFeeInput] = useState(
+    event.fee != null ? String(event.fee / 100) : "",
+  );
+  const [feeError, setFeeError] = useState<string | null>(null);
+  const [feeSaved, setFeeSaved] = useState(false);
+
+  // Keep in sync when parent reloads
+  useEffect(() => {
+    setFeeInput(event.fee != null ? String(event.fee / 100) : "");
+  }, [event.fee]);
+
+  const saveFee = async () => {
+    setFeeError(null);
+    setFeeSaved(false);
+    const trimmed = feeInput.trim();
+    // empty → remove override (pass null)
+    const feePaise = trimmed === "" ? null : Math.round(Number(trimmed) * 100);
+    if (trimmed !== "" && (isNaN(feePaise!) || feePaise! < 0)) {
+      setFeeError("Enter a valid amount or leave blank to use the default");
+      return;
+    }
+    try {
+      await updateCompetitionEvent(event.id, { fee: feePaise });
+      setFeeSaved(true);
+      onRun(`fee-${event.id}`, () => Promise.resolve());
+      setTimeout(() => setFeeSaved(false), 2000);
+    } catch (e) {
+      setFeeError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+
+  return (
+    <div className="mt-5">
+      {/* Event header */}
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          {event.eventType} — {event.roundCount} round
+          {event.roundCount !== 1 ? "s" : ""}
+        </h3>
+
+        {!isFreeComp && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-zinc-500">Fee (INR)</span>
+            <div className="relative flex items-center">
+              <span className="pointer-events-none absolute left-2 text-xs text-zinc-400">₹</span>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={feeInput}
+                onChange={(e) => { setFeeInput(e.target.value); setFeeSaved(false); }}
+                placeholder={String(defaultPerEventFee / 100)}
+                title={`Leave blank to use competition default (₹${defaultPerEventFee / 100})`}
+                className="w-24 rounded-lg border border-zinc-300 bg-white py-1 pl-6 pr-2 text-xs text-zinc-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </div>
+            <button
+              onClick={saveFee}
+              disabled={busy?.startsWith(`fee-${event.id}`) ?? false}
+              className="rounded-lg bg-emerald-700 px-3 py-1 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-50"
+            >
+              {feeSaved ? "✓ Saved" : "Save"}
+            </button>
+            {event.fee != null ? (
+              <span className="text-xs text-emerald-400">
+                ₹{(event.fee / 100).toFixed(2)} override
+              </span>
+            ) : (
+              <span className="text-xs text-zinc-500 dark:text-zinc-600">
+                default (₹{(defaultPerEventFee / 100).toFixed(2)})
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {feeError && (
+        <p className="mb-2 text-xs text-red-400">{feeError}</p>
+      )}
+
+      <div className="space-y-2">
+        {event.rounds.map((r) => (
+          <RoundRow
+            key={r.id}
+            round={r}
+            competitionId={competitionId}
+            busy={busy}
+            onRun={onRun}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -822,7 +925,7 @@ function RoundRow({
             }`}
             title="Set open / close times — round auto-transitions when the time is reached"
           >
-            ⏱ {round.opensAt || round.closesAt ? "Edit Times" : "Set Times"}
+            ⏱ {"Edit Round"}
           </button>
 
           {/* Cancel round */}

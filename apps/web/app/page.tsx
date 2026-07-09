@@ -15,7 +15,7 @@ export default function Home() {
   useEffect(() => {
     fetchCompetitions()
       .then(setComps)
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, []);
 
@@ -85,7 +85,7 @@ function BannerSlider() {
   useEffect(() => {
     fetchPublicBanners()
       .then((b) => setBanners(b.sort((a, z) => a.order - z.order)))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   useEffect(() => {
@@ -128,23 +128,22 @@ function BannerSlider() {
             className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1.5 text-white/80 backdrop-blur-sm transition hover:bg-black/60 hover:text-white"
             aria-label="Previous"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
           </button>
           <button
             onClick={() => setIdx((i) => (i + 1) % banners.length)}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1.5 text-white/80 backdrop-blur-sm transition hover:bg-black/60 hover:text-white"
             aria-label="Next"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
           </button>
           <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
             {banners.map((_, i) => (
               <button
                 key={i}
                 onClick={() => setIdx(i)}
-                className={`h-2 rounded-full transition-all ${
-                  i === idx ? "w-5 bg-white" : "w-2 bg-white/50"
-                }`}
+                className={`h-2 rounded-full transition-all ${i === idx ? "w-5 bg-white" : "w-2 bg-white/50"
+                  }`}
               />
             ))}
           </div>
@@ -216,7 +215,7 @@ function ScrollCard({ comp }: { comp: CompetitionSummary }) {
   const feeLabel =
     comp.type === "free"
       ? "Free"
-      : `₹${((comp.baseFee ?? 0) / 100).toFixed(0)}+`;
+      : `₹${((comp.baseFee ?? 0) / 100).toFixed(2)}+`;
 
   return (
     <Link
