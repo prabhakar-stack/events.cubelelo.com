@@ -1231,7 +1231,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           [userId],
         );
         if (rows.length === 0) return 0;
-        const dates = (rows as Row[]).map((r) => (r.date as string).slice(0, 10));
+        const dates = (rows as Row[]).map((r) => ts(r.date).slice(0, 10));
         let streak = 0;
         const d = new Date();
         const MAX_LOOKBACK = 365;

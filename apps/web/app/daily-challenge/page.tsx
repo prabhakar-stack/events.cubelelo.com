@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import confetti from "canvas-confetti";
 import {
   fetchDailyChallenge,
@@ -19,25 +19,54 @@ import Link from "next/link";
 
 export default function DailyChallengePage() {
   const user = useAuthStore((s) => s.user);
+  // Bug 1 fix: wait until auth is fully initialised before fetching so the
+  // Bearer token is attached (avoids the spurious "Failed to load" error when
+  // navigating from another page before the async init() resolves).
+  const authLoading = useAuthStore((s) => s.loading);
   const [data, setData] = useState<DailyChallengeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [justSubmittedRank, setJustSubmittedRank] = useState<number | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  // Track whether a submission is in-flight so we never double-report an error
+  const submitted = useRef(false);
 
   const { snapshot, down, up, reset } = useTimer({ useInspection: true });
 
+  // Tracks whether a fetch has already been dispatched to prevent duplicate
+  // requests when authLoading flips true→false AND the component already fetched.
+  const fetched = useRef(false);
+
   useEffect(() => {
-    fetchDailyChallenge()
-      .then(setData)
-      .catch(() => setError("Failed to load daily challenge"))
-      .finally(() => setLoading(false));
-  }, []);
+    if (authLoading) return;       // auth not ready yet — wait for next render
+    if (fetched.current) return;   // already fetched (or in-flight) — skip
+    fetched.current = true;
+
+    const doFetch = (isRetry: boolean) => {
+      fetchDailyChallenge()
+        .then((d) => { setData(d); setLoading(false); })
+        .catch((err: unknown) => {
+          if (!isRetry) {
+            // Retry once after a short delay — covers the case where the API
+            // was cold and scramble WASM init caused a transient 500.
+            setTimeout(() => doFetch(true), 800);
+          } else {
+            const msg = err instanceof Error ? err.message : String(err);
+            setError(`Failed to load daily challenge — ${msg}`);
+            setLoading(false);
+          }
+        });
+    };
+
+    doFetch(false);
+  }, [authLoading]);
 
   const handleSubmit = useCallback(async () => {
     if (!snapshot.result || !data) return;
     if (!user) { setError("You must be logged in to submit"); return; }
+    if (submitted.current) return; // guard against accidental double-tap
+    submitted.current = true;
     setSubmitting(true);
     setError("");
     try {
@@ -47,14 +76,22 @@ export default function DailyChallengePage() {
           ? "plus2"
           : undefined;
       const { result, streak } = await submitDailyChallenge(snapshot.result.time_ms, worstPenalty);
-      const newLeaderboard = [...data.leaderboard, result].sort((a, b) => a.timeMs - b.timeMs);
-      const rank = newLeaderboard.findIndex((r) => r.id === result.id) + 1;
+      // Merge the new result into the leaderboard (backend result may not have
+      // name/clId yet — use the logged-in user's data as a fallback so the row
+      // renders correctly immediately without waiting for a reload).
+      const enriched: DailyChallengeResultDto = {
+        ...result,
+        clId: result.clId ?? user.clId,
+        name: result.name ?? user.name,
+      };
+      const newLeaderboard = [...data.leaderboard, enriched].sort((a, b) => a.timeMs - b.timeMs);
+      const rank = newLeaderboard.findIndex((r) => r.id === enriched.id) + 1;
 
       setData((prev) =>
         prev
           ? {
             ...prev,
-            userResult: result,
+            userResult: enriched,
             streak,
             leaderboard: newLeaderboard,
           }
@@ -69,9 +106,15 @@ export default function DailyChallengePage() {
 
       reset();
     } catch (err: any) {
-      if (err?.message?.includes("409")) setError("You already submitted today!");
-      else if (err?.message?.includes("401")) setError("Please log in to submit your time");
-      else setError("Failed to submit — please try again");
+      // Bug 2 fix: reset the guard on failure so the user can retry.
+      submitted.current = false;
+      const msg: string = err?.message ?? "";
+      if (msg.includes("409") || msg.includes("already_submitted"))
+        setError("You already submitted today!");
+      else if (msg.includes("401") || msg.includes("403"))
+        setError("Please log in to submit your time");
+      else
+        setError(`Failed to submit — ${msg || "please try again"}`);
     } finally {
       setSubmitting(false);
     }
