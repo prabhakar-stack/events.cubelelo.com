@@ -36,10 +36,11 @@ export async function registerPracticeRoutes(app: FastifyInstance, repo: Reposit
     return { session };
   });
 
-  app.get(`${prefix}/practice/sessions/:id`, async (req, reply) => {
+  app.get(`${prefix}/practice/sessions/:id`, { preHandler: requireAuth }, async (req, reply) => {
+    const userId = req.authClaims!.sub;
     const { id } = req.params as { id: string };
     const session = await repo.practice.findSession(id);
-    if (!session) return reply.code(404).send({ error: "not_found" });
+    if (!session || session.userId !== userId) return reply.code(404).send({ error: "not_found" });
     const solves = await repo.practice.findSolvesBySession(id);
     return { session, solves };
   });
@@ -83,12 +84,13 @@ export async function registerPracticeRoutes(app: FastifyInstance, repo: Reposit
       timeMs: number; scramble: string; penalty?: string; note?: string;
     };
     if (timeMs == null || !scramble) return reply.code(400).send({ error: "timeMs and scramble required" });
+    const validPenalty: "none" | "plus2" | "dnf" = penalty === "plus2" || penalty === "dnf" ? penalty : "none";
     const solve = {
       id: randomUUID(),
       sessionId: id,
       timeMs,
       scramble,
-      penalty: (penalty ?? "none") as "none" | "plus2" | "dnf",
+      penalty: validPenalty,
       note,
       createdAt: new Date().toISOString(),
     };

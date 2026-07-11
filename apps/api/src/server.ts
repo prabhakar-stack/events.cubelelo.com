@@ -28,7 +28,7 @@ if (env.REDIS_URL) await getQueue();
 const realtime = createRealtime();
 const app = await buildApp(repo, realtime);
 await app.ready();
-realtime.attach(app, repo);
+await realtime.attach(app, repo);
 startRoundTicker(repo, realtime);
 
 try {

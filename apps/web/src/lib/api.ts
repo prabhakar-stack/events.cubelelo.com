@@ -198,9 +198,17 @@ export interface UserProfile {
   competitionHistory: ProfileCompetitionEntry[];
 }
 
+function handleUnauthorized(status: number): void {
+  if (status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("cubers_token");
+    setAuthToken(null);
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() });
   if (!res.ok) {
+    handleUnauthorized(res.status);
     throw new Error(`${res.status} ${res.statusText} for ${path}`);
   }
   return res.json() as Promise<T>;
@@ -220,6 +228,7 @@ async function sendJson<T>(
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
+    handleUnauthorized(res.status);
     let detail = "";
     try {
       detail = JSON.stringify(await res.json());
@@ -592,6 +601,31 @@ export function createPracticeEvent(
   return sendJson("POST", `/api/v1/admin/competitions/${id}/practice`, body);
 }
 
+export interface CompetitionScrambles {
+  competitionId: string;
+  status: string;
+  events: Array<{
+    eventType: string;
+    rounds: Array<{
+      roundId: string;
+      roundNumber: number;
+      status: string;
+      scrambles: string[];
+      locked: boolean;
+      generatedAt?: string;
+      hasResults: boolean;
+    }>;
+  }>;
+}
+
+export function fetchCompetitionScrambles(id: string): Promise<CompetitionScrambles> {
+  return getJson(`/api/v1/admin/competitions/${id}/scrambles`);
+}
+
+export async function regenerateRoundScrambles(roundId: string): Promise<{ roundId: string; scrambles: string[]; generatedAt: string }> {
+  return sendJson("POST", `/api/v1/admin/rounds/${roundId}/regenerate-scrambles`, {});
+}
+
 export async function uploadCompetitionBanner(id: string, file: File): Promise<{ bannerUrl: string }> {
   const form = new FormData();
   form.append("image", file);
@@ -705,7 +739,15 @@ export async function deleteCompetition(id: string): Promise<void> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const msg = body?.error === "cancel_before_deleting"
+      ? "Cancel the competition before deleting it"
+      : body?.error === "competition_has_registrations"
+        ? "Cannot delete — competition has registrations (draft)"
+        : `Delete failed: ${res.status}`;
+    throw new Error(msg);
+  }
 }
 
 export async function deleteMyAccount(): Promise<void> {
@@ -1576,4 +1618,45 @@ export function judgeVerifyResult(
     reason,
     comment,
   });
+}
+
+// ── System Settings ──────────────────────────────────────────────────────────
+
+export interface SystemSettingsDto {
+  eventDurations: Record<string, number>;
+  registrationDurationDays: number;
+  gapBetweenEventsMinutes: number;
+  defaultRoundDurationMinutes: number;
+  videoDeadlineMinutes: number;
+}
+
+export interface SchedulingDefaults {
+  eventDurations: Record<string, number>;
+  registrationDurationDays: number;
+  gapBetweenEventsMinutes: number;
+  defaultRoundDurationMinutes: number;
+}
+
+export async function fetchSystemSettings(): Promise<SystemSettingsDto> {
+  const res = await fetch(`${BASE_URL}/api/v1/admin/settings`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`Fetch settings failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateSystemSettings(
+  fields: Partial<SystemSettingsDto>,
+): Promise<SystemSettingsDto> {
+  const res = await fetch(`${BASE_URL}/api/v1/admin/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) throw new Error(`Update settings failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchSchedulingDefaults(): Promise<SchedulingDefaults> {
+  const res = await fetch(`${BASE_URL}/api/v1/settings/scheduling`);
+  if (!res.ok) throw new Error(`Fetch scheduling defaults failed: ${res.status}`);
+  return res.json();
 }

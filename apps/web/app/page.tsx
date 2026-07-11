@@ -21,7 +21,7 @@ export default function Home() {
 
   const live = comps.filter((c) => c.status === "live");
   const upcoming = comps.filter((c) =>
-    ["draft", "published", "registration_open", "registration_closed"].includes(c.status),
+    ["draft", "published", "upcoming", "registration_open", "registration_closed"].includes(c.status),
   );
   const past = comps.filter((c) =>
     ["results_pending", "completed"].includes(c.status),
@@ -66,14 +66,6 @@ export default function Home() {
         </HorizontalSection>
       )}
 
-      <section className="mt-10">
-        <h2 className="mb-3 text-xs uppercase tracking-wider text-zinc-500">
-          Blog
-        </h2>
-        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-10 text-center dark:border-zinc-800 dark:bg-zinc-900/30">
-          <p className="text-zinc-500">Blog posts coming soon.</p>
-        </div>
-      </section>
     </main>
   );
 }

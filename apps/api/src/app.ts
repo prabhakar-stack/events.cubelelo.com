@@ -29,6 +29,7 @@ export async function buildApp(
     logger: process.env.NODE_ENV === "production"
       ? { level: "info" }
       : false,
+    trustProxy: !!process.env.TRUST_PROXY,
   });
 
   await app.register(cors, {

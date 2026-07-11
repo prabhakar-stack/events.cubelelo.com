@@ -307,3 +307,11 @@ export interface PromoCode {
   active: boolean;
   createdAt: string;
 }
+
+export interface SystemSettings {
+  eventDurations: Record<string, number>;
+  registrationDurationDays: number;
+  gapBetweenEventsMinutes: number;
+  defaultRoundDurationMinutes: number;
+  videoDeadlineMinutes: number;
+}

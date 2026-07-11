@@ -27,7 +27,7 @@ export const noopRealtime: Realtime = {
 };
 
 export interface AttachableRealtime extends Realtime {
-  attach(app: FastifyInstance, repo: Repository): Server;
+  attach(app: FastifyInstance, repo: Repository): Promise<Server>;
   close(): Promise<void>;
 }
 
@@ -48,21 +48,24 @@ export function createRealtime(): AttachableRealtime {
       io?.to(`comp:${compId}`).emit("comp:status", { compId, status });
     },
 
-    attach(app, repo) {
-      io = new Server(app.server, { cors: { origin: true } });
+    async attach(app, repo) {
+      const corsOrigin = process.env.CORS_ORIGINS
+        ? process.env.CORS_ORIGINS.split(",")
+        : true;
+      io = new Server(app.server, { cors: { origin: corsOrigin } });
 
       // Use Redis pub/sub adapter for horizontal scaling when REDIS_URL is set
       if (env.REDIS_URL) {
-        import("@socket.io/redis-adapter").then(({ createAdapter }) =>
-          import("ioredis").then(({ default: Redis }) => {
-            const pub = new Redis(env.REDIS_URL);
-            const sub = pub.duplicate();
-            io!.adapter(createAdapter(pub, sub));
-            console.log("Socket.io using Redis adapter");
-          }),
-        ).catch((err) => {
+        try {
+          const { createAdapter } = await import("@socket.io/redis-adapter");
+          const { default: Redis } = await import("ioredis");
+          const pub = new Redis(env.REDIS_URL);
+          const sub = pub.duplicate();
+          io.adapter(createAdapter(pub, sub));
+          console.log("Socket.io using Redis adapter");
+        } catch (err) {
           console.error("Socket.io Redis adapter failed:", err);
-        });
+        }
       }
 
       const broadcastRoster = async (roundId: string) => {

@@ -2,7 +2,7 @@ import type { RoundStatus } from "@cubers/types";
 import type { Repository } from "../db/repo";
 import type { Realtime } from "../sockets/realtime";
 import { effectiveRoundStatus, effectiveCompStatus } from "./statusUtils";
-import { closeRound, shortlistRound, ensureScramblesGenerated } from "./roundLifecycle";
+import { closeRound, shortlistRound } from "./roundLifecycle";
 
 const TICK_INTERVAL_MS = 10_000;
 
@@ -13,16 +13,14 @@ export function startRoundTicker(repo: Repository, realtime: Realtime): () => vo
     if (running) return;
     running = true;
     try {
-      const rounds = await repo.rounds.findAll();
+      const rounds = await repo.rounds.findActive();
       for (const round of rounds) {
-        if (round.status === "advanced" || round.status === "cancelled") continue;
         if (!round.opensAt) continue;
 
         const effective = effectiveRoundStatus(round);
         if (effective === round.status) continue;
 
         if (effective === "open" && round.status === "pending") {
-          await ensureScramblesGenerated(repo, round);
           await repo.rounds.update(round.id, { status: "open" });
           realtime.emitRoundStatus(round.id, "open" as RoundStatus, round.opensAt);
           console.log(`⏱ Round ${round.id} auto-opened`);
@@ -51,7 +49,7 @@ export function startRoundTicker(repo: Repository, realtime: Realtime): () => vo
 async function checkVerificationComplete(
   repo: Repository,
   realtime: Realtime,
-  rounds: Awaited<ReturnType<typeof repo.rounds.findAll>>,
+  rounds: Awaited<ReturnType<typeof repo.rounds.findActive>>,
 ): Promise<void> {
   for (const round of rounds) {
     if (round.status !== "closed") continue;
@@ -67,9 +65,12 @@ async function checkVerificationComplete(
 }
 
 async function checkCompetitionCompletion(repo: Repository, realtime: Realtime): Promise<void> {
-  const comps = await repo.competitions.findAll();
+  const allComps = await repo.competitions.findAll();
+  const comps = allComps.filter((c) => {
+    const s = effectiveCompStatus(c);
+    return s === "results_pending";
+  });
   for (const comp of comps) {
-    if (effectiveCompStatus(comp) !== "results_pending") continue;
 
     const events = await repo.competitionEvents.findByCompetition(comp.id);
     if (events.length === 0) continue;

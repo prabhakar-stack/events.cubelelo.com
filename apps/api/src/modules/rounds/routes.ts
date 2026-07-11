@@ -8,6 +8,7 @@ import { effectiveRoundStatus } from "../../lib/statusUtils";
 import { validateRoundTimes } from "../../lib/scheduleValidation";
 import { recordScrambleFetch } from "../../lib/scrambleTiming";
 import { scrambleLimiter, adminLimiter } from "../../lib/rateLimiter";
+import { ensureScramblesGenerated } from "../../lib/roundLifecycle";
 
 export async function registerRoundRoutes(
   app: FastifyInstance,
@@ -52,7 +53,7 @@ export async function registerRoundRoutes(
         round: {
           id: round.id,
           roundNumber: round.roundNumber,
-          status: round.status,
+          status: effectiveRoundStatus(round),
           opensAt: round.opensAt ?? null,
           closesAt: round.closesAt ?? null,
           eventType: event?.eventType ?? null,
@@ -76,8 +77,16 @@ export async function registerRoundRoutes(
       if (!round) return reply.code(404).send({ error: "round_not_found" });
       if (effectiveRoundStatus(round) !== "open") return reply.code(409).send({ error: "round_not_open" });
 
-      const set = await repo.scrambleSets.findByRound(round.id);
-      if (!set || !set.lockedAt) return reply.code(409).send({ error: "scrambles_not_ready" });
+      let set = await repo.scrambleSets.findByRound(round.id);
+      if (!set || !set.lockedAt) {
+        try {
+          await ensureScramblesGenerated(repo, round);
+          set = await repo.scrambleSets.findByRound(round.id);
+        } catch (err) {
+          req.log.error(err, "Fallback scramble generation failed");
+        }
+        if (!set || !set.lockedAt) return reply.code(409).send({ error: "scrambles_not_ready" });
+      }
 
       // For round 2+: only shortlisted participants can access scrambles
       if (round.roundNumber > 1) {
@@ -105,6 +114,55 @@ export async function registerRoundRoutes(
         roundId: round.id, scrambles: set.scrambles,
         locked: Boolean(set.lockedAt), generatedAt: set.generatedAt, lockedAt: set.lockedAt,
       };
+    },
+  );
+
+  // Regenerate scrambles for a round (admin only, only before competition starts).
+  app.post<{ Params: { id: string } }>(
+    "/api/v1/admin/rounds/:id/regenerate-scrambles",
+    adminOnly,
+    async (req, reply) => {
+      const round = await repo.rounds.findById(req.params.id);
+      if (!round) return reply.code(404).send({ error: "round_not_found" });
+
+      const event = await repo.competitionEvents.findByRound(round.id);
+      if (!event) return reply.code(404).send({ error: "event_not_found" });
+
+      const comp = await repo.competitions.findById(event.competitionId);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const results = await repo.results.findByRound(round.id);
+      if (results.length > 0) {
+        return reply.code(409).send({ error: "round_has_results" });
+      }
+
+      const roundStatus = effectiveRoundStatus(round);
+      if (roundStatus === "closed" || roundStatus === "advanced") {
+        return reply.code(409).send({ error: "round_already_finished" });
+      }
+
+      const existing = await repo.scrambleSets.findByRound(round.id);
+      const allowed = comp.status === "draft" || comp.status === "published"
+        || (comp.status === "live" && (!existing || existing.scrambles.length === 0));
+      if (!allowed) {
+        return reply.code(409).send({ error: "scramble_regeneration_not_allowed" });
+      }
+
+      const { isEventId: checkEvent, generateScrambleSet } = await import("@cubers/scramble-core");
+      if (!checkEvent(event.eventType)) return reply.code(400).send({ error: "invalid_event_type" });
+
+      const now = new Date().toISOString();
+      const scrambles = await generateScrambleSet(event.eventType, 5);
+      await repo.scrambleSets.upsert({
+        id: existing?.id ?? (await import("node:crypto")).randomUUID(),
+        roundId: round.id,
+        scrambles,
+        generatedAt: now,
+        lockedAt: now,
+        lockedBy: undefined,
+      });
+
+      return { roundId: round.id, scrambles, generatedAt: now };
     },
   );
 
@@ -154,8 +212,9 @@ export async function registerRoundRoutes(
         }
       }
 
-      await repo.rounds.update(round.id, { status: "open" });
-      realtime.emitRoundStatus(round.id, "open" as RoundStatus, round.opensAt);
+      const now = new Date().toISOString();
+      await repo.rounds.update(round.id, { status: "open", opensAt: now, closesAt: undefined });
+      realtime.emitRoundStatus(round.id, "open" as RoundStatus, now);
       return { id: round.id, status: "open" };
     },
   );

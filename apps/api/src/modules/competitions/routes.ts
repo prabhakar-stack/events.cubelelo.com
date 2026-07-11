@@ -67,32 +67,32 @@ export async function registerCompetitionRoutes(
         comps = comps.filter((c) => c.status === "draft");
       }
 
-      return Promise.all(
-        comps.map(async (c) => {
-          const events = await repo.competitionEvents.findByCompetition(c.id);
-          const regCount = await repo.competitions.countRegistrations(c.id);
-          return {
-            id: c.id,
-            title: c.title,
-            type: c.type,
-            status: effectiveCompStatus(c),
-            description: c.description,
-            baseFee: c.baseFee,
-            perEventFee: c.perEventFee,
-            registrationOpensAt: c.registrationOpensAt ?? null,
-            registrationDeadline: c.registrationDeadline ?? null,
-            startsAt: c.startsAt ?? null,
-            endsAt: c.endsAt ?? null,
-            coverUrl: c.coverUrl, bannerUrl: c.bannerUrl, mobileBannerUrl: c.mobileBannerUrl,
-            featured: c.featured,
-            featuredOrder: c.featuredOrder,
-            createdAt: c.createdAt,
-            eventTypes: events.map((e) => e.eventType),
-            registrationCount: regCount,
-            cancellationReason: c.cancellationReason ?? null,
-          };
-        }),
-      );
+      const compIds = comps.map((c) => c.id);
+      const [eventsMap, regCountMap] = await Promise.all([
+        repo.competitionEvents.findByCompetitions(compIds),
+        repo.competitions.countRegistrationsBatch(compIds),
+      ]);
+
+      return comps.map((c) => ({
+        id: c.id,
+        title: c.title,
+        type: c.type,
+        status: effectiveCompStatus(c),
+        description: c.description,
+        baseFee: c.baseFee,
+        perEventFee: c.perEventFee,
+        registrationOpensAt: c.registrationOpensAt ?? null,
+        registrationDeadline: c.registrationDeadline ?? null,
+        startsAt: c.startsAt ?? null,
+        endsAt: c.endsAt ?? null,
+        coverUrl: c.coverUrl, bannerUrl: c.bannerUrl, mobileBannerUrl: c.mobileBannerUrl,
+        featured: c.featured,
+        featuredOrder: c.featuredOrder,
+        createdAt: c.createdAt,
+        eventTypes: (eventsMap.get(c.id) ?? []).map((e) => e.eventType),
+        registrationCount: regCountMap.get(c.id) ?? 0,
+        cancellationReason: c.cancellationReason ?? null,
+      }));
     },
   );
 

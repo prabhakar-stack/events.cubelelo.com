@@ -22,11 +22,13 @@ import type {
   FaqEntry,
   ContentPage,
   JudgeAssignment,
+  SystemSettings,
 } from "./types";
 
 export interface Repository {
   users: {
     findAll(search?: string): Promise<User[]>;
+    findPaginated(opts: { search?: string; limit: number; offset: number }): Promise<{ rows: User[]; total: number }>;
     findById(id: string): Promise<User | null>;
     findByIds(ids: string[]): Promise<Map<string, User>>;
     findByEmail(email: string): Promise<User | null>;
@@ -50,12 +52,15 @@ export interface Repository {
     update(id: string, fields: Partial<Competition>): Promise<Competition | null>;
     delete(id: string): Promise<void>;
     countRegistrations(id: string): Promise<number>;
+    countRegistrationsBatch(ids: string[]): Promise<Map<string, number>>;
   };
 
   competitionEvents: {
     findById(id: string): Promise<CompetitionEvent | null>;
     findByCompetition(compId: string): Promise<CompetitionEvent[]>;
+    findByCompetitions(compIds: string[]): Promise<Map<string, CompetitionEvent[]>>;
     findByRound(roundId: string): Promise<CompetitionEvent | null>;
+    findByRounds(roundIds: string[]): Promise<Map<string, CompetitionEvent>>;
     create(event: CompetitionEvent): Promise<void>;
     update(id: string, fields: Partial<CompetitionEvent>): Promise<CompetitionEvent | null>;
     delete(id: string): Promise<void>;
@@ -64,6 +69,7 @@ export interface Repository {
   rounds: {
     findById(id: string): Promise<Round | null>;
     findAll(): Promise<Round[]>;
+    findActive(): Promise<Round[]>;
     findByCompetition(compId: string): Promise<Round[]>;
     create(round: Round): Promise<void>;
     update(id: string, fields: Partial<Round>): Promise<Round | null>;
@@ -109,6 +115,7 @@ export interface Repository {
     findAll(): Promise<Payment[]>;
     findById(id: string): Promise<Payment | null>;
     findByOrderId(orderId: string): Promise<Payment | null>;
+    findByRegistration(registrationId: string): Promise<Payment | null>;
     create(payment: Payment): Promise<void>;
     update(id: string, fields: Partial<Payment>): Promise<void>;
   };
@@ -243,6 +250,11 @@ export interface Repository {
     findByJudge(judgeId: string): Promise<JudgeAssignment[]>;
     create(assignment: JudgeAssignment): Promise<void>;
     delete(id: string): Promise<void>;
+  };
+
+  systemSettings: {
+    get(): Promise<SystemSettings>;
+    update(fields: Partial<SystemSettings>): Promise<SystemSettings>;
   };
 
   /** Returns the DB backend name and latency, or null if in-memory. */

@@ -22,8 +22,11 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useLobby } from "@/features/realtime/useLobby";
+import { acquireSocket, releaseSocket } from "@/features/realtime/socket";
 import { UserStatusBadge } from "@/features/competitions/UserStatusBadge";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
+import { EventRoundPanel } from "@/features/competitions/detail/EventRoundPanel";
+import type { EventPageData } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -31,10 +34,8 @@ import { Skeleton, SkeletonRow } from "@/components/Skeleton";
 import { Countdown } from "@/components/Countdown";
 import { Markdown } from "@/components/Markdown";
 
-type Tab = "home" | "schedule" | "events" | "rules" | "participants" | "rankings" | "faqs" | "contact";
-
-const NAV_ITEMS: { id: Tab; label: string }[] = [
-  { id: "home", label: "Lobby" },
+const NAV_ITEMS: { id: string; label: string }[] = [
+  { id: "lobby", label: "Lobby" },
   { id: "schedule", label: "Schedule" },
   { id: "events", label: "Events" },
   { id: "rules", label: "Rules" },
@@ -51,15 +52,23 @@ export default function CompetitionDetailPage() {
   const [comp, setComp] = useState<CompetitionDetail | null>(null);
   const [myReg, setMyReg] = useState<RegistrationDto | null>(null);
   const [myProgress, setMyProgress] = useState<RoundProgress[]>([]);
-  const [tab, setTab] = useState<Tab>("home");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState("lobby");
+  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [eventPageCache] = useState(() => new Map<string, EventPageData>());
+
+  const refreshComp = useCallback(() => {
+    if (!params.id) return;
+    fetchCompetition(params.id)
+      .then(setComp)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [params.id]);
 
   useEffect(() => {
-    const id = params.id;
-    if (!id) return;
+    if (!params.id) return;
     setLoading(true);
-    fetchCompetition(id)
+    fetchCompetition(params.id)
       .then(setComp)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -78,7 +87,82 @@ export default function CompetitionDetailPage() {
       .catch(() => { });
   }, [user, params.id]);
 
-  // Connect to the first open (or first pending) round for real-time roster
+  const allRoundIds = useMemo(() => {
+    if (!comp) return [];
+    return comp.events.flatMap((ev) => ev.rounds.map((r) => r.id));
+  }, [comp?.id, comp?.events.length]);
+
+  useEffect(() => {
+    if (allRoundIds.length === 0) return;
+
+    const socket = acquireSocket();
+    for (const rid of allRoundIds) {
+      socket.emit("join", { roundId: rid });
+    }
+
+    const handler = (p: { roundId: string; status: string }) => {
+      if (allRoundIds.includes(p.roundId)) {
+        refreshComp();
+        if (p.status === "open") {
+          toast.show("A round is now open — you can enter!", "success");
+        }
+      }
+    };
+    socket.on("round:status", handler);
+
+    return () => {
+      socket.off("round:status", handler);
+      releaseSocket();
+    };
+  }, [allRoundIds, refreshComp, toast]);
+
+  // IntersectionObserver to highlight active nav link on scroll
+  useEffect(() => {
+    const ids = NAV_ITEMS.map((n) => n.id);
+    const elements = ids.map((id) => document.getElementById(`section-${id}`)).filter(Boolean) as HTMLElement[];
+    if (elements.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const id = entry.target.id.replace("section-", "");
+            setActiveSection(id);
+          }
+        }
+      },
+      { rootMargin: "-20% 0px -60% 0px", threshold: 0 },
+    );
+
+    for (const el of elements) observer.observe(el);
+    return () => observer.disconnect();
+  }, [comp]);
+
+  const scrollTo = useCallback((id: string) => {
+    const el = document.getElementById(`section-${id}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  // Hash deep-linking: #event-{eventId} auto-expands and scrolls
+  useEffect(() => {
+    if (!comp) return;
+    const hash = window.location.hash;
+    const match = hash.match(/^#event-(.+)$/);
+    if (match) {
+      const eid = match[1];
+      const found = comp.events.find((e) => e.id === eid);
+      if (found) {
+        setExpandedEventId(eid);
+        setTimeout(() => scrollTo("events"), 100);
+      }
+    }
+  }, [comp, scrollTo]);
+
+  const handleExpandEvent = useCallback((eventId: string) => {
+    setExpandedEventId((prev) => (prev === eventId ? null : eventId));
+    setTimeout(() => scrollTo("events"), 100);
+  }, [scrollTo]);
+
   const activeRoundId = useMemo(() => {
     if (!comp) return null;
     for (const ev of comp.events) {
@@ -97,15 +181,6 @@ export default function CompetitionDetailPage() {
     [user],
   );
   const lobby = useLobby(activeRoundId, me);
-
-  // Toast when a round goes live
-  const prevLobbyStatus = useRef(lobby.status);
-  useEffect(() => {
-    if (prevLobbyStatus.current !== "open" && lobby.status === "open") {
-      toast.show("A round is now open — you can enter!", "success");
-    }
-    prevLobbyStatus.current = lobby.status;
-  }, [lobby.status, toast]);
 
   if (loading) {
     return (
@@ -146,13 +221,13 @@ export default function CompetitionDetailPage() {
 
   return (
     <>
-      {/* ══ Section nav — fixed to viewport on desktop, same technique as AdminShell ══ */}
+      {/* ══ Sidebar nav — scroll checkpoints ══ */}
       <nav className="flex gap-1.5 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-zinc-200 lg:bg-white lg:px-3 lg:py-6 dark:lg:border-zinc-800 dark:lg:bg-zinc-950">
         {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
-            onClick={() => setTab(item.id)}
-            className={`block shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition lg:w-full lg:shrink ${tab === item.id
+            onClick={() => scrollTo(item.id)}
+            className={`block shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition lg:w-full lg:shrink ${activeSection === item.id
                 ? "bg-accent-primary/10 font-semibold text-accent-primary"
                 : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
               }`}
@@ -160,6 +235,10 @@ export default function CompetitionDetailPage() {
             {item.label}
           </button>
         ))}
+
+        <div className="mt-auto hidden pt-4 lg:block">
+          <ShareCard title={comp?.title ?? ""} />
+        </div>
       </nav>
 
       <div className="lg:pl-56">
@@ -222,97 +301,108 @@ export default function CompetitionDetailPage() {
             </div>
           )}
 
-          <div className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
-            {/* ══ Main column — switches by section ══ */}
-            <div className="min-w-0">
-              {tab === "home" && <HomeTab comp={comp} feeText={feeText} myProgress={myProgress} isRegistered={!!myReg} roster={lobby.roster} user={user} />}
-              {tab === "schedule" && (
-                <div className="space-y-6">
-                  <ScheduleTimeline comp={comp} />
-                  <DetailedSchedule comp={comp} />
-                </div>
-              )}
-              {tab === "events" && <EventsTab comp={comp} />}
-              {tab === "rules" && <RulesTab comp={comp} />}
-              {tab === "participants" && <ParticipantsTab compId={comp.id} />}
-              {tab === "rankings" && (
-                <RankingsTab comp={comp} showResultsLink={["results_pending", "completed", "live"].includes(comp.status)} />
-              )}
-              {tab === "faqs" && <ContentPageTab slug="faqs" />}
-              {tab === "contact" && <ContentPageTab slug="contact-us" />}
-            </div>
-
-            {/* ══ Sidebar — sticky action + facts panel ══ */}
-            <aside className="space-y-4 lg:sticky lg:top-20">
-              {/* Register CTA / progress */}
-              <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
-                {myReg ? (
-                  <div className="space-y-4">
-                    <RegistrationSteps paymentStatus={myReg.paymentStatus} />
-                    {isLive && (
-                      <Button size="md" fullWidth onClick={() => setTab("home")}>
-                        Go to Lobby
-                      </Button>
-                    )}
-                  </div>
-                ) : isRegOpen ? (
-                  user ? (
-                    <div className="space-y-4">
-                      <RegistrationSteps paymentStatus={null} />
-                      <Link href={`/competitions/${comp.id}/register`} className="block">
-                        <Button size="lg" fullWidth>Register Now</Button>
-                      </Link>
-                    </div>
-                  ) : (
-                    <Link href="/login" className="text-sm text-accent-primary underline hover:brightness-110">
-                      Sign in to register
-                    </Link>
-                  )
-                ) : (
-                  <p className="text-sm text-zinc-500">Registration is not currently open.</p>
+          {/* ══ Registration CTA bar ══ */}
+          <div className="mb-8 flex flex-wrap items-center gap-4 rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+            {myReg ? (
+              <>
+                <RegistrationSteps paymentStatus={myReg.paymentStatus} />
+                {isLive && (
+                  <Button size="sm" onClick={() => scrollTo("lobby")}>
+                    Go to Lobby
+                  </Button>
                 )}
+              </>
+            ) : isRegOpen ? (
+              user ? (
+                <>
+                  <RegistrationSteps paymentStatus={null} />
+                  <Link href={`/competitions/${comp.id}/register`}>
+                    <Button size="sm">Register Now</Button>
+                  </Link>
+                </>
+              ) : (
+                <Link href="/login" className="text-sm text-accent-primary underline hover:brightness-110">
+                  Sign in to register
+                </Link>
+              )
+            ) : (
+              <p className="text-sm text-zinc-500">Registration is not currently open.</p>
+            )}
 
-                {countdownTarget && (
-                  <div className="mt-4 flex items-center gap-2 rounded-full bg-accent-warn/10 px-3 py-1.5 text-sm text-accent-warn">
-                    ⏳ {countdownLabel} <Countdown target={countdownTarget} className="font-mono font-semibold" />
-                  </div>
-                )}
+            {countdownTarget && (
+              <div className="ml-auto flex items-center gap-2 rounded-full bg-accent-warn/10 px-3 py-1.5 text-sm text-accent-warn">
+                ⏳ {countdownLabel} <Countdown target={countdownTarget} className="font-mono font-semibold" />
               </div>
+            )}
+          </div>
 
-              {/* Quick facts */}
-              <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Quick Facts</h2>
-                <dl className="space-y-2.5 text-sm">
-                  <div className="flex items-center justify-between">
-                    <dt className="text-zinc-500">Fee</dt>
-                    <dd className="font-medium text-zinc-800 dark:text-zinc-200">{feeText}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt className="text-zinc-500">Registered</dt>
-                    <dd className="font-medium text-zinc-800 dark:text-zinc-200">{comp.registrationCount ?? 0}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt className="text-zinc-500">Events</dt>
-                    <dd className="font-medium text-zinc-800 dark:text-zinc-200">{comp.events.length}</dd>
-                  </div>
-                  {comp.startsAt && (
-                    <div className="flex items-center justify-between">
-                      <dt className="text-zinc-500">Starts</dt>
-                      <dd className="font-medium text-zinc-800 dark:text-zinc-200">
-                        {new Date(comp.startsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
+          {/* ══ All sections stacked ══ */}
+          <div className="space-y-12">
+            <section id="section-lobby" className="scroll-mt-20">
+              <HomeTab comp={comp} feeText={feeText} myProgress={myProgress} isRegistered={!!myReg} roster={lobby.roster} user={user} onExpandEvent={handleExpandEvent} />
+            </section>
+
+            <section id="section-schedule" className="scroll-mt-20">
+              <SectionHeading>Schedule</SectionHeading>
+              <div className="space-y-6">
+                <ScheduleTimeline comp={comp} />
+                <DetailedSchedule comp={comp} />
               </div>
+            </section>
 
-              {/* Share */}
-              <ShareCard title={comp.title} />
-            </aside>
+            <section id="section-events" className="scroll-mt-20">
+              <SectionHeading>Events</SectionHeading>
+              <EventsTab
+                comp={comp}
+                expandedEventId={expandedEventId}
+                onToggleEvent={handleExpandEvent}
+                eventPageCache={eventPageCache}
+              />
+            </section>
+
+            <section id="section-rules" className="scroll-mt-20">
+              <SectionHeading>Rules</SectionHeading>
+              <RulesTab comp={comp} />
+            </section>
+
+            <section id="section-participants" className="scroll-mt-20">
+              <SectionHeading>Participants</SectionHeading>
+              <ParticipantsTab compId={comp.id} />
+            </section>
+
+            <section id="section-rankings" className="scroll-mt-20">
+              <SectionHeading>Live Ranking</SectionHeading>
+              <RankingsTab comp={comp} showResultsLink={["results_pending", "completed", "live"].includes(comp.status)} />
+            </section>
+
+            <section id="section-faqs" className="scroll-mt-20">
+              <SectionHeading>FAQs</SectionHeading>
+              <ContentPageTab slug="faqs" />
+            </section>
+
+            <section id="section-contact" className="scroll-mt-20">
+              <SectionHeading>Contact Us</SectionHeading>
+              <ContentPageTab slug="contact-us" />
+            </section>
+          </div>
+
+          {/* Share — mobile only (desktop share is in left sidebar) */}
+          <div className="mt-8 lg:hidden">
+            <ShareCard title={comp.title} />
           </div>
         </main>
       </div>
     </>
+  );
+}
+
+/* ── Section heading ── */
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="mb-5 border-b border-zinc-200 pb-2 text-lg font-bold text-zinc-900 dark:border-zinc-800 dark:text-zinc-100">
+      {children}
+    </h2>
   );
 }
 
@@ -325,6 +415,7 @@ function HomeTab({
   isRegistered,
   roster,
   user,
+  onExpandEvent,
 }: {
   comp: CompetitionDetail;
   feeText: string;
@@ -332,6 +423,7 @@ function HomeTab({
   isRegistered: boolean;
   roster: RosterEntry[];
   user: { clId: string; name: string } | null;
+  onExpandEvent: (eventId: string) => void;
 }) {
   const now = Date.now();
 
@@ -457,7 +549,7 @@ function HomeTab({
                   <div className="flex items-center gap-3">
                     <StatusBadge status={activeRound.status} />
                     {roundOpen && isRegistered && !submitted && (
-                      <Link href={`/competitions/${comp.id}/event/${ev.id}`}>
+                      <Link href={`/competitions/${comp.id}/round/${activeRound.roundNumber}?eventId=${ev.eventType}`}>
                         <Button size="sm">Enter Round</Button>
                       </Link>
                     )}
@@ -466,6 +558,12 @@ function HomeTab({
                         Submitted
                       </span>
                     )}
+                    <button
+                      onClick={() => onExpandEvent(ev.id)}
+                      className="text-xs text-zinc-400 underline hover:text-zinc-200"
+                    >
+                      Details
+                    </button>
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-4 text-xs text-zinc-500">
@@ -606,34 +704,73 @@ function HomeTab({
 
 /* ── Events tab ── */
 
-function EventsTab({ comp }: { comp: CompetitionDetail }) {
+function EventsTab({
+  comp,
+  expandedEventId,
+  onToggleEvent,
+  eventPageCache,
+}: {
+  comp: CompetitionDetail;
+  expandedEventId: string | null;
+  onToggleEvent: (id: string) => void;
+  eventPageCache: Map<string, EventPageData>;
+}) {
+  const handleCache = useCallback(
+    (eventId: string) => (data: EventPageData) => {
+      eventPageCache.set(eventId, data);
+    },
+    [eventPageCache],
+  );
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="space-y-4">
       {comp.events.map((ev) => {
+        const isExpanded = expandedEventId === ev.id;
         const latestRound = [...ev.rounds]
           .reverse()
           .find((r) => r.status !== "pending") ?? ev.rounds[0];
 
         return (
-          <Link
-            key={ev.id}
-            href={`/competitions/${comp.id}/event/${ev.id}`}
-            className="group relative flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white/70 p-5 backdrop-blur-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-accent-primary/40"
-          >
-            <div className="shimmer-sweep pointer-events-none absolute inset-0" />
-            <div className="relative mb-2 flex items-center justify-between">
-              <span className="flex items-center gap-2 text-lg font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
-                <EventIcon eventId={ev.eventType} size={18} />
-                {eventDisplayName(ev.eventType)}
-              </span>
-              {latestRound && <StatusBadge status={latestRound.status} />}
-            </div>
-            <div className="relative mt-auto flex items-center gap-3 text-xs text-zinc-500">
-              <span>{ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}</span>
-              {ev.cutoffMs && <span>Cutoff: {(ev.cutoffMs / 1000).toFixed(1)}s</span>}
-              {ev.timeLimitMs && <span>Limit: {(ev.timeLimitMs / 1000).toFixed(1)}s</span>}
-            </div>
-          </Link>
+          <div key={ev.id}>
+            <button
+              onClick={() => onToggleEvent(ev.id)}
+              className={`group relative flex w-full flex-col overflow-hidden rounded-xl border p-5 text-left transition ${
+                isExpanded
+                  ? "border-accent-primary/40 bg-accent-primary/5 dark:border-accent-primary/30"
+                  : "border-zinc-200 bg-white/70 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-accent-primary/40"
+              }`}
+            >
+              <div className="shimmer-sweep pointer-events-none absolute inset-0" />
+              <div className="relative flex items-center justify-between">
+                <span className="flex items-center gap-2 text-lg font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
+                  <EventIcon eventId={ev.eventType} size={18} />
+                  {eventDisplayName(ev.eventType)}
+                </span>
+                <div className="flex items-center gap-2">
+                  {latestRound && <StatusBadge status={latestRound.status} />}
+                  <span className="text-zinc-400 transition group-hover:text-zinc-200">
+                    {isExpanded ? "▲" : "▼"}
+                  </span>
+                </div>
+              </div>
+              <div className="relative mt-1 flex items-center gap-3 text-xs text-zinc-500">
+                <span>{ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}</span>
+                {ev.cutoffMs && <span>Cutoff: {(ev.cutoffMs / 1000).toFixed(1)}s</span>}
+                {ev.timeLimitMs && <span>Limit: {(ev.timeLimitMs / 1000).toFixed(1)}s</span>}
+              </div>
+            </button>
+
+            {isExpanded && (
+              <EventRoundPanel
+                compId={comp.id}
+                eventId={ev.id}
+                eventType={ev.eventType}
+                videoDeadlineMinutes={comp.videoDeadlineMinutes ?? 1440}
+                cached={eventPageCache.get(ev.id) ?? null}
+                onCache={handleCache(ev.id)}
+              />
+            )}
+          </div>
         );
       })}
     </div>
@@ -689,7 +826,6 @@ function ContentPageTab({ slug }: { slug: string }) {
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
-      <h2 className="mb-4 text-lg font-bold text-zinc-900 dark:text-zinc-100">{page.title}</h2>
       <Markdown>{page.bodyMd}</Markdown>
     </div>
   );
@@ -708,7 +844,6 @@ function ScheduleTimeline({ comp }: { comp: CompetitionDetail }) {
   if (steps.every((s) => !s.at)) return null;
 
   const now = Date.now();
-  // Current stage = last step whose time has already passed.
   let activeIndex = -1;
   steps.forEach((s, i) => {
     if (s.at && now >= new Date(s.at).getTime()) activeIndex = i;
@@ -802,7 +937,6 @@ function DetailedSchedule({ comp }: { comp: CompetitionDetail }) {
 
   const now = Date.now();
 
-  // Group entries by calendar day, preserving chronological order.
   const groups: { dateKey: string; label: string; entries: ScheduleEntry[] }[] = [];
   for (const entry of entries) {
     const d = new Date(entry.at);

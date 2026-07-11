@@ -9,8 +9,6 @@ interface RateLimitConfig {
 const inMemoryStore = new Map<string, { count: number; resetAt: number }>();
 
 function getClientIp(req: FastifyRequest): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") return forwarded.split(",")[0]?.trim() ?? req.ip;
   return req.ip;
 }
 

@@ -21,7 +21,7 @@ async function createBullQueue(): Promise<QueueInterface> {
 
   const q = new Queue("cubers", { connection });
 
-  new Worker(
+  const w = new Worker(
     "cubers",
     async (job) => {
       const handler = handlers.get(job.name);
@@ -43,6 +43,7 @@ async function createBullQueue(): Promise<QueueInterface> {
       await q.add(name, data);
     },
     async close() {
+      await w.close();
       await q.close();
     },
   };

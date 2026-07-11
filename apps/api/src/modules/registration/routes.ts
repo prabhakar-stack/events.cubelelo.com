@@ -4,6 +4,7 @@ import type { Repository } from "../../db/repo";
 import type { Registration } from "../../db/types";
 import { requireAuth } from "../../auth/plugin";
 import { effectiveCompStatus } from "../../lib/statusUtils";
+import { withTransaction } from "../../db/pool";
 
 export async function registerRegistrationRoutes(
   app: FastifyInstance,
@@ -26,10 +27,11 @@ export async function registerRegistrationRoutes(
       const user = await repo.users.findById(req.authClaims!.sub);
       if (!user) return reply.code(403).send({ error: "not_synced" });
 
-      const eventIds = req.body?.eventIds;
-      if (!Array.isArray(eventIds) || eventIds.length === 0) {
+      const rawEventIds = req.body?.eventIds;
+      if (!Array.isArray(rawEventIds) || rawEventIds.length === 0) {
         return reply.code(400).send({ error: "no_events_selected" });
       }
+      const eventIds = [...new Set(rawEventIds as string[])];
 
       if (!user.emailVerified) {
         return reply.code(403).send({ error: "email_not_verified" });
@@ -69,11 +71,18 @@ export async function registerRegistrationRoutes(
         paymentStatus: isFree ? "paid" : "pending",
         createdAt: new Date().toISOString(),
       };
-      await repo.registrations.create(registration);
-
-      for (const eid of eventIds) {
-        await repo.registrations.addEvent(registration.id, eid);
-      }
+      await withTransaction(async (client) => {
+        await client.query(
+          "INSERT INTO registrations (id, user_id, competition_id, payment_status, created_at) VALUES ($1,$2,$3,$4,$5)",
+          [registration.id, registration.userId, registration.competitionId, registration.paymentStatus, registration.createdAt],
+        );
+        for (const eid of eventIds) {
+          await client.query(
+            "INSERT INTO registration_events (registration_id, competition_event_id) VALUES ($1,$2)",
+            [registration.id, eid],
+          );
+        }
+      });
 
       return reply.code(201).send({
         registrationId: registration.id,
@@ -106,8 +115,10 @@ export async function registerRegistrationRoutes(
         return reply.code(409).send({ error: "paid_registration_contact_admin" });
       }
 
-      await repo.registrations.removeEvents(reg.id);
-      await repo.registrations.delete(reg.id);
+      await withTransaction(async (client) => {
+        await client.query("DELETE FROM registration_events WHERE registration_id = $1", [reg.id]);
+        await client.query("DELETE FROM registrations WHERE id = $1", [reg.id]);
+      });
 
       return { ok: true };
     },

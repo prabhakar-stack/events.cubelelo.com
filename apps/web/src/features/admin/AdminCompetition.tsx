@@ -11,6 +11,7 @@ import {
   sendBulkEmail,
   sendRoundNotification,
   fetchCompetition,
+  fetchSchedulingDefaults,
   updateCompetition,
   updateCompetitionEvent,
   uploadCompetitionBanner,
@@ -20,6 +21,7 @@ import {
   type CompetitionDetail,
   type EventDetail,
   type RoundRef,
+  type SchedulingDefaults,
 } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
 import { StatusBadge } from "./StatusBadge";
@@ -37,6 +39,93 @@ function toLocal(iso?: string | null): string {
 }
 function toISO(val: string): string | null {
   return val ? new Date(val).toISOString() : null;
+}
+
+type ScheduleField = "regOpens" | "regClose" | "compStart" | "compEnd";
+const SCHEDULE_CHAIN: ScheduleField[] = ["regOpens", "regClose", "compStart", "compEnd"];
+const REG_TO_COMP_DAYS = 5;
+
+const DEFAULT_EVENT_DURATION: Record<string, number> = {
+  "222": 15, "333": 20, "444": 25, "555": 30, "666": 35, "777": 40,
+  pyram: 15, skewb: 15, minx: 30, "333oh": 20, "333bf": 25, sq1: 20,
+  clock: 15, "444bf": 40, "555bf": 50, "333mbf": 60, fto: 25, "333fm": 60,
+};
+const DEFAULT_DURATION = 20;
+
+function computeRoundTimes(
+  compStart: Date,
+  events: EventDetail[],
+  gapMinutes: number,
+  eventDurations: Record<string, number>,
+  defaultDuration: number,
+): { roundId: string; opensAt: string; durationMinutes: number }[] {
+  const maxRounds = Math.max(...events.map((e) => e.roundCount));
+  const result: { roundId: string; opensAt: string; durationMinutes: number }[] = [];
+
+  for (let dayOffset = 0; dayOffset < maxRounds; dayOffset++) {
+    const dayBase =
+      dayOffset === 0
+        ? new Date(compStart)
+        : new Date(
+            compStart.getFullYear(),
+            compStart.getMonth(),
+            compStart.getDate() + dayOffset,
+            compStart.getHours(),
+            compStart.getMinutes(),
+          );
+
+    let cursor = new Date(dayBase);
+
+    for (const ev of events) {
+      if (dayOffset >= ev.roundCount) continue;
+      const round = ev.rounds.find((r) => r.roundNumber === dayOffset + 1);
+      if (!round) continue;
+
+      const dur = eventDurations[ev.eventType] ?? defaultDuration;
+
+      result.push({
+        roundId: round.id,
+        opensAt: new Date(cursor).toISOString(),
+        durationMinutes: dur,
+      });
+
+      cursor = new Date(cursor.getTime() + (dur + gapMinutes) * 60000);
+    }
+  }
+
+  return result;
+}
+
+function cascadeSchedule(
+  changedField: ScheduleField,
+  vals: { regOpens: string; regClose: string; compStart: string; compEnd: string },
+  pinned: Set<ScheduleField>,
+  regDurationDays = REG_TO_COMP_DAYS,
+) {
+  // ── Forward cascade (downstream) ──
+
+  if (changedField === "regOpens" && vals.regOpens && !pinned.has("regClose")) {
+    const d = new Date(new Date(vals.regOpens).getTime() + regDurationDays * 86400000);
+    vals.regClose = toLocal(d.toISOString());
+  }
+
+  if ((changedField === "regOpens" || changedField === "regClose") && vals.regClose && !pinned.has("compStart")) {
+    vals.compStart = vals.regClose;
+  }
+
+  // ── Backward cascade (upstream adjustments) ──
+
+  if (changedField === "compStart" && vals.compStart && vals.regClose && !pinned.has("regClose")) {
+    if (new Date(vals.compStart) < new Date(vals.regClose)) {
+      vals.regClose = vals.compStart;
+    }
+  }
+
+  if ((changedField === "regClose" || changedField === "compStart") && vals.regClose && vals.regOpens && !pinned.has("regOpens")) {
+    if (new Date(vals.regClose) < new Date(vals.regOpens)) {
+      vals.regOpens = vals.regClose;
+    }
+  }
 }
 
 export function AdminCompetition({ id }: { id: string }) {
@@ -59,6 +148,12 @@ export function AdminCompetition({ id }: { id: string }) {
   const [regCloses, setRegCloses] = useState("");
   const [compStarts, setCompStarts] = useState("");
   const [compEnds, setCompEnds] = useState("");
+  // Track which schedule fields admin has manually edited in this session.
+  // On load, all existing fields are pinned (from server). Editing a field
+  // unpins everything downstream so cascade auto-fills them.
+  const schedPinnedRef = useRef<Set<ScheduleField>>(new Set(SCHEDULE_CHAIN));
+  const [schedDefaults, setSchedDefaults] = useState<SchedulingDefaults | null>(null);
+  const [gapMinutes, setGapMinutes] = useState(0);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showPracticeModal, setShowPracticeModal] = useState(false);
   const csvCertRef = useRef<HTMLInputElement>(null);
@@ -72,6 +167,15 @@ export function AdminCompetition({ id }: { id: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    fetchSchedulingDefaults()
+      .then((s) => {
+        setSchedDefaults(s);
+        setGapMinutes(s.gapBetweenEventsMinutes);
+      })
+      .catch(() => {});
+  }, []);
 
   // Sync all inputs whenever detail refreshes
   useEffect(() => {
@@ -89,6 +193,47 @@ export function AdminCompetition({ id }: { id: string }) {
       setCompEnds(toLocal(detail.endsAt));
     }
   }, [detail]);
+
+  const handleScheduleChange = useCallback(
+    (field: ScheduleField, value: string) => {
+      const pinned = schedPinnedRef.current;
+      // Pin the changed field, unpin everything downstream
+      pinned.add(field);
+      const idx = SCHEDULE_CHAIN.indexOf(field);
+      for (let i = idx + 1; i < SCHEDULE_CHAIN.length; i++) {
+        pinned.delete(SCHEDULE_CHAIN[i]!);
+      }
+
+      const vals = {
+        regOpens: field === "regOpens" ? value : regOpens,
+        regClose: field === "regClose" ? value : regCloses,
+        compStart: field === "compStart" ? value : compStarts,
+        compEnd: field === "compEnd" ? value : compEnds,
+      };
+
+      const regDuration = schedDefaults?.registrationDurationDays ?? REG_TO_COMP_DAYS;
+      cascadeSchedule(field, vals, pinned, regDuration);
+
+      setRegOpens(vals.regOpens);
+      setRegCloses(vals.regClose);
+      setCompStarts(vals.compStart);
+      setCompEnds(vals.compEnd);
+    },
+    [regOpens, regCloses, compStarts, compEnds, schedDefaults],
+  );
+
+  const resetScheduleToAuto = useCallback(() => {
+    schedPinnedRef.current = new Set<ScheduleField>(["regOpens"]);
+    if (regOpens) {
+      const vals = { regOpens, regClose: "", compStart: "", compEnd: "" };
+      const regDuration = schedDefaults?.registrationDurationDays ?? REG_TO_COMP_DAYS;
+      cascadeSchedule("regOpens", vals, schedPinnedRef.current, regDuration);
+      setRegOpens(vals.regOpens);
+      setRegCloses(vals.regClose);
+      setCompStarts(vals.compStart);
+      setCompEnds(vals.compEnd);
+    }
+  }, [regOpens, schedDefaults]);
 
   const run = useCallback(
     async (key: string, fn: () => Promise<unknown>) => {
@@ -431,46 +576,120 @@ export function AdminCompetition({ id }: { id: string }) {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               Schedule
             </h3>
-            <p className="text-xs text-zinc-600">
-              Status auto-transitions based on these times
-            </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={resetScheduleToAuto}
+                className="text-xs text-indigo-400 transition hover:text-indigo-300"
+              >
+                Reset to auto
+              </button>
+              <p className="text-xs text-zinc-600">
+                Dates cascade as you edit
+              </p>
+            </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {(
               [
-                { label: "Registration opens", value: regOpens, set: setRegOpens },
-                { label: "Registration closes", value: regCloses, set: setRegCloses },
-                { label: "Competition starts", value: compStarts, set: setCompStarts },
-                { label: "Competition ends", value: compEnds, set: setCompEnds },
+                { label: "Registration opens", field: "regOpens" as ScheduleField, value: regOpens },
+                { label: "Registration closes", field: "regClose" as ScheduleField, value: regCloses },
+                { label: "Competition starts", field: "compStart" as ScheduleField, value: compStarts },
+                { label: "Competition ends", field: "compEnd" as ScheduleField, value: compEnds },
               ] as const
-            ).map(({ label, value, set }) => (
-              <div key={label}>
-                <label className="mb-1 block text-xs text-zinc-500">{label}</label>
+            ).map(({ label, field, value }) => (
+              <div key={field}>
+                <label className="mb-1 flex items-center gap-1.5 text-xs text-zinc-500">
+                  {label}
+                  {field !== "regOpens" && !schedPinnedRef.current.has(field) && value && (
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
+                      auto
+                    </span>
+                  )}
+                </label>
                 <input
                   type="datetime-local"
                   value={value}
-                  onChange={(e) => set(e.target.value)}
+                  onChange={(e) => handleScheduleChange(field, e.target.value)}
                   className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 />
               </div>
             ))}
           </div>
-          <button
-            disabled={busy === "schedule"}
-            onClick={() =>
-              run("schedule", () =>
-                updateCompetition(id, {
-                  registrationOpensAt: toISO(regOpens),
-                  registrationDeadline: toISO(regCloses),
-                  startsAt: toISO(compStarts),
-                  endsAt: toISO(compEnds),
-                }),
-              )
-            }
-            className="mt-3 rounded-lg bg-zinc-800 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
-          >
-            {busy === "schedule" ? "Saving…" : "Save Schedule"}
-          </button>
+          {/* Gap + auto-fill rounds */}
+          {detail.events.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 bg-white/50 p-3 dark:border-zinc-800 dark:bg-zinc-900/30">
+              <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                Gap between events
+                <input
+                  type="number"
+                  min={0}
+                  value={gapMinutes}
+                  onChange={(e) => setGapMinutes(Number(e.target.value))}
+                  className="w-14 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+                <span className="text-zinc-400">min</span>
+              </label>
+              <button
+                disabled={busy === "autoRounds" || !compStarts}
+                onClick={() =>
+                  run("autoRounds", async () => {
+                    const times = computeRoundTimes(
+                      new Date(compStarts),
+                      detail.events,
+                      gapMinutes,
+                      schedDefaults?.eventDurations ?? DEFAULT_EVENT_DURATION,
+                      schedDefaults?.defaultRoundDurationMinutes ?? DEFAULT_DURATION,
+                    );
+                    for (const t of times) {
+                      const closesAt = new Date(
+                        new Date(t.opensAt).getTime() + t.durationMinutes * 60000,
+                      ).toISOString();
+                      await updateRound(t.roundId, {
+                        opensAt: t.opensAt,
+                        closesAt,
+                        durationMinutes: t.durationMinutes,
+                      });
+                    }
+                    // Update compEnd to match last round close
+                    if (times.length > 0) {
+                      const last = times[times.length - 1]!;
+                      const lastClose = new Date(
+                        new Date(last.opensAt).getTime() + last.durationMinutes * 60000,
+                      );
+                      setCompEnds(toLocal(lastClose.toISOString()));
+                      schedPinnedRef.current.delete("compEnd");
+                    }
+                  })
+                }
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-40"
+              >
+                {busy === "autoRounds" ? "Filling…" : "Auto-fill Round Times"}
+              </button>
+              <span className="text-xs text-zinc-500">
+                Schedules all rounds from competition start
+              </span>
+            </div>
+          )}
+
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              disabled={busy === "schedule"}
+              onClick={() =>
+                run("schedule", () =>
+                  updateCompetition(id, {
+                    registrationOpensAt: toISO(regOpens),
+                    registrationDeadline: toISO(regCloses),
+                    startsAt: toISO(compStarts),
+                    endsAt: toISO(compEnds),
+                  }),
+                )
+              }
+              className="rounded-lg bg-zinc-800 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
+            >
+              {busy === "schedule" ? "Saving…" : "Save Schedule"}
+            </button>
+          </div>
         </div>
 
         {/* Rounds management */}

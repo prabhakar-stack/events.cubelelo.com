@@ -26,6 +26,7 @@ import type {
   FaqEntry,
   ContentPage,
   JudgeAssignment,
+  SystemSettings,
 } from "./types";
 
 // ── row → domain type mappers ──────────────────────────────────────────────
@@ -260,6 +261,24 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const { rows } = await pool.query("SELECT * FROM users ORDER BY created_at DESC");
         return rows.map(toUser);
       },
+      async findPaginated({ search, limit, offset }) {
+        const params: unknown[] = [];
+        let where = "";
+        if (search) {
+          params.push(`%${search}%`);
+          where = `WHERE name ILIKE $1 OR email ILIKE $1 OR cl_id ILIKE $1`;
+        }
+        const countQ = await pool.query(`SELECT COUNT(*)::int AS total FROM users ${where}`, params);
+        const total = countQ.rows[0]?.total ?? 0;
+        const dataParams = [...params, limit, offset];
+        const li = params.length + 1;
+        const oi = params.length + 2;
+        const { rows } = await pool.query(
+          `SELECT * FROM users ${where} ORDER BY created_at DESC LIMIT $${li} OFFSET $${oi}`,
+          dataParams,
+        );
+        return { rows: rows.map(toUser), total };
+      },
       async findById(id) {
         const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
         return rows[0] ? toUser(rows[0]) : null;
@@ -442,6 +461,18 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
         return Number(rows[0].cnt);
       },
+      async countRegistrationsBatch(ids) {
+        if (ids.length === 0) return new Map();
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(",");
+        const { rows } = await pool.query(
+          `SELECT competition_id, COUNT(*)::int AS cnt FROM registrations WHERE competition_id IN (${placeholders}) GROUP BY competition_id`,
+          ids,
+        );
+        const map = new Map<string, number>();
+        for (const id of ids) map.set(id, 0);
+        for (const row of rows) map.set(row.competition_id, Number(row.cnt));
+        return map;
+      },
     },
 
     // ── competitionEvents ──────────────────────────────────────────────────
@@ -460,6 +491,20 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
         return rows.map(toEvent);
       },
+      async findByCompetitions(compIds) {
+        if (compIds.length === 0) return new Map();
+        const placeholders = compIds.map((_, i) => `$${i + 1}`).join(",");
+        const { rows } = await pool.query(
+          `SELECT * FROM competition_events WHERE competition_id IN (${placeholders}) ORDER BY created_at`,
+          compIds,
+        );
+        const map = new Map<string, CompetitionEvent[]>();
+        for (const id of compIds) map.set(id, []);
+        for (const row of rows) {
+          map.get(row.competition_id)!.push(toEvent(row));
+        }
+        return map;
+      },
       async findByRound(roundId) {
         const { rows } = await pool.query(
           `SELECT ce.* FROM competition_events ce
@@ -468,6 +513,19 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           [roundId],
         );
         return rows[0] ? toEvent(rows[0]) : null;
+      },
+      async findByRounds(roundIds) {
+        if (roundIds.length === 0) return new Map();
+        const placeholders = roundIds.map((_, i) => `$${i + 1}`).join(",");
+        const { rows } = await pool.query(
+          `SELECT ce.*, r.id AS _round_id FROM competition_events ce
+           JOIN rounds r ON r.competition_event_id = ce.id
+           WHERE r.id IN (${placeholders})`,
+          roundIds,
+        );
+        const map = new Map<string, CompetitionEvent>();
+        for (const row of rows) map.set(row._round_id, toEvent(row));
+        return map;
       },
       async create(event) {
         await pool.query(
@@ -506,6 +564,12 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
       async findAll() {
         const { rows } = await pool.query("SELECT * FROM rounds ORDER BY round_number");
+        return rows.map(toRound);
+      },
+      async findActive() {
+        const { rows } = await pool.query(
+          "SELECT * FROM rounds WHERE status NOT IN ('advanced', 'cancelled') ORDER BY round_number",
+        );
         return rows.map(toRound);
       },
       async findByCompetition(compId) {
@@ -789,6 +853,13 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const { rows } = await pool.query(
           "SELECT * FROM payments WHERE razorpay_order_id = $1",
           [orderId],
+        );
+        return rows[0] ? toPayment(rows[0]) : null;
+      },
+      async findByRegistration(registrationId) {
+        const { rows } = await pool.query(
+          "SELECT * FROM payments WHERE registration_id = $1 AND status = 'pending' LIMIT 1",
+          [registrationId],
         );
         return rows[0] ? toPayment(rows[0]) : null;
       },
@@ -1560,6 +1631,38 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
       async delete(id: string) {
         await pool.query("DELETE FROM content_pages WHERE id = $1", [id]);
+      },
+    },
+
+    systemSettings: {
+      async get(): Promise<SystemSettings> {
+        const { rows } = await pool.query(
+          "SELECT data FROM system_settings WHERE id = 'default'",
+        );
+        if (rows.length === 0) {
+          return {
+            eventDurations: {},
+            registrationDurationDays: 5,
+            gapBetweenEventsMinutes: 0,
+            defaultRoundDurationMinutes: 20,
+            videoDeadlineMinutes: 1440,
+          };
+        }
+        return rows[0].data as SystemSettings;
+      },
+      async update(fields: Partial<SystemSettings>): Promise<SystemSettings> {
+        const current = await this.get();
+        const merged = { ...current, ...fields };
+        if (fields.eventDurations) {
+          merged.eventDurations = { ...current.eventDurations, ...fields.eventDurations };
+        }
+        await pool.query(
+          `INSERT INTO system_settings (id, data, updated_at)
+           VALUES ('default', $1, now())
+           ON CONFLICT (id) DO UPDATE SET data = $1, updated_at = now()`,
+          [JSON.stringify(merged)],
+        );
+        return merged;
       },
     },
 

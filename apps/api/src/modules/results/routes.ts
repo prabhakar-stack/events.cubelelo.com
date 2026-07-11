@@ -10,15 +10,21 @@ import { effectiveRoundStatus } from "../../lib/statusUtils";
 import { getScrambleFetchTime } from "../../lib/scrambleTiming";
 import { submitLimiter } from "../../lib/rateLimiter";
 import { recomputeRanks } from "../../lib/resultStats";
+import { ANTICHEAT_THRESHOLDS, DEFAULT_ANTICHEAT_THRESHOLD } from "../../lib/eventConfig";
 
 const PENALTIES: SolvePenalty[] = ["none", "plus2", "dnf"];
 
 const MIN_SOLVE_MS = 300;
-const EXPECTED_SOLVE_COUNT = 5;
 
-function parseSolves(input: unknown): Solve[] | null {
+const MEAN_OF_3_EVENTS = new Set(["666", "777", "333bf", "444bf", "555bf", "333mbf"]);
+
+function solveCountForEvent(eventType: string): number {
+  return MEAN_OF_3_EVENTS.has(eventType) ? 3 : 5;
+}
+
+function parseSolves(input: unknown, expectedCount: number): Solve[] | null {
   if (!Array.isArray(input)) return null;
-  if (input.length !== EXPECTED_SOLVE_COUNT) return null;
+  if (input.length !== expectedCount) return null;
   const solves: Solve[] = [];
   for (const raw of input) {
     if (
@@ -78,12 +84,22 @@ export async function registerResultRoutes(
         return reply.code(409).send({ error: "already_submitted" });
       }
 
-      const solves = parseSolves(req.body?.solves);
+      const event = await repo.competitionEvents.findByRound(round.id);
+      const expectedCount = solveCountForEvent(event?.eventType ?? "333");
+      const solves = parseSolves(req.body?.solves, expectedCount);
       if (!solves) return reply.code(400).send({ error: "invalid_solves" });
 
       const videoUrl = req.body?.videoUrl?.trim() || null;
-      if (videoUrl && !videoUrl.startsWith("https://")) {
-        return reply.code(400).send({ error: "invalid_video_url" });
+      if (videoUrl) {
+        try {
+          const parsed = new URL(videoUrl);
+          const allowed = ["youtube.com", "youtu.be", "drive.google.com", "photos.google.com", "instagram.com", "streamable.com"];
+          if (parsed.protocol !== "https:" || !allowed.some((h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`))) {
+            return reply.code(400).send({ error: "invalid_video_url" });
+          }
+        } catch {
+          return reply.code(400).send({ error: "invalid_video_url" });
+        }
       }
 
       // Anti-cheat: validate submission falls within round open/close window
@@ -113,17 +129,10 @@ export async function registerResultRoutes(
       const computedAo5 = ao5(solves);
 
       // Anti-cheat: flag suspiciously fast results per event type
-      const event = await repo.competitionEvents.findByRound(round.id);
       let flagStatus: FlagStatus = "clean";
       if (computedAo5 !== null && computedAo5 !== Infinity) {
-        const thresholds: Record<string, number> = {
-          "333": 3000, "222": 800, "444": 18000, "555": 35000,
-          "666": 75000, "777": 110000, pyram: 1000, skewb: 1200,
-          minx: 25000, "333oh": 6000, "333bf": 12000, sq1: 5000, clock: 3000,
-          "444bf": 60000, "555bf": 120000, "333mbf": 60000, fto: 15000,
-        };
         const eventType = event?.eventType ?? "333";
-        const threshold = thresholds[eventType] ?? 3000;
+        const threshold = ANTICHEAT_THRESHOLDS[eventType] ?? DEFAULT_ANTICHEAT_THRESHOLD;
         if (computedAo5 < threshold) flagStatus = "flagged";
       }
 

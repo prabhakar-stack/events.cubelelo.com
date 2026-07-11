@@ -6,6 +6,7 @@ import { requireAuth } from "../../auth/plugin";
 import { env } from "../../config/env";
 import { generateInvoicePDF, type InvoiceData } from "../../lib/invoice";
 import { submitLimiter } from "../../lib/rateLimiter";
+import { withTransaction } from "../../db/pool";
 
 async function getRazorpay() {
   if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) return null;
@@ -34,10 +35,7 @@ export async function registerPaymentRoutes(
       if (registration.paymentStatus === "paid")
         return reply.code(409).send({ error: "already_paid" });
 
-      const existingPayments = await repo.payments.findAll();
-      const pendingPayment = existingPayments.find(
-        (p) => p.registrationId === registration.id && p.status === "pending",
-      );
+      const pendingPayment = await repo.payments.findByRegistration(registration.id);
       if (pendingPayment) {
         return reply.send({
           orderId: pendingPayment.razorpayOrderId,
@@ -125,8 +123,17 @@ export async function registerPaymentRoutes(
           status: "paid",
           createdAt: new Date().toISOString(),
         };
-        await repo.payments.create(payment);
-        await repo.registrations.update(registration.id, { paymentStatus: "paid" });
+        await withTransaction(async (client) => {
+          await client.query(
+            `INSERT INTO payments (id, user_id, registration_id, amount, currency, promo_code_id, status, created_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [payment.id, payment.userId, payment.registrationId, payment.amount, payment.currency, payment.promoCodeId ?? null, payment.status, payment.createdAt],
+          );
+          await client.query(
+            "UPDATE registrations SET payment_status = $1 WHERE id = $2",
+            ["paid", registration.id],
+          );
+        });
         return reply.code(201).send({ orderId: null, amount: 0, currency: "INR", paymentId: payment.id, status: "paid" });
       }
 
@@ -199,67 +206,110 @@ export async function registerPaymentRoutes(
       if (payment.status === "paid")
         return reply.send({ status: "already_confirmed" });
 
-      await repo.payments.update(payment.id, {
-        razorpayPaymentId: razorpay_payment_id,
-        status: "paid",
-      });
-      await repo.registrations.update(payment.registrationId, { paymentStatus: "paid" });
-
-      await repo.auditLog.create({
-        id: randomUUID(),
-        adminId: "system",
-        action: "payment_confirmed",
-        target: payment.id,
-        reason: `checkout verified: order=${razorpay_order_id} payment=${razorpay_payment_id}`,
-        createdAt: new Date().toISOString(),
+      const auditId = randomUUID();
+      const now = new Date().toISOString();
+      await withTransaction(async (client) => {
+        await client.query(
+          "UPDATE payments SET razorpay_payment_id = $1, status = $2 WHERE id = $3",
+          [razorpay_payment_id, "paid", payment.id],
+        );
+        await client.query(
+          "UPDATE registrations SET payment_status = $1 WHERE id = $2",
+          ["paid", payment.registrationId],
+        );
+        await client.query(
+          "INSERT INTO audit_log (id, admin_id, action, target, reason, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
+          [auditId, "system", "payment_confirmed", payment.id, `checkout verified: order=${razorpay_order_id} payment=${razorpay_payment_id}`, now],
+        );
       });
 
       return { status: "confirmed" };
     },
   );
 
-  // Razorpay webhook — verify HMAC signature then confirm payment.
-  app.post<{
-    Body: {
-      razorpay_order_id?: string;
-      razorpay_payment_id?: string;
-      razorpay_signature?: string;
-    };
-  }>("/api/v1/payments/webhook", async (req, reply) => {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body ?? {};
+  // Razorpay webhook — verify X-Razorpay-Signature header against raw body.
+  // Capture raw body for webhook signature verification via a scoped plugin.
+  app.register(async (scope) => {
+    let rawBodyStore = "";
+    scope.addHook("preParsing", async (req, _reply, payload) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of payload) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const buf = Buffer.concat(chunks);
+      rawBodyStore = buf.toString("utf8");
+      (req as unknown as { rawBody: string }).rawBody = rawBodyStore;
+      const { Readable } = await import("node:stream");
+      return Readable.from(buf);
+    });
 
-    if (!razorpay_order_id || !razorpay_payment_id)
-      return reply.code(400).send({ error: "missing_fields" });
+    scope.post("/api/v1/payments/webhook", async (req, reply) => {
+      const rawBody = (req as unknown as { rawBody: string }).rawBody;
+      const body = req.body as Record<string, unknown> | undefined;
+      if (!body) return reply.code(400).send({ error: "missing_body" });
 
-    // Verify Razorpay HMAC signature when webhook secret is configured
-    if (env.RAZORPAY_WEBHOOK_SECRET) {
-      if (!razorpay_signature) return reply.code(400).send({ error: "missing_signature" });
-      const expected = createHmac("sha256", env.RAZORPAY_WEBHOOK_SECRET)
-        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-        .digest("hex");
-      if (expected !== razorpay_signature)
-        return reply.code(400).send({ error: "invalid_signature" });
+      const headerSig = req.headers["x-razorpay-signature"] as string | undefined;
+
+    if (!env.RAZORPAY_WEBHOOK_SECRET) {
+      return reply.code(500).send({ error: "webhook_secret_not_configured" });
     }
 
-    const payment = await repo.payments.findByOrderId(razorpay_order_id);
+    if (!headerSig) return reply.code(400).send({ error: "missing_signature" });
+
+    const expected = createHmac("sha256", env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody ?? "")
+      .digest("hex");
+    if (expected !== headerSig)
+      return reply.code(400).send({ error: "invalid_signature" });
+
+    const event = body.event as string | undefined;
+    const paymentEntity = (body.payload as Record<string, unknown>)?.payment as Record<string, unknown> | undefined;
+    const entity = paymentEntity?.entity as Record<string, unknown> | undefined;
+
+    if (!entity) return reply.code(400).send({ error: "invalid_payload" });
+
+    const rzpOrderId = entity.order_id as string | undefined;
+    const rzpPaymentId = entity.id as string | undefined;
+
+    if (!rzpOrderId || !rzpPaymentId)
+      return reply.code(400).send({ error: "missing_fields" });
+
+    const payment = await repo.payments.findByOrderId(rzpOrderId);
     if (!payment) return reply.code(404).send({ error: "payment_not_found" });
 
-    await repo.payments.update(payment.id, {
-      razorpayPaymentId: razorpay_payment_id,
-      status: "paid",
-    });
-    await repo.registrations.update(payment.registrationId, { paymentStatus: "paid" });
+    if (event === "payment.captured" || event === "order.paid") {
+      if (payment.status === "paid") return { status: "already_confirmed" };
 
-    await repo.auditLog.create({
-      id: randomUUID(),
-      adminId: "system",
-      action: "payment_confirmed",
-      target: payment.id,
-      reason: `order=${razorpay_order_id} payment=${razorpay_payment_id} sig=${razorpay_signature ? "verified" : "skipped"}`,
-      createdAt: new Date().toISOString(),
-    });
+      const auditId = randomUUID();
+      const now = new Date().toISOString();
+      await withTransaction(async (client) => {
+        await client.query(
+          "UPDATE payments SET razorpay_payment_id = $1, status = $2 WHERE id = $3",
+          [rzpPaymentId, "paid", payment.id],
+        );
+        await client.query(
+          "UPDATE registrations SET payment_status = $1 WHERE id = $2",
+          ["paid", payment.registrationId],
+        );
+        await client.query(
+          "INSERT INTO audit_log (id, admin_id, action, target, reason, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
+          [auditId, "system", "payment_confirmed", payment.id, `webhook ${event}: order=${rzpOrderId} payment=${rzpPaymentId}`, now],
+        );
+      });
+      return { status: "confirmed" };
+    }
 
-    return { status: "confirmed" };
+    if (event === "payment.failed") {
+      if (payment.status === "paid") return { status: "already_paid_ignoring_failure" };
+      await withTransaction(async (client) => {
+        await client.query(
+          "UPDATE payments SET razorpay_payment_id = $1, status = $2 WHERE id = $3",
+          [rzpPaymentId, "failed", payment.id],
+        );
+      });
+      return { status: "marked_failed" };
+    }
+
+    return { status: "ignored", event };
+    });
   });
 
   // GST Invoice PDF download

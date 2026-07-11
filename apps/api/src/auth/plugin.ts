@@ -28,7 +28,13 @@ export function registerAuth(app: FastifyInstance, repo: Repository, verifier: V
       // Resolve Supabase UUID → internal user id so every downstream
       // route sees the correct id in req.authClaims.sub.
       const linked = await repo.users.findBySupabaseId(claims.sub);
-      if (linked) claims.sub = linked.id;
+      if (linked) {
+        if (linked.accountStage === "deleted" || linked.accountStage === "suspended" || linked.accountStage === "banned") {
+          req.log.debug("User account %s is %s — rejecting token", linked.id, linked.accountStage);
+          return;
+        }
+        claims.sub = linked.id;
+      }
       req.authClaims = claims;
     } catch (err) {
       req.log.debug({ err }, "JWT verification failed");
@@ -55,6 +61,9 @@ export function requireRole(repo: Repository, ...roles: UserRole[]) {
     }
     const user = await repo.users.findById(req.authClaims.sub);
     if (!user) { await reply.code(403).send({ error: "forbidden" }); return; }
+    if (user.accountStage === "deleted" || user.accountStage === "suspended" || user.accountStage === "banned") {
+      await reply.code(403).send({ error: "account_inactive" }); return;
+    }
     // super_admin inherits admin permissions
     const effective = user.role === "super_admin" && roles.includes("admin") ? true : roles.includes(user.role);
     if (!effective) {

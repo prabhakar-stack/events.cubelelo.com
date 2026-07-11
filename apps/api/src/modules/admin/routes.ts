@@ -7,13 +7,15 @@ import { type Competition, type CompetitionEvent, type Round, type AuditLogEntry
 import type { Realtime } from "../../sockets/realtime";
 import { requireRole } from "../../auth/plugin";
 import { effectiveCompStatus, effectiveRoundStatus } from "../../lib/statusUtils";
-import { shortlistRound } from "../../lib/roundLifecycle";
+import { shortlistRound, ensureScramblesGenerated } from "../../lib/roundLifecycle";
 import { validateCompetitionSchedule, validateScheduleFields } from "../../lib/scheduleValidation";
 import { collectCertificateData, generateCertificatePDF } from "../../lib/certificate";
 import { emailService, sendBulk, roundNotificationEmail, bulkEmail, migrationEmail, staffWelcomeEmail } from "../../lib/email";
 import { applyResultOverride } from "../../lib/resultStats";
 import { transferUserData } from "../../lib/accountTransfer";
 import { ZipArchive } from "archiver";
+import { ANTICHEAT_THRESHOLDS, DEFAULT_ANTICHEAT_THRESHOLD } from "../../lib/eventConfig";
+import { getQueue } from "../../lib/jobQueue";
 
 const COMP_TYPES: CompType[] = ["paid", "free", "practice"];
 const COMP_STATUSES: CompStatus[] = [
@@ -149,6 +151,10 @@ export async function registerAdminRoutes(
     // saveAsDraft = true keeps it as draft (default). If false, publish immediately.
     if (saveAsDraft === false) {
       await repo.competitions.update(compId, { status: "published", publishedBy: req.authClaims!.sub });
+      const allRounds = await repo.rounds.findByCompetition(compId);
+      for (const round of allRounds) {
+        await ensureScramblesGenerated(repo, round);
+      }
     }
 
     return reply.code(201).send({ id: compId, status: saveAsDraft === false ? "published" : "draft" });
@@ -226,6 +232,9 @@ export async function registerAdminRoutes(
       }
 
       if (fields.status === "published") {
+        if (!merged.bannerUrl) {
+          return reply.code(400).send({ error: "banner_required", errors: ["Desktop banner is required before publishing"] });
+        }
         const rounds = await repo.rounds.findByCompetition(req.params.id);
         const events = await repo.competitionEvents.findByCompetition(req.params.id);
         const result = validateCompetitionSchedule(merged, rounds, true, events);
@@ -239,6 +248,13 @@ export async function registerAdminRoutes(
       (fields as Record<string, unknown>).publishedBy = req.authClaims!.sub;
     }
     const updated = await repo.competitions.update(req.params.id, fields);
+
+    if (fields.status === "published" && updated) {
+      const allRounds = await repo.rounds.findByCompetition(req.params.id);
+      for (const round of allRounds) {
+        await ensureScramblesGenerated(repo, round);
+      }
+    }
     if (!updated) return reply.code(404).send({ error: "competition_not_found" });
     return {
       id: updated.id, title: updated.title,
@@ -587,11 +603,7 @@ export async function registerAdminRoutes(
       const flagged = (await repo.results.findByRounds(rounds.map((r) => r.id)))
         .filter((r) => r.flagStatus === "flagged");
 
-      const thresholds: Record<string, number> = {
-        "333": 3000, "222": 800, "444": 18000, "555": 35000,
-        "666": 75000, "777": 110000, pyram: 1000, skewb: 1200,
-        minx: 25000, "333oh": 6000, "333bf": 12000, sq1: 5000, clock: 3000,
-      };
+      const thresholds = ANTICHEAT_THRESHOLDS;
 
       const userIds = [...new Set(flagged.map((r) => r.userId))];
       const [usersMap, userResultCounts, events] = await Promise.all([
@@ -743,23 +755,22 @@ export async function registerAdminRoutes(
       if (!round) return reply.code(404).send({ error: "round_not_found" });
 
       const assignments = await repo.judgeAssignments.findByRound(round.id);
-      return Promise.all(
-        assignments.map(async (a) => {
-          const judge = await repo.users.findById(a.judgeId);
-          // Count how many results in this round were verified by this judge
-          const results = await repo.results.findByRound(round.id);
-          const verified = results.filter((r) => r.verifiedBy === a.judgeId).length;
-          return {
-            id: a.id,
-            judgeId: a.judgeId,
-            judgeName: judge?.name ?? a.judgeId,
-            judgeClId: judge?.clId ?? a.judgeId,
-            assignedAt: a.assignedAt,
-            verifiedCount: verified,
-            totalResults: results.length,
-          };
-        }),
-      );
+      const [judgesMap, results] = await Promise.all([
+        repo.users.findByIds(assignments.map((a) => a.judgeId)),
+        repo.results.findByRound(round.id),
+      ]);
+      return assignments.map((a) => {
+        const judge = judgesMap.get(a.judgeId);
+        return {
+          id: a.id,
+          judgeId: a.judgeId,
+          judgeName: judge?.name ?? a.judgeId,
+          judgeClId: judge?.clId ?? a.judgeId,
+          assignedAt: a.assignedAt,
+          verifiedCount: results.filter((r) => r.verifiedBy === a.judgeId).length,
+          totalResults: results.length,
+        };
+      });
     },
   );
 
@@ -874,13 +885,13 @@ export async function registerAdminRoutes(
       : ["user", "judge", "moderator", "admin"];
     const STAGES = ["active", "migrated_stub", "suspended", "banned", "deleted"];
 
-    const fields: Record<string, string> = {};
-    if (role && ROLES.includes(role)) fields.role = role;
-    if (accountStage && STAGES.includes(accountStage)) fields.accountStage = accountStage;
+    const fields: Partial<import("../../db/types").User> = {};
+    if (role && ROLES.includes(role)) fields.role = role as import("@cubers/types").UserRole;
+    if (accountStage && STAGES.includes(accountStage)) fields.accountStage = accountStage as import("@cubers/types").AccountStage;
 
     if (Object.keys(fields).length === 0) return reply.code(400).send({ error: "no_valid_fields" });
 
-    const updated = await repo.users.update(req.params.id, fields as never);
+    const updated = await repo.users.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "user_not_found" });
 
     await repo.auditLog.create({
@@ -932,6 +943,47 @@ export async function registerAdminRoutes(
     },
   );
 
+  // All scrambles for a competition (admin)
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/admin/competitions/:id/scrambles",
+    adminOnly,
+    async (req, reply) => {
+      const comp = await repo.competitions.findById(req.params.id);
+      if (!comp) return reply.code(404).send({ error: "competition_not_found" });
+
+      const events = await repo.competitionEvents.findByCompetition(comp.id);
+      const rounds = await repo.rounds.findByCompetition(comp.id);
+
+      const eventMap = new Map(events.map((e) => [e.id, e.eventType]));
+      const grouped: Record<string, Array<{
+        roundId: string; roundNumber: number; status: string; scrambles: string[]; locked: boolean; generatedAt?: string; hasResults: boolean;
+      }>> = {};
+
+      for (const r of rounds) {
+        const evType = eventMap.get(r.competitionEventId ?? "") ?? "unknown";
+        const set = await repo.scrambleSets.findByRound(r.id);
+        const results = await repo.results.findByRound(r.id);
+        if (!grouped[evType]) grouped[evType] = [];
+        grouped[evType].push({
+          roundId: r.id,
+          roundNumber: r.roundNumber,
+          status: r.status,
+          scrambles: set?.scrambles ?? [],
+          locked: Boolean(set?.lockedAt),
+          generatedAt: set?.generatedAt,
+          hasResults: results.length > 0,
+        });
+      }
+
+      const result = Object.entries(grouped).map(([eventType, rds]) => ({
+        eventType,
+        rounds: rds.sort((a, b) => a.roundNumber - b.roundNumber),
+      }));
+
+      return reply.send({ competitionId: comp.id, status: comp.status, events: result });
+    },
+  );
+
   // Delete a competition (admin)
   app.delete<{ Params: { id: string } }>(
     "/api/v1/admin/competitions/:id",
@@ -941,12 +993,14 @@ export async function registerAdminRoutes(
       if (!comp) return reply.code(404).send({ error: "competition_not_found" });
 
       if (comp.status !== "draft" && comp.status !== "cancelled") {
-        return reply.code(409).send({ error: "only_draft_or_cancelled_competitions_can_be_deleted" });
+        return reply.code(409).send({ error: "cancel_before_deleting" });
       }
 
-      const regs = await repo.registrations.findByCompetition(req.params.id);
-      if (regs.length > 0) {
-        return reply.code(409).send({ error: "competition_has_registrations" });
+      if (comp.status === "draft") {
+        const regs = await repo.registrations.findByCompetition(req.params.id);
+        if (regs.length > 0) {
+          return reply.code(409).send({ error: "competition_has_registrations" });
+        }
       }
 
       await repo.competitions.delete(req.params.id);
@@ -1152,11 +1206,8 @@ export async function registerAdminRoutes(
       if (recipients.length === 0)
         return reply.code(409).send({ error: "no_recipients" });
 
-      const messages = recipients.map((r) => {
-        const msg = bulkEmail(r.name, subject, bodyHtml);
-        return { to: r.email, subject: msg.subject, html: msg.html };
-      });
-      const sentCount = await sendBulk(messages);
+      const queue = await getQueue();
+      await queue.add("bulk-email", { recipients, subject, bodyHtml });
 
       const admin = await repo.users.findById(req.authClaims!.sub);
       await repo.auditLog.create({
@@ -1164,14 +1215,13 @@ export async function registerAdminRoutes(
         adminId: admin?.id ?? req.authClaims!.sub,
         action: "bulk_email",
         target: comp.id,
-        reason: `subject="${subject}", recipients=${recipients.length}, sent=${sentCount}`,
+        reason: `subject="${subject}", recipients=${recipients.length}, queued=true`,
         createdAt: new Date().toISOString(),
       });
 
       return {
-        sent: sentCount > 0,
+        queued: true,
         recipientCount: recipients.length,
-        sentCount,
       };
     },
   );
@@ -1251,7 +1301,7 @@ export async function registerAdminRoutes(
         };
         const pdf = generateCertificatePDF(data);
         const pdfName = `${data.participantName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${data.clId}.pdf`;
-        archive.append(pdf as never, { name: pdfName });
+        archive.append(pdf as Buffer, { name: pdfName });
       }
 
       archive.finalize();
@@ -1315,7 +1365,7 @@ export async function registerAdminRoutes(
         };
         const pdf = generateCertificatePDF(data);
         const pdfName = `${data.participantName.replace(/[^a-zA-Z0-9_-]/g, "_")}_cert.pdf`;
-        archive.append(pdf as never, { name: pdfName });
+        archive.append(pdf as Buffer, { name: pdfName });
       }
 
       archive.finalize();
@@ -1611,11 +1661,11 @@ export async function registerAdminRoutes(
     const { action } = req.body ?? {};
     if (!action) return reply.code(400).send({ error: "action_required" });
 
-    const fields = action === "verify"
+    const fields: Partial<import("../../db/types").User> = action === "verify"
       ? { wcaVerified: true }
       : { wcaId: undefined, wcaVerified: false };
 
-    const updated = await repo.users.update(req.params.id, fields as never);
+    const updated = await repo.users.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "user_not_found" });
 
     const admin = await repo.users.findById(req.authClaims!.sub);
@@ -1719,9 +1769,9 @@ export async function registerAdminRoutes(
 
     // Deactivate the merged account
     await repo.users.update(mergeUserId, {
-      accountStage: "suspended" as never,
+      accountStage: "suspended" as import("@cubers/types").AccountStage,
       name: `[MERGED → ${keepUser.clId}] ${mergeUser.name}`,
-    } as never);
+    });
 
     const admin = await repo.users.findById(req.authClaims!.sub);
     await repo.auditLog.create({
@@ -1823,15 +1873,17 @@ export async function registerAdminRoutes(
 
         // Check if all events of this competition are now complete
         const allEvents = await repo.competitionEvents.findByCompetition(event.competitionId);
-        const allComplete = allEvents.every((ev) => {
-          if (ev.id === event.id) return true;
+        const allComplete = await Promise.all(allEvents.map(async (ev) => {
           const evRounds = allRounds.filter((r) => r.competitionEventId === ev.id);
           if (evRounds.length === 0) return false;
           const lastRound = evRounds.reduce((max, r) => r.roundNumber > max.roundNumber ? r : max);
-          return lastRound.status === "closed" || lastRound.status === "advanced";
-        });
+          if (lastRound.status !== "closed" && lastRound.status !== "advanced") return false;
+          const results = await repo.results.findByRound(lastRound.id);
+          if (results.some((r) => r.flagStatus === "flagged")) return false;
+          return true;
+        }));
 
-        if (allComplete && comp) {
+        if (allComplete.every(Boolean) && comp) {
           await repo.competitions.update(comp.id, { status: "completed" });
           competitionCompleted = true;
         }
@@ -2092,7 +2144,7 @@ export async function registerAdminRoutes(
     if (existing) {
       if (existing.role === role)
         return reply.code(409).send({ error: "user_already_has_role" });
-      await repo.users.update(existing.id, { role } as never);
+      await repo.users.update(existing.id, { role: role as import("@cubers/types").UserRole });
       const admin = await repo.users.findById(req.authClaims!.sub);
       await repo.auditLog.create({
         id: randomUUID(),
@@ -2136,6 +2188,46 @@ export async function registerAdminRoutes(
     emailService.send({ to: newUser.email, subject: welcome.subject, html: welcome.html }).catch(() => {});
 
     return reply.code(201).send({ id: newUser.id, clId, name: newUser.name, email: newUser.email, role });
+  });
+
+  // ── System Settings ──────────────────────────────────────────────────
+
+  app.get("/api/v1/admin/settings", { preHandler: requireRole(repo, "admin") }, async (_req, reply) => {
+    const settings = await repo.systemSettings.get();
+    return reply.send(settings);
+  });
+
+  app.put("/api/v1/admin/settings", { preHandler: requireRole(repo, "admin") }, async (req, reply) => {
+    const body = req.body as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+    if (body.eventDurations && typeof body.eventDurations === "object") {
+      patch.eventDurations = body.eventDurations;
+    }
+    if (typeof body.registrationDurationDays === "number" && body.registrationDurationDays > 0) {
+      patch.registrationDurationDays = body.registrationDurationDays;
+    }
+    if (typeof body.gapBetweenEventsMinutes === "number" && body.gapBetweenEventsMinutes >= 0) {
+      patch.gapBetweenEventsMinutes = body.gapBetweenEventsMinutes;
+    }
+    if (typeof body.defaultRoundDurationMinutes === "number" && body.defaultRoundDurationMinutes > 0) {
+      patch.defaultRoundDurationMinutes = body.defaultRoundDurationMinutes;
+    }
+    if (typeof body.videoDeadlineMinutes === "number" && body.videoDeadlineMinutes > 0) {
+      patch.videoDeadlineMinutes = body.videoDeadlineMinutes;
+    }
+    const updated = await repo.systemSettings.update(patch);
+    return reply.send(updated);
+  });
+
+  // Public endpoint — no auth, used by create-competition form
+  app.get("/api/v1/settings/scheduling", async (_req, reply) => {
+    const settings = await repo.systemSettings.get();
+    return reply.send({
+      eventDurations: settings.eventDurations,
+      registrationDurationDays: settings.registrationDurationDays,
+      gapBetweenEventsMinutes: settings.gapBetweenEventsMinutes,
+      defaultRoundDurationMinutes: settings.defaultRoundDurationMinutes,
+    });
   });
 
 }

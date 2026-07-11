@@ -24,6 +24,7 @@ import type {
   FaqEntry,
   ContentPage,
   JudgeAssignment,
+  SystemSettings,
 } from "./types";
 
 /**
@@ -81,6 +82,10 @@ export function createMemRepo(): Repository {
         return all.filter(
           (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.clId.toLowerCase().includes(q),
         );
+      },
+      async findPaginated({ search, limit, offset }) {
+        const all = await this.findAll(search);
+        return { rows: all.slice(offset, offset + limit), total: all.length };
       },
       async findById(id) { return users.get(id) ?? null; },
       async findByIds(ids) {
@@ -147,6 +152,14 @@ export function createMemRepo(): Repository {
       async countRegistrations(compId) {
         return [...registrations.values()].filter((r) => r.competitionId === compId).length;
       },
+      async countRegistrationsBatch(ids) {
+        const map = new Map<string, number>();
+        for (const id of ids) map.set(id, 0);
+        for (const r of registrations.values()) {
+          if (map.has(r.competitionId)) map.set(r.competitionId, (map.get(r.competitionId) ?? 0) + 1);
+        }
+        return map;
+      },
     },
 
     competitionEvents: {
@@ -154,10 +167,29 @@ export function createMemRepo(): Repository {
       async findByCompetition(compId) {
         return [...competitionEvents.values()].filter((e) => e.competitionId === compId);
       },
+      async findByCompetitions(compIds) {
+        const set = new Set(compIds);
+        const map = new Map<string, import("./types").CompetitionEvent[]>();
+        for (const id of compIds) map.set(id, []);
+        for (const e of competitionEvents.values()) {
+          if (set.has(e.competitionId)) map.get(e.competitionId)!.push(e);
+        }
+        return map;
+      },
       async findByRound(roundId) {
         const round = rounds.get(roundId);
         if (!round) return null;
         return competitionEvents.get(round.competitionEventId) ?? null;
+      },
+      async findByRounds(roundIds) {
+        const map = new Map<string, import("./types").CompetitionEvent>();
+        for (const rid of roundIds) {
+          const round = rounds.get(rid);
+          if (!round) continue;
+          const ev = competitionEvents.get(round.competitionEventId);
+          if (ev) map.set(rid, ev);
+        }
+        return map;
       },
       async create(event) { competitionEvents.set(event.id, event); },
       async update(id, fields) {
@@ -172,6 +204,9 @@ export function createMemRepo(): Repository {
     rounds: {
       async findById(id) { return rounds.get(id) ?? null; },
       async findAll() { return [...rounds.values()]; },
+      async findActive() {
+        return [...rounds.values()].filter((r) => r.status !== "advanced" && r.status !== "cancelled");
+      },
       async findByCompetition(compId) {
         const eventIds = new Set(
           [...competitionEvents.values()]
@@ -302,6 +337,9 @@ export function createMemRepo(): Repository {
       async findById(id) { return payments.get(id) ?? null; },
       async findByOrderId(orderId) {
         return [...payments.values()].find((p) => p.razorpayOrderId === orderId) ?? null;
+      },
+      async findByRegistration(registrationId) {
+        return [...payments.values()].find((p) => p.registrationId === registrationId && p.status === "pending") ?? null;
       },
       async create(payment) { payments.set(payment.id, payment); },
       async update(id, fields) {
@@ -599,6 +637,30 @@ export function createMemRepo(): Repository {
       },
       async delete(id) { contentPageStore.delete(id); },
     },
+
+    systemSettings: (() => {
+      let settings: SystemSettings = {
+        eventDurations: {
+          "222": 15, "333": 20, "444": 25, "555": 30, "666": 35, "777": 40,
+          pyram: 15, skewb: 15, minx: 30, "333oh": 20, "333bf": 25, sq1: 20,
+          clock: 15, "444bf": 40, "555bf": 50, "333mbf": 60, fto: 25, "333fm": 60,
+        },
+        registrationDurationDays: 5,
+        gapBetweenEventsMinutes: 0,
+        defaultRoundDurationMinutes: 20,
+        videoDeadlineMinutes: 1440,
+      };
+      return {
+        async get() { return settings; },
+        async update(fields: Partial<SystemSettings>) {
+          settings = { ...settings, ...fields };
+          if (fields.eventDurations) {
+            settings.eventDurations = { ...settings.eventDurations, ...fields.eventDurations };
+          }
+          return settings;
+        },
+      };
+    })(),
 
     async ping() { return null; },
 

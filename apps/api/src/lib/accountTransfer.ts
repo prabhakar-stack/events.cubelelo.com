@@ -1,5 +1,6 @@
 import type { Repository } from "../db/repo";
 import { recomputePersonalBest } from "./resultStats";
+import { withTransaction } from "../db/pool";
 
 export interface TransferSummary {
   movedResults: number;
@@ -37,38 +38,55 @@ export async function transferUserData(
   ]);
   const takenRounds = new Set(toResults.map((r) => r.roundId));
   const affectedEvents = new Set<string>();
-  for (const result of fromResults) {
-    if (takenRounds.has(result.roundId)) {
-      summary.skippedResults++;
-      continue;
-    }
-    await repo.results.update(result.id, { userId: toUserId });
-    summary.movedResults++;
-    const event = await repo.competitionEvents.findByRound(result.roundId);
-    if (event) affectedEvents.add(event.eventType);
-  }
 
   const [fromRegs, toRegs] = await Promise.all([
     repo.registrations.findByUser(fromUserId),
     repo.registrations.findByUser(toUserId),
   ]);
   const takenComps = new Set(toRegs.map((r) => r.competitionId));
-  for (const reg of fromRegs) {
-    if (takenComps.has(reg.competitionId)) {
-      summary.skippedRegistrations++;
-      continue;
+
+  await withTransaction(async (client) => {
+    for (const result of fromResults) {
+      if (takenRounds.has(result.roundId)) {
+        summary.skippedResults++;
+        continue;
+      }
+      await client.query("UPDATE results SET user_id = $1 WHERE id = $2", [toUserId, result.id]);
+      summary.movedResults++;
+      const { rows } = await client.query(
+        "SELECT event_type FROM competition_events WHERE id = (SELECT competition_event_id FROM rounds WHERE id = $1)",
+        [result.roundId],
+      );
+      if (rows[0]) affectedEvents.add(rows[0].event_type);
     }
-    await repo.registrations.update(reg.id, { userId: toUserId });
-    summary.movedRegistrations++;
-  }
 
-  const payments = await repo.payments.findAll();
-  for (const payment of payments.filter((p) => p.userId === fromUserId)) {
-    await repo.payments.update(payment.id, { userId: toUserId });
-    summary.movedPayments++;
-  }
+    for (const reg of fromRegs) {
+      if (takenComps.has(reg.competitionId)) {
+        summary.skippedRegistrations++;
+        continue;
+      }
+      await client.query("UPDATE registrations SET user_id = $1 WHERE id = $2", [toUserId, reg.id]);
+      summary.movedRegistrations++;
+    }
 
-  for (const eventType of affectedEvents) {
+    const { rows: fromPayments } = await client.query(
+      "SELECT id FROM payments WHERE user_id = $1",
+      [fromUserId],
+    );
+    for (const p of fromPayments) {
+      await client.query("UPDATE payments SET user_id = $1 WHERE id = $2", [toUserId, p.id]);
+      summary.movedPayments++;
+    }
+  });
+
+  // Recompute PBs for all events the receiver now has results in,
+  // not just transferred ones — skipped results may share events
+  const allResults = await repo.results.findByUser(toUserId);
+  const allRoundIds = [...new Set(allResults.map((r) => r.roundId))];
+  const eventMap = await repo.competitionEvents.findByRounds(allRoundIds);
+  const allEvents = new Set<string>();
+  for (const ev of eventMap.values()) allEvents.add(ev.eventType);
+  for (const eventType of allEvents) {
     await recomputePersonalBest(repo, toUserId, eventType);
   }
 

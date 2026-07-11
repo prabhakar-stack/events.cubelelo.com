@@ -66,35 +66,28 @@ export async function registerUserRoutes(
         };
       }
 
-      const userResults = await repo.results.findByUser(user.id);
+      const [userResults, regs] = await Promise.all([
+        repo.results.findByUser(user.id),
+        repo.registrations.findByUser(user.id),
+      ]);
 
-      // Precompute roundId → event mapping (1 query instead of N)
+      // Batch: roundId → event mapping (1 query instead of N)
       const roundIds = [...new Set(userResults.map((r) => r.roundId))];
-      const eventByRound = new Map<string, { eventType: string; competitionId: string }>();
-      for (const rid of roundIds) {
-        if (eventByRound.has(rid)) continue;
-        const ev = await repo.competitionEvents.findByRound(rid);
-        if (ev) eventByRound.set(rid, { eventType: ev.eventType, competitionId: ev.competitionId });
-      }
+      const eventByRound = await repo.competitionEvents.findByRounds(roundIds);
 
       const getEventType = (roundId: string) => eventByRound.get(roundId)?.eventType ?? "unknown";
 
-      // ── Personal bests ──
+      // Batch: all competition IDs → titles (1 query instead of N)
+      const compIds = new Set<string>();
+      for (const e of eventByRound.values()) compIds.add(e.competitionId);
+      for (const r of regs) compIds.add(r.competitionId);
+      const compsMap = await repo.competitions.findByIds([...compIds]);
+
+      // ── Personal bests (from dedicated table, consistent with rankings) ──
+      const userPbs = await repo.personalBests.findByUser(user.id);
       const pbs: Record<string, { bestSingle: number | null; bestAo5: number | null }> = {};
-      for (const result of userResults) {
-        const eventType = getEventType(result.roundId);
-        if (!pbs[eventType]) pbs[eventType] = { bestSingle: null, bestAo5: null };
-        const pb = pbs[eventType];
-        if (result.bestSingleMs !== null) {
-          if (pb.bestSingle === null || result.bestSingleMs < pb.bestSingle) {
-            pb.bestSingle = result.bestSingleMs;
-          }
-        }
-        if (result.ao5Ms !== null) {
-          if (pb.bestAo5 === null || result.ao5Ms < pb.bestAo5) {
-            pb.bestAo5 = result.ao5Ms;
-          }
-        }
+      for (const pb of userPbs) {
+        pbs[pb.eventType] = { bestSingle: pb.bestSingleMs, bestAo5: pb.bestAo5Ms };
       }
 
       // ── Stats ──
@@ -126,17 +119,6 @@ export async function registerUserRoutes(
         };
       }
 
-      // Precompute competitionId → title map
-      const compIds = new Set<string>();
-      for (const e of eventByRound.values()) compIds.add(e.competitionId);
-      const regs = await repo.registrations.findByUser(user.id);
-      for (const r of regs) compIds.add(r.competitionId);
-      const compTitles = new Map<string, string>();
-      for (const cid of compIds) {
-        const comp = await repo.competitions.findById(cid);
-        if (comp) compTitles.set(cid, comp.title);
-      }
-
       // ── Solve timeline ──
       const timelineByEvent: Record<
         string,
@@ -146,7 +128,7 @@ export async function registerUserRoutes(
         const eventType = getEventType(result.roundId);
         if (!timelineByEvent[eventType]) timelineByEvent[eventType] = [];
         const compId = eventByRound.get(result.roundId)?.competitionId;
-        const compTitle = compId ? (compTitles.get(compId) ?? "Unknown") : "Unknown";
+        const compTitle = compId ? (compsMap.get(compId)?.title ?? "Unknown") : "Unknown";
         for (const solve of result.solves) {
           const timeMs =
             solve.penalty === "dnf"
@@ -165,50 +147,73 @@ export async function registerUserRoutes(
         }
       }
 
-      // ── Competition IDs from registrations + results ──
-      const competitionIds = new Set(compIds);
+      // ── Detailed competition history (no N+1 — reuse cached data) ──
+      const resultsByRound = new Map<string, typeof userResults>();
+      for (const r of userResults) {
+        if (!resultsByRound.has(r.roundId)) resultsByRound.set(r.roundId, []);
+        resultsByRound.get(r.roundId)!.push(r);
+      }
 
-      // ── Detailed competition history ──
-      const history = await Promise.all(
-        [...competitionIds].map(async (compId) => {
-          const comp = await repo.competitions.findById(compId);
-          const compEvents = await repo.competitionEvents.findByCompetition(compId);
-
-          const events = (
-            await Promise.all(
-              compEvents.map(async (ce) => {
-                const rounds = (await repo.rounds.findByCompetition(compId))
-                  .filter((r) => r.competitionEventId === ce.id)
-                  .sort((a, b) => a.roundNumber - b.roundNumber);
-
-                const roundResults = rounds
-                  .map((rd) => {
-                    const result = userResults.find((r) => r.roundId === rd.id);
-                    if (!result) return null;
-                    return {
-                      roundNumber: rd.roundNumber,
-                      rank: result.rank,
-                      bestSingleMs: result.bestSingleMs,
-                      ao5Ms: result.ao5Ms,
-                      solves: result.solves as Solve[],
-                    };
-                  })
-                  .filter(Boolean);
-
-                if (roundResults.length === 0) return null;
-                return { eventType: ce.eventType, rounds: roundResults };
-              }),
-            )
-          ).filter(Boolean);
-
-          return {
-            competitionId: compId,
-            competitionTitle: comp?.title ?? "Unknown",
-            status: comp?.status ?? "unknown",
-            events,
-          };
+      // Group rounds by competition from the event mapping
+      const compEventRounds = new Map<string, Map<string, { eventType: string; rounds: Map<string, number> }>>();
+      for (const [roundId, ev] of eventByRound) {
+        if (!compEventRounds.has(ev.competitionId)) compEventRounds.set(ev.competitionId, new Map());
+        const evMap = compEventRounds.get(ev.competitionId)!;
+        if (!evMap.has(ev.id)) evMap.set(ev.id, { eventType: ev.eventType, rounds: new Map() });
+      }
+      // We need round numbers — fetch rounds for all relevant competitions in bulk
+      const compRoundsMap = new Map<string, Awaited<ReturnType<typeof repo.rounds.findByCompetition>>>();
+      await Promise.all(
+        [...compIds].map(async (cid) => {
+          compRoundsMap.set(cid, await repo.rounds.findByCompetition(cid));
         }),
       );
+
+      const history = [...compIds].map((compId) => {
+        const comp = compsMap.get(compId);
+        const allRounds = compRoundsMap.get(compId) ?? [];
+
+        // Group rounds by event
+        const eventGroups = new Map<string, { eventType: string; rounds: typeof allRounds }>();
+        for (const rd of allRounds) {
+          const ev = eventByRound.get(rd.id) ?? [...eventByRound.values()].find(
+            (e) => e.id === rd.competitionEventId,
+          );
+          if (!ev) continue;
+          if (!eventGroups.has(rd.competitionEventId)) {
+            eventGroups.set(rd.competitionEventId, { eventType: ev.eventType, rounds: [] });
+          }
+          eventGroups.get(rd.competitionEventId)!.rounds.push(rd);
+        }
+
+        const events = [...eventGroups.values()]
+          .map(({ eventType, rounds: evRounds }) => {
+            const sorted = evRounds.sort((a, b) => a.roundNumber - b.roundNumber);
+            const roundResults = sorted
+              .map((rd) => {
+                const result = userResults.find((r) => r.roundId === rd.id);
+                if (!result) return null;
+                return {
+                  roundNumber: rd.roundNumber,
+                  rank: result.rank,
+                  bestSingleMs: result.bestSingleMs,
+                  ao5Ms: result.ao5Ms,
+                  solves: result.solves as Solve[],
+                };
+              })
+              .filter(Boolean);
+            if (roundResults.length === 0) return null;
+            return { eventType, rounds: roundResults };
+          })
+          .filter(Boolean);
+
+        return {
+          competitionId: compId,
+          competitionTitle: comp?.title ?? "Unknown",
+          status: comp?.status ?? "unknown",
+          events,
+        };
+      });
 
       return {
         clId: user.clId,
@@ -224,7 +229,7 @@ export async function registerUserRoutes(
         createdAt: user.createdAt,
         personalBests: pbs,
         stats: {
-          totalCompetitions: competitionIds.size,
+          totalCompetitions: compIds.size,
           totalSolves,
           eventStats,
           solveTimeline: timelineByEvent,

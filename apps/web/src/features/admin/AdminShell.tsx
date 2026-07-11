@@ -53,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "System",
     items: [
+      { label: "Settings", href: "/admin/settings" },
       { label: "Rank Tiers", href: "/admin/rank-tiers" },
       { label: "Merge Accounts", href: "/admin/merge" },
       { label: "Migration", href: "/admin/migration" },

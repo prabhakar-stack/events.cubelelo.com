@@ -7,13 +7,15 @@ let refCount = 0;
 
 export function acquireSocket(): Socket {
   if (!instance || instance.disconnected) {
-    const token =
-      typeof window !== "undefined"
-        ? localStorage.getItem("cubers_token")
-        : null;
     instance = io(BASE_URL, {
       transports: ["websocket"],
-      auth: token ? { token } : undefined,
+      auth: (cb) => {
+        const token =
+          typeof window !== "undefined"
+            ? localStorage.getItem("cubers_token")
+            : null;
+        cb(token ? { token } : {});
+      },
     });
   }
   refCount++;
@@ -21,8 +23,8 @@ export function acquireSocket(): Socket {
 }
 
 export function releaseSocket(): void {
-  refCount--;
-  if (refCount <= 0 && instance) {
+  refCount = Math.max(0, refCount - 1);
+  if (refCount === 0 && instance) {
     instance.disconnect();
     instance = null;
     refCount = 0;

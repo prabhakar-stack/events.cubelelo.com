@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EVENT_IDS } from "@cubers/scramble-core";
 import {
@@ -8,7 +8,9 @@ import {
   updateCompetition,
   uploadCompetitionBanner,
   uploadCompetitionMobileBanner,
+  fetchSchedulingDefaults,
   type AdvancementCriteria,
+  type SchedulingDefaults,
 } from "@/lib/api";
 import { eventDisplayName } from "@/lib/eventNames";
 import { EventIcon } from "@/components/EventIcon";
@@ -27,6 +29,69 @@ interface EventSpec {
   durationMinutes?: number;
   roundCriteria?: (AdvancementCriteria | undefined)[];
   roundSchedule?: (RoundSchedule | undefined)[];
+}
+
+const FALLBACK_EVENT_DURATION: Record<string, number> = {
+  "222": 15, "333": 20, "444": 25, "555": 30, "666": 35, "777": 40,
+  pyram: 15, skewb: 15, minx: 30, "333oh": 20, "333bf": 25, sq1: 20,
+  clock: 15, "444bf": 40, "555bf": 50, "333mbf": 60, fto: 25, "333fm": 60,
+};
+const FALLBACK_DURATION = 20;
+const FALLBACK_REG_DAYS = 5;
+
+type ScheduleField = "regOpens" | "regClose" | "compStart" | "compEnd";
+
+function toLocalDatetime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function computeRoundSchedules(
+  compStart: Date,
+  events: EventSpec[],
+  gapMinutes: number,
+  durationOverrides: Record<string, number>,
+): { schedules: RoundSchedule[][]; endsAt: Date } {
+  if (events.length === 0) return { schedules: [], endsAt: compStart };
+  const maxRounds = Math.max(...events.map((e) => e.roundCount));
+  const schedules: RoundSchedule[][] = events.map(() => []);
+  let lastEnd = new Date(compStart);
+
+  for (let dayOffset = 0; dayOffset < maxRounds; dayOffset++) {
+    const dayBase =
+      dayOffset === 0
+        ? new Date(compStart)
+        : new Date(
+            compStart.getFullYear(),
+            compStart.getMonth(),
+            compStart.getDate() + dayOffset,
+            compStart.getHours(),
+            compStart.getMinutes(),
+          );
+
+    let cursor = new Date(dayBase);
+
+    for (let ei = 0; ei < events.length; ei++) {
+      const ev = events[ei]!;
+      if (dayOffset >= ev.roundCount) continue;
+
+      const dur =
+        durationOverrides[ev.eventType] ??
+        FALLBACK_EVENT_DURATION[ev.eventType] ??
+        FALLBACK_DURATION;
+
+      schedules[ei]![dayOffset] = {
+        startTime: toLocalDatetime(cursor),
+        durationMinutes: dur,
+      };
+
+      const roundEnd = new Date(cursor.getTime() + dur * 60000);
+      if (roundEnd > lastEnd) lastEnd = roundEnd;
+      cursor = new Date(roundEnd.getTime() + gapMinutes * 60000);
+    }
+  }
+
+  return { schedules, endsAt: lastEnd };
 }
 
 const INPUT =
@@ -54,18 +119,158 @@ export default function CreateCompetitionPage() {
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [mobileBannerFile, setMobileBannerFile] = useState<File | null>(null);
   const [featured, setFeatured] = useState(false);
+  const [gapMinutes, setGapMinutes] = useState(0);
+  const [regDays, setRegDays] = useState(FALLBACK_REG_DAYS);
+  const [durationOverrides, setDurationOverrides] = useState<Record<string, number>>({});
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  const addEvent = () =>
-    setEvents((prev) => [...prev, { eventType: "333", roundCount: 1 }]);
-  const removeEvent = (i: number) =>
-    setEvents((prev) => prev.filter((_, idx) => idx !== i));
-  const updateEvent = (i: number, patch: Partial<EventSpec>) =>
-    setEvents((prev) =>
-      prev.map((e, idx) => (idx === i ? { ...e, ...patch } : e)),
-    );
+  // Load scheduling defaults from system settings
+  useEffect(() => {
+    fetchSchedulingDefaults()
+      .then((s) => {
+        setRegDays(s.registrationDurationDays);
+        setGapMinutes(s.gapBetweenEventsMinutes);
+        setDurationOverrides(s.eventDurations);
+        setSettingsLoaded(true);
+      })
+      .catch(() => setSettingsLoaded(true));
+  }, []);
+
+  // Track which schedule fields the admin has manually set
+  const userSetRef = useRef<Set<ScheduleField>>(new Set());
+
+  // Cascade: derive all downstream fields that the user hasn't manually set.
+  // changedField = the field the user just edited (anchor point).
+  // All fields downstream of it that aren't in userSetRef get auto-derived.
+  const cascade = useCallback(
+    (
+      changedField: ScheduleField,
+      vals: { regOpens: string; regClose: string; compStart: string; compEnd: string },
+      currentEvents: EventSpec[],
+      gap: number,
+      durOverrides: Record<string, number>,
+    ): RoundSchedule[][] | null => {
+      const pinned = userSetRef.current;
+      let roundSchedulesOut: RoundSchedule[][] | null = null;
+
+      // ── Forward cascade (downstream) ──
+
+      // regOpens → regClose (+5 days)
+      if (changedField === "regOpens" && vals.regOpens && !pinned.has("regClose")) {
+        const d = new Date(new Date(vals.regOpens).getTime() + regDays * 86400000);
+        vals.regClose = toLocalDatetime(d);
+      }
+
+      // regClose → compStart (same time) — only if compStart not pinned
+      if ((changedField === "regOpens" || changedField === "regClose") && vals.regClose && !pinned.has("compStart")) {
+        vals.compStart = vals.regClose;
+      }
+
+      // ── Backward cascade (upstream adjustments) ──
+
+      // If compStart was set and it's before regClose, pull regClose back (if not pinned)
+      if (changedField === "compStart" && vals.compStart && vals.regClose && !pinned.has("regClose")) {
+        if (new Date(vals.compStart) < new Date(vals.regClose)) {
+          vals.regClose = vals.compStart;
+        }
+      }
+
+      // If regClose was set and it's before regOpens, pull regOpens back (if not pinned)
+      if ((changedField === "regClose" || changedField === "compStart") && vals.regClose && vals.regOpens && !pinned.has("regOpens")) {
+        if (new Date(vals.regClose) < new Date(vals.regOpens)) {
+          vals.regOpens = vals.regClose;
+          setRegistrationOpensAt(vals.regOpens);
+        }
+      }
+
+      // ── Round schedules + compEnd (always recompute from compStart) ──
+
+      if (vals.compStart && currentEvents.length > 0) {
+        const { schedules, endsAt } = computeRoundSchedules(
+          new Date(vals.compStart),
+          currentEvents,
+          gap,
+          durOverrides,
+        );
+        roundSchedulesOut = schedules;
+        // compEnd always follows round schedules unless admin explicitly set it
+        if (!pinned.has("compEnd")) {
+          vals.compEnd = toLocalDatetime(endsAt);
+        }
+      }
+
+      setRegistrationDeadline(vals.regClose);
+      setStartsAt(vals.compStart);
+      setEndsAt(vals.compEnd);
+      return roundSchedulesOut;
+    },
+    [regDays],
+  );
+
+  const handleScheduleChange = (field: ScheduleField, value: string) => {
+    userSetRef.current.add(field);
+    const vals = {
+      regOpens: field === "regOpens" ? value : registrationOpensAt,
+      regClose: field === "regClose" ? value : registrationDeadline,
+      compStart: field === "compStart" ? value : startsAt,
+      compEnd: field === "compEnd" ? value : endsAt,
+    };
+    if (field === "regOpens") setRegistrationOpensAt(value);
+    const schedules = cascade(field, vals, events, gapMinutes, durationOverrides);
+    if (schedules) {
+      setEvents((prev) =>
+        prev.map((ev, i) => ({
+          ...ev,
+          roundSchedule: schedules[i] ?? ev.roundSchedule,
+        })),
+      );
+    }
+  };
+
+  // Re-cascade when events, gap, or durations change (recompute round schedules + compEnd)
+  const recascadeRounds = useCallback(
+    (newEvents: EventSpec[], gap: number, durOverrides: Record<string, number>) => {
+      if (!startsAt || newEvents.length === 0) return;
+      const { schedules, endsAt: newEnd } = computeRoundSchedules(
+        new Date(startsAt),
+        newEvents,
+        gap,
+        durOverrides,
+      );
+      setEvents((prev) =>
+        prev.map((ev, i) => ({
+          ...ev,
+          roundSchedule: schedules[i] ?? ev.roundSchedule,
+        })),
+      );
+      // compEnd always follows when rounds change (events/durations/gap),
+      // since those directly define when the competition actually finishes
+      setEndsAt(toLocalDatetime(newEnd));
+      userSetRef.current.delete("compEnd");
+    },
+    [startsAt],
+  );
+
+  const addEvent = () => {
+    const next = [...events, { eventType: "333", roundCount: 1 }];
+    setEvents(next);
+    recascadeRounds(next, gapMinutes, durationOverrides);
+  };
+  const removeEvent = (i: number) => {
+    const next = events.filter((_, idx) => idx !== i);
+    setEvents(next);
+    recascadeRounds(next, gapMinutes, durationOverrides);
+  };
+  const updateEvent = (i: number, patch: Partial<EventSpec>) => {
+    const next = events.map((e, idx) => (idx === i ? { ...e, ...patch } : e));
+    setEvents(next);
+    if ("roundCount" in patch || "eventType" in patch) {
+      recascadeRounds(next, gapMinutes, durationOverrides);
+    }
+  };
 
   const onSubmit = async (status: "draft" | "published") => {
     if (!title.trim()) return;
@@ -290,49 +495,127 @@ export default function CreateCompetitionPage() {
 
         {/* Schedule */}
         <div>
-          <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-            Schedule
-          </label>
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Schedule
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                userSetRef.current.clear();
+                userSetRef.current.add("regOpens");
+                if (registrationOpensAt) {
+                  const vals = {
+                    regOpens: registrationOpensAt,
+                    regClose: "",
+                    compStart: "",
+                    compEnd: "",
+                  };
+                  const schedules = cascade("regOpens", vals, events, gapMinutes, durationOverrides);
+                  if (schedules) {
+                    setEvents((prev) =>
+                      prev.map((ev, i) => ({
+                        ...ev,
+                        roundSchedule: schedules[i] ?? ev.roundSchedule,
+                      })),
+                    );
+                  }
+                }
+              }}
+              className="text-xs text-indigo-400 transition hover:text-indigo-300"
+            >
+              Reset to auto
+            </button>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             {(
               [
-                {
-                  label: "Registration opens",
-                  value: registrationOpensAt,
-                  set: setRegistrationOpensAt,
-                },
-                {
-                  label: "Registration closes",
-                  value: registrationDeadline,
-                  set: setRegistrationDeadline,
-                },
-                {
-                  label: "Competition starts",
-                  value: startsAt,
-                  set: setStartsAt,
-                },
-                {
-                  label: "Competition ends",
-                  value: endsAt,
-                  set: setEndsAt,
-                },
+                { label: "Registration opens", field: "regOpens" as ScheduleField, value: registrationOpensAt },
+                { label: "Registration closes", field: "regClose" as ScheduleField, value: registrationDeadline },
+                { label: "Competition starts", field: "compStart" as ScheduleField, value: startsAt },
+                { label: "Competition ends", field: "compEnd" as ScheduleField, value: endsAt },
               ] as const
-            ).map(({ label, value, set }) => (
-              <div key={label}>
-                <label className="mb-1 block text-xs text-zinc-500">
+            ).map(({ label, field, value }) => (
+              <div key={field}>
+                <label className="mb-1 flex items-center gap-1.5 text-xs text-zinc-500">
                   {label}
+                  {field !== "regOpens" && userSetRef.current.has(field) && (
+                    <span className="rounded bg-indigo-900/30 px-1.5 py-0.5 text-[10px] text-indigo-400">
+                      manual
+                    </span>
+                  )}
+                  {field !== "regOpens" && !userSetRef.current.has(field) && value && (
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
+                      auto
+                    </span>
+                  )}
                 </label>
                 <input
                   type="datetime-local"
                   value={value}
-                  onChange={(e) => set(e.target.value)}
+                  onChange={(e) => handleScheduleChange(field, e.target.value)}
                   className={INPUT}
                 />
               </div>
             ))}
           </div>
+
+          {/* Event durations + gap */}
+          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-medium text-zinc-500">
+                Round Durations & Gap
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {events.map((ev) => {
+                const dur =
+                  durationOverrides[ev.eventType] ??
+                  FALLBACK_EVENT_DURATION[ev.eventType] ??
+                  FALLBACK_DURATION;
+                return (
+                  <label
+                    key={ev.eventType}
+                    className="flex items-center gap-1.5 text-xs text-zinc-500"
+                  >
+                    <EventIcon eventId={ev.eventType} size={14} />
+                    {eventDisplayName(ev.eventType)}
+                    <input
+                      type="number"
+                      min={1}
+                      value={dur}
+                      onChange={(e) => {
+                        const next = { ...durationOverrides, [ev.eventType]: Number(e.target.value) };
+                        setDurationOverrides(next);
+                        recascadeRounds(events, gapMinutes, next);
+                      }}
+                      className={`w-14 ${SMALL_INPUT}`}
+                    />
+                    <span className="text-zinc-400">min</span>
+                  </label>
+                );
+              })}
+              <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                Gap between events
+                <input
+                  type="number"
+                  min={0}
+                  value={gapMinutes}
+                  onChange={(e) => {
+                    const g = Number(e.target.value);
+                    setGapMinutes(g);
+                    recascadeRounds(events, g, durationOverrides);
+                  }}
+                  className={`w-14 ${SMALL_INPUT}`}
+                />
+                <span className="text-zinc-400">min</span>
+              </label>
+            </div>
+          </div>
+
           <p className="mt-1.5 text-xs text-zinc-500">
-            Status updates automatically once times are set.
+            Dates auto-fill as you go. Override any field and everything downstream adjusts.
           </p>
         </div>
 
