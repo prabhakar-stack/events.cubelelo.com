@@ -20,11 +20,11 @@ export function Footer() {
   if (/^\/competitions\/[^/]+$/.test(pathname)) return null;
 
   return (
-    <footer data-layout="footer" className="mt-auto border-t border-zinc-200 bg-white py-8 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+    <footer data-layout="footer" className="relative z-[1] mt-auto border-t border-[var(--border-default)] bg-[var(--bg-glass)] py-8 text-center text-xs text-[var(--text-tertiary)] backdrop-blur-md">
       <p className="font-mono text-sm font-semibold text-accent-primary">🧊 Built for the cubing community</p>
       <div className="mt-4 flex flex-wrap justify-center gap-6">
         {DETAIL_LINKS.map((link) => (
-          <Link key={link.href} href={link.href} className="transition hover:text-zinc-900 dark:hover:text-zinc-300">
+          <Link key={link.href} href={link.href} className="transition hover:text-[var(--text-primary)]">
             {link.label}
           </Link>
         ))}

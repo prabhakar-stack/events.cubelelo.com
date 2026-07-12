@@ -12,6 +12,7 @@ export default {
       },
       colors: {
         "accent-primary": "var(--accent-primary)",
+        "accent-secondary": "var(--accent-secondary)",
         "accent-warn": "var(--accent-warn)",
         "accent-danger": "var(--accent-danger)",
         "accent-gold": "var(--accent-gold)",

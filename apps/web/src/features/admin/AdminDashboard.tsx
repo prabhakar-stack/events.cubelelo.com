@@ -79,14 +79,47 @@ function OldCompetitions({
   onOpenScrambles: (id: string, title: string) => void;
   activeScrambleId: string | null;
 }) {
-  const [filter, setFilter] = useState<"all" | "live" | "completed" | "draft">("all");
+  const [filter, setFilter] = useState<string>("all");
+  const [dateRange, setDateRange] = useState<string>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dupPopup, setDupPopup] = useState<CompetitionSummary | null>(null);
   const [cancelPopup, setCancelPopup] = useState<CompetitionSummary | null>(null);
   const [deletePopup, setDeletePopup] = useState<CompetitionSummary | null>(null);
 
-  const filtered = filter === "all" ? comps : comps.filter((c) => c.status === filter);
+  const PER_PAGE = 10;
+
+  const statusFiltered = filter === "all" ? comps : comps.filter((c) => c.status === filter);
+
+  const dateFiltered = statusFiltered.filter((c) => {
+    if (dateRange === "all") return true;
+    const created = c.createdAt ? new Date(c.createdAt).getTime() : 0;
+    const now = Date.now();
+    if (dateRange === "this_month") {
+      const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0);
+      return created >= d.getTime();
+    }
+    if (dateRange === "last_1_month") return created >= now - 30 * 86_400_000;
+    if (dateRange === "last_6_months") return created >= now - 180 * 86_400_000;
+    if (dateRange === "this_year") {
+      const d = new Date(); d.setMonth(0, 1); d.setHours(0, 0, 0, 0);
+      return created >= d.getTime();
+    }
+    if (dateRange === "last_1_year") return created >= now - 365 * 86_400_000;
+    if (dateRange === "custom") {
+      const from = customFrom ? new Date(customFrom).getTime() : 0;
+      const to = customTo ? new Date(customTo).getTime() + 86_400_000 : Infinity;
+      return created >= from && created <= to;
+    }
+    return true;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(dateFiltered.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const filtered = dateFiltered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
 
   const handleDuplicate = async (id: string, mode: "practice" | "paid" | "free") => {
     setBusy(id);
@@ -145,21 +178,58 @@ function OldCompetitions({
 
       {error && <div className="mb-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
 
-      {/* Filters */}
-      <div className="mb-4 flex items-center gap-2">
-        {(["all", "draft", "live", "completed"] as const).map((f) => (
+      {/* Status filters */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {["all", "draft", "live", "results_pending", "completed", "cancelled"].map((f) => (
           <button
             key={f}
-            onClick={() => setFilter(f)}
+            onClick={() => { setFilter(f); setPage(1); }}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
               filter === f
                 ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
                 : "text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300"
             }`}
           >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
+            {f === "results_pending" ? "Results Pending" : f.charAt(0).toUpperCase() + f.slice(1)}
           </button>
         ))}
+      </div>
+
+      {/* Date range */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <select
+          value={dateRange}
+          onChange={(e) => { setDateRange(e.target.value); setPage(1); }}
+          className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+        >
+          <option value="all">All time</option>
+          <option value="this_month">This month</option>
+          <option value="last_1_month">Last 1 month</option>
+          <option value="last_6_months">Last 6 months</option>
+          <option value="this_year">This year</option>
+          <option value="last_1_year">Last 1 year</option>
+          <option value="custom">Custom range</option>
+        </select>
+        {dateRange === "custom" && (
+          <>
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }}
+              className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            />
+            <span className="text-xs text-zinc-500">to</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => { setCustomTo(e.target.value); setPage(1); }}
+              className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            />
+          </>
+        )}
+        <span className="ml-auto text-xs text-zinc-500">
+          {dateFiltered.length} competition{dateFiltered.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
       {/* Competition list */}
@@ -250,6 +320,69 @@ function OldCompetitions({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-xs text-zinc-500">
+            {(safePage - 1) * PER_PAGE + 1}–{Math.min(safePage * PER_PAGE, dateFiltered.length)} of {dateFiltered.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              disabled={safePage <= 1}
+              onClick={() => setPage(1)}
+              className="rounded px-2 py-1 text-xs text-zinc-500 transition hover:bg-zinc-100 disabled:opacity-30 dark:hover:bg-zinc-800"
+            >
+              ««
+            </button>
+            <button
+              disabled={safePage <= 1}
+              onClick={() => setPage(safePage - 1)}
+              className="rounded px-2 py-1 text-xs text-zinc-500 transition hover:bg-zinc-100 disabled:opacity-30 dark:hover:bg-zinc-800"
+            >
+              «
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 2)
+              .reduce<(number | "...")[]>((acc, p, i, arr) => {
+                if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("...");
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((p, i) =>
+                p === "..." ? (
+                  <span key={`dot-${i}`} className="px-1 text-xs text-zinc-500">…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p as number)}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                      p === safePage
+                        ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                        : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ),
+              )}
+            <button
+              disabled={safePage >= totalPages}
+              onClick={() => setPage(safePage + 1)}
+              className="rounded px-2 py-1 text-xs text-zinc-500 transition hover:bg-zinc-100 disabled:opacity-30 dark:hover:bg-zinc-800"
+            >
+              »
+            </button>
+            <button
+              disabled={safePage >= totalPages}
+              onClick={() => setPage(totalPages)}
+              className="rounded px-2 py-1 text-xs text-zinc-500 transition hover:bg-zinc-100 disabled:opacity-30 dark:hover:bg-zinc-800"
+            >
+              »»
+            </button>
+          </div>
+        </div>
+      )}
 
       {dupPopup && (
         <DuplicatePopup

@@ -222,7 +222,7 @@ export default function CompetitionDetailPage() {
   return (
     <>
       {/* ══ Sidebar nav — scroll checkpoints ══ */}
-      <nav className="flex gap-1.5 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-zinc-200 lg:bg-white lg:px-3 lg:py-6 dark:lg:border-zinc-800 dark:lg:bg-zinc-950">
+      <nav className="flex gap-1.5 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-[var(--border-default)] lg:bg-[var(--bg-glass)] lg:px-3 lg:py-6 lg:backdrop-blur-xl">
         {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
@@ -788,10 +788,8 @@ function RulesTab({ comp }: { comp: CompetitionDetail }) {
     );
   }
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-        {comp.rulesMd}
-      </p>
+    <div className="prose prose-sm prose-zinc dark:prose-invert max-w-none rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <Markdown>{comp.rulesMd}</Markdown>
     </div>
   );
 }

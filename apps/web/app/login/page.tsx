@@ -78,7 +78,7 @@ export default function LoginPage() {
             e.preventDefault();
             onLogin();
           }}
-          className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40"
+          className="space-y-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 backdrop-blur-md"
         >
           <Input
             label="Email or mobile number"
@@ -110,7 +110,7 @@ export default function LoginPage() {
             <Link href="/forgot-password" className="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
               Forgot password?
             </Link>
-            <Link href="/register" className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400 dark:hover:text-emerald-300">
+            <Link href="/register" className="text-accent-primary hover:brightness-110">
               Register
             </Link>
           </div>

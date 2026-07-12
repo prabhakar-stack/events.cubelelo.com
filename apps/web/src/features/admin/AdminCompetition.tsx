@@ -25,7 +25,8 @@ import {
 } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
 import { StatusBadge } from "./StatusBadge";
-import { ConfirmModal } from "@/components/ui/Modal";
+import { ConfirmModal, Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
 import { Countdown } from "@/components/Countdown";
 
 // Only statuses that are manually set — the others are auto-computed from schedule
@@ -133,6 +134,8 @@ export function AdminCompetition({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [cancelModal, setCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   // Detail editor local state
   const [editTitle, setEditTitle] = useState("");
@@ -353,11 +356,9 @@ export function AdminCompetition({ id }: { id: string }) {
                 const newStatus = e.target.value;
                 if (!newStatus) return;
                 if (newStatus === "cancelled") {
-                  const reason = prompt("Enter cancellation reason (required):");
-                  if (!reason?.trim()) return;
-                  run("status", () =>
-                    updateCompetition(id, { status: newStatus, cancellationReason: reason.trim() }),
-                  );
+                  setCancelReason("");
+                  setCancelModal(true);
+                  return;
                 } else {
                   run("status", () => updateCompetition(id, { status: newStatus }));
                 }
@@ -721,6 +722,36 @@ export function AdminCompetition({ id }: { id: string }) {
           onClose={() => setShowPracticeModal(false)}
         />
       )}
+
+      <Modal open={cancelModal} onClose={() => setCancelModal(false)} title="Cancel Competition" size="md">
+        <CancelConsequences status={detail.status} title={detail.title} />
+        <div className="mb-4">
+          <label className="mb-1 block text-xs text-zinc-500">Reason for cancellation *</label>
+          <textarea
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="e.g., Insufficient registrations, scheduling conflict…"
+            rows={2}
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setCancelModal(false)}>Go Back</Button>
+          <Button
+            variant="destructive"
+            disabled={!cancelReason.trim()}
+            loading={busy === "status"}
+            onClick={() => {
+              setCancelModal(false);
+              run("status", () =>
+                updateCompetition(id, { status: "cancelled", cancellationReason: cancelReason.trim() }),
+              );
+            }}
+          >
+            Cancel Competition
+          </Button>
+        </div>
+      </Modal>
 
     </div>
   );
@@ -1396,5 +1427,68 @@ function formatSolve(solve: { time_ms: number; inspectionPenalty?: string; penal
   if (solve.penalty === "plus2") extra += 2000;
   if (extra > 0) return `${formatTime(solve.time_ms + extra)}+`;
   return base;
+}
+
+function CancelConsequences({ status, title }: { status: string; title: string }) {
+  const map: Record<string, string[]> = {
+    draft: [
+      "Competition will be marked as cancelled.",
+      "No users are affected — it was never published.",
+    ],
+    published: [
+      "Competition will be removed from the public listing.",
+      "No registrations have opened yet, so no users are directly affected.",
+    ],
+    upcoming: [
+      "Competition will be removed from the public listing.",
+      "No registrations have opened yet, so no users are directly affected.",
+    ],
+    registration_open: [
+      "Registration will close immediately.",
+      "All registered participants will see the competition as cancelled.",
+      "Paid registrations may need manual refunds.",
+    ],
+    registration_closed: [
+      "All registered participants will see the competition as cancelled.",
+      "Paid registrations may need manual refunds.",
+    ],
+    live: [
+      "The competition will stop immediately for all participants.",
+      "Active rounds will be frozen — no more submissions accepted.",
+      "Existing results will be preserved but the competition won't be finalized.",
+      "Paid registrations may need manual refunds.",
+    ],
+    results_pending: [
+      "Results will not be finalized or published.",
+      "Rankings will not be updated from this competition.",
+      "Existing submissions are preserved but won't count.",
+    ],
+    completed: [
+      "Competition will be marked as cancelled retroactively.",
+      "Published results and rankings may become invalid.",
+      "This is unusual — consider whether this is truly necessary.",
+    ],
+  };
+  const items = map[status] ?? ["Competition will be marked as cancelled."];
+
+  return (
+    <>
+      <p className="mb-1 text-xs text-zinc-500">
+        Cancelling <span className="font-medium text-zinc-300">&ldquo;{title}&rdquo;</span>
+        {" "}(currently <span className="font-medium text-amber-400">{status.replace(/_/g, " ")}</span>)
+      </p>
+      <div className="my-3 rounded-lg border border-amber-800/30 bg-amber-950/20 p-3">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-amber-400">What will happen</p>
+        <ul className="space-y-1">
+          {items.map((c, i) => (
+            <li key={i} className="flex gap-2 text-xs text-zinc-400">
+              <span className="mt-0.5 text-amber-500">•</span>
+              <span>{c}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
 }
 

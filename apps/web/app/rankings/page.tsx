@@ -76,7 +76,7 @@ export default function RankingsPage() {
   return (
     <>
       {/* ══ Event rail — fixed to viewport on desktop, same technique as AdminShell ══ */}
-      <nav className="flex gap-1.5 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-zinc-200 lg:bg-white lg:px-3 lg:py-6 dark:lg:border-zinc-800 dark:lg:bg-zinc-950">
+      <nav className="flex gap-1.5 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-[var(--border-default)] lg:bg-[var(--bg-glass)] lg:px-3 lg:py-6 lg:backdrop-blur-xl">
         {EVENT_IDS.map((id) => (
           <button
             key={id}
@@ -104,7 +104,7 @@ export default function RankingsPage() {
             <Skeleton className="h-40 rounded-xl" />
             <Skeleton className="h-28 rounded-xl" />
           </div>
-          <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+          <div className="overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-card)] backdrop-blur-md">
             <table className="w-full text-sm">
               <tbody>
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -115,7 +115,7 @@ export default function RankingsPage() {
           </div>
         </>
       ) : entries.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-10 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/30">
+        <div className="glass-card rounded-xl p-10 text-center text-[var(--text-tertiary)]">
           No rankings yet for {eventDisplayName(event)}.
         </div>
       ) : (

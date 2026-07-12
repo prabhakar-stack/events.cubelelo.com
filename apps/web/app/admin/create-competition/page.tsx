@@ -561,61 +561,9 @@ export default function CreateCompetitionPage() {
             ))}
           </div>
 
-          {/* Event durations + gap */}
-          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-zinc-500">
-                Round Durations & Gap
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {events.map((ev) => {
-                const dur =
-                  durationOverrides[ev.eventType] ??
-                  FALLBACK_EVENT_DURATION[ev.eventType] ??
-                  FALLBACK_DURATION;
-                return (
-                  <label
-                    key={ev.eventType}
-                    className="flex items-center gap-1.5 text-xs text-zinc-500"
-                  >
-                    <EventIcon eventId={ev.eventType} size={14} />
-                    {eventDisplayName(ev.eventType)}
-                    <input
-                      type="number"
-                      min={1}
-                      value={dur}
-                      onChange={(e) => {
-                        const next = { ...durationOverrides, [ev.eventType]: Number(e.target.value) };
-                        setDurationOverrides(next);
-                        recascadeRounds(events, gapMinutes, next);
-                      }}
-                      className={`w-14 ${SMALL_INPUT}`}
-                    />
-                    <span className="text-zinc-400">min</span>
-                  </label>
-                );
-              })}
-              <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                Gap between events
-                <input
-                  type="number"
-                  min={0}
-                  value={gapMinutes}
-                  onChange={(e) => {
-                    const g = Number(e.target.value);
-                    setGapMinutes(g);
-                    recascadeRounds(events, g, durationOverrides);
-                  }}
-                  className={`w-14 ${SMALL_INPUT}`}
-                />
-                <span className="text-zinc-400">min</span>
-              </label>
-            </div>
-          </div>
-
-          <p className="mt-1.5 text-xs text-zinc-500">
+          <p className="mt-3 text-xs text-zinc-500">
             Dates auto-fill as you go. Override any field and everything downstream adjusts.
+            Durations and gaps are configured in <a href="/admin/settings" className="text-emerald-400 hover:underline">System Settings</a>.
           </p>
         </div>
 

@@ -209,13 +209,13 @@ export default function DailyChallengePage() {
       {error && <p className="mb-4 text-center text-sm text-red-500">{error}</p>}
 
       {/* Scramble */}
-      <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div className="mb-6 rounded-xl glass-card p-4">
         <div className="mb-1 text-[11px] uppercase tracking-wider text-zinc-500">Scramble</div>
         <p className="font-mono text-lg leading-relaxed">{challenge.scramble}</p>
       </div>
 
       {/* Visualizer */}
-      <div className="mb-6 flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div className="mb-6 flex items-center justify-center rounded-xl glass-card p-4">
         <TwistyPlayer puzzle="3x3x3" scramble={challenge.scramble} className="h-48 w-full sm:h-64" />
       </div>
 
@@ -243,7 +243,7 @@ export default function DailyChallengePage() {
         </div>
       ) : (
         <div
-          className="mb-8 rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900/40"
+          className="mb-8 rounded-xl glass-card px-6 py-10 text-center"
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
         >
@@ -274,7 +274,7 @@ export default function DailyChallengePage() {
       )}
 
       {/* Leaderboard */}
-      <div className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div className="rounded-xl glass-card">
         <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
           <h2 className="text-sm font-semibold">Today&apos;s Leaderboard</h2>
         </div>

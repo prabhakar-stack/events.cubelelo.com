@@ -8,6 +8,7 @@ import { NavBar } from "@/features/layout/NavBar";
 import { Footer } from "@/features/layout/Footer";
 import { PageProgressBar } from "@/features/layout/PageProgressBar";
 import { ToastProvider } from "@/components/ui/Toast";
+import { AnimatedBackground } from "@/components/AnimatedBackground";
 
 const sans = Space_Grotesk({
   subsets: ["latin"],
@@ -36,11 +37,14 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>
+              <AnimatedBackground />
               <Suspense fallback={null}>
                 <PageProgressBar />
               </Suspense>
               <NavBar />
-              {children}
+              <div className="relative z-[1] flex flex-1 flex-col">
+                {children}
+              </div>
               <Footer />
             </ToastProvider>
           </AuthProvider>

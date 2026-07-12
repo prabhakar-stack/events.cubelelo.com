@@ -89,8 +89,8 @@ export function NavBar() {
       data-layout="navbar"
       className={`fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b px-6 text-sm transition-all duration-200 ${
         scrolled
-          ? "border-zinc-200 bg-white/80 shadow-sm backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80"
-          : "border-transparent bg-white dark:bg-zinc-950"
+          ? "border-[var(--border-default)] bg-[var(--bg-glass)] shadow-sm backdrop-blur-xl"
+          : "border-transparent bg-[var(--bg-page)]/80 backdrop-blur-md"
       }`}
     >
       {/* Left — logo + nav links */}
@@ -103,7 +103,7 @@ export function NavBar() {
           {mobileOpen ? <CloseIcon /> : <MenuIcon />}
         </button>
         <Link href="/" className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-          Cubelelo
+          Cubelelo<span className="bg-gradient-to-r from-accent-primary to-[var(--accent-secondary)] bg-clip-text text-transparent"> Events</span>
         </Link>
         <div className="hidden items-center gap-1 md:flex">
           {NAV_LINKS.map((l) => (
@@ -122,19 +122,19 @@ export function NavBar() {
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             onFocus={() => results.length > 0 && setShowResults(true)}
-            placeholder="Search competitions, users, pages..."
-            className="w-64 rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 py-1.5 text-xs text-zinc-800 placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500 dark:focus:border-emerald-600"
+            placeholder="Search competitions, users..."
+            className="w-64 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] backdrop-blur-sm focus:border-[var(--border-hover)] focus:outline-none"
           />
           <button
             onClick={() => doSearch(search)}
-            className="rounded-r-lg bg-emerald-600 px-3 py-1.5 text-white transition hover:bg-emerald-500"
+            className="-ml-8 z-10 rounded-md bg-gradient-to-r from-accent-primary to-[var(--accent-secondary)] px-2 py-1 text-[#080b12] transition hover:brightness-110"
           >
             <SearchIcon />
           </button>
         </div>
 
         {showResults && (
-          <div className="absolute left-0 top-full z-50 mt-1 w-80 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="absolute left-0 top-full z-50 mt-1 w-80 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-lg backdrop-blur-xl">
             {searching ? (
               <div className="px-4 py-3 text-xs text-zinc-400">Searching...</div>
             ) : results.length === 0 ? (
@@ -194,13 +194,13 @@ export function NavBar() {
         ) : user ? (
           <div className="relative flex items-center gap-2" ref={dropdownRef}>
             {user.clId && (
-              <span className="hidden text-xs font-mono text-zinc-400 dark:text-zinc-500 lg:inline">
+              <span className="hidden text-xs font-mono text-zinc-700 dark:text-zinc-300 lg:inline">
                 {user.clId}
               </span>
             )}
             <button
               onClick={() => setShowDropdown((v) => !v)}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white transition hover:bg-emerald-500"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-accent-primary to-[var(--accent-secondary)] text-sm font-bold text-[#080b12] shadow-[0_0_12px_var(--accent-glow)] transition hover:shadow-[0_0_20px_var(--accent-glow)]"
             >
               {user.name
                 .split(" ")
@@ -211,7 +211,7 @@ export function NavBar() {
             </button>
 
             {showDropdown && (
-              <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 shadow-lg backdrop-blur-xl">
                 <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
                   <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                     {user.name}
@@ -271,13 +271,13 @@ export function NavBar() {
           <div className="flex items-center gap-2">
             <Link
               href="/login"
-              className="rounded-lg px-3 py-1.5 text-xs text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              className="rounded-lg px-3 py-1.5 text-xs text-[var(--text-tertiary)] transition hover:text-[var(--text-primary)]"
             >
               Sign in
             </Link>
             <Link
               href="/register"
-              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
+              className="rounded-lg bg-gradient-to-r from-accent-primary to-[var(--accent-secondary)] px-3 py-1.5 text-xs font-semibold text-[#080b12] shadow-[0_2px_12px_var(--accent-glow)] transition hover:shadow-[0_4px_20px_var(--accent-glow)]"
             >
               Sign up
             </Link>
@@ -287,7 +287,7 @@ export function NavBar() {
     </nav>
 
     {mobileOpen && (
-      <div className="fixed inset-x-0 top-14 z-40 border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
+      <div className="fixed inset-x-0 top-14 z-40 border-b border-[var(--border-default)] bg-[var(--bg-glass)] px-6 py-3 backdrop-blur-xl md:hidden">
         <div className="flex flex-col gap-1">
           {NAV_LINKS.map((l) => (
             <Link
