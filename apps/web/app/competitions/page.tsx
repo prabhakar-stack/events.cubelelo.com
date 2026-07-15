@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchCompetitions, fetchMyRegistrations, type CompetitionSummary, type RegistrationDto } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { fetchCompetitions, fetchMyRegistrations, type CompetitionSummary } from "@/lib/api";
 import { CompetitionCard } from "@/features/competitions/CompetitionCard";
 import { SkeletonCard } from "@/components/Skeleton";
 import { useAuthStore } from "@/stores/authStore";
 import Link from "next/link";
+import { StatusBadge } from "@/features/competitions/StatusBadge";
+import { EventIcon } from "@/components/EventIcon";
+import { assetUrl } from "@/lib/api";
 
 const FILTERS = [
   { label: "All", value: "" },
@@ -15,6 +18,7 @@ const FILTERS = [
 ] as const;
 
 type Tab = "all" | "my";
+type SortKey = "date" | "popularity" | "name";
 
 export default function CompetitionsPage() {
   const user = useAuthStore((s) => s.user);
@@ -24,6 +28,8 @@ export default function CompetitionsPage() {
   const [tab, setTab] = useState<Tab>("all");
   const [myRegIds, setMyRegIds] = useState<Set<string> | null>(null);
   const [myLoading, setMyLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortKey>("date");
 
   useEffect(() => {
     setLoading(true);
@@ -43,62 +49,187 @@ export default function CompetitionsPage() {
     }
   }, [tab, user, myRegIds]);
 
-  const displayed = tab === "my" && myRegIds
-    ? comps.filter((c) => myRegIds.has(c.id))
-    : comps;
+  const filtered = useMemo(() => {
+    let list = tab === "my" && myRegIds
+      ? comps.filter((c) => myRegIds.has(c.id))
+      : comps;
 
-  const myUpcoming = tab === "my" ? displayed.filter((c) => ["registration_open", "registration_closed"].includes(c.status)).length : 0;
-  const myLive = tab === "my" ? displayed.filter((c) => c.status === "live").length : 0;
-  const myPast = tab === "my" ? displayed.filter((c) => ["results_pending", "completed"].includes(c.status)).length : 0;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((c) => c.title.toLowerCase().includes(q));
+    }
+
+    list = [...list].sort((a, b) => {
+      if (sort === "date") {
+        return new Date(b.startsAt ?? 0).getTime() - new Date(a.startsAt ?? 0).getTime();
+      }
+      if (sort === "popularity") {
+        return (b.registrationCount ?? 0) - (a.registrationCount ?? 0);
+      }
+      return a.title.localeCompare(b.title);
+    });
+
+    return list;
+  }, [comps, tab, myRegIds, search, sort]);
+
+  const featured = useMemo(() => {
+    const live = comps.find((c) => c.status === "live");
+    if (live) return live;
+    const upcoming = comps
+      .filter((c) => ["registration_open", "registration_closed"].includes(c.status))
+      .sort((a, b) => new Date(a.startsAt ?? 0).getTime() - new Date(b.startsAt ?? 0).getTime());
+    return upcoming[0] ?? null;
+  }, [comps]);
+
+  const myUpcoming = tab === "my" ? filtered.filter((c) => ["registration_open", "registration_closed"].includes(c.status)).length : 0;
+  const myLive = tab === "my" ? filtered.filter((c) => c.status === "live").length : 0;
+  const myPast = tab === "my" ? filtered.filter((c) => ["results_pending", "completed"].includes(c.status)).length : 0;
 
   return (
-    <>
-      {/* Left rail */}
-      <nav className="space-y-4 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:space-y-6 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-[var(--border-default)] lg:bg-[var(--bg-glass)] lg:px-3 lg:py-6 lg:backdrop-blur-xl">
-        <div className="flex gap-1.5 lg:block lg:space-y-0.5">
-          <p className="mb-1.5 hidden px-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] lg:block">
-            View
-          </p>
-          {(["all", "my"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`block shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition lg:w-full lg:shrink ${
-                tab === t
-                  ? "bg-accent-primary/10 font-semibold text-accent-primary"
-                  : "text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              {t === "all" ? "All Competitions" : "My Competitions"}
-            </button>
-          ))}
-        </div>
+    <div className="flex h-full flex-1">
+      {/* Sidebar — always open on desktop */}
+      <nav className="hidden w-56 shrink-0 border-r border-[var(--border-default)] bg-[var(--bg-glass)] backdrop-blur-xl lg:block">
+        <div className="sticky top-0 flex h-full flex-col overflow-y-auto px-3 py-6">
+          <div className="space-y-0.5">
+            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              View
+            </p>
+            {(["all", "my"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`block w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                  tab === t
+                    ? "bg-accent-primary/10 font-semibold text-accent-primary"
+                    : "text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                {t === "all" ? "All Competitions" : "My Competitions"}
+              </button>
+            ))}
+          </div>
 
-        <div className="flex gap-1.5 lg:block lg:space-y-0.5">
-          <p className="mb-1.5 hidden px-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] lg:block">
-            Status
-          </p>
-          {FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setFilter(f.value)}
-              className={`block shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition lg:w-full lg:shrink ${
-                filter === f.value
-                  ? "bg-accent-primary/10 font-semibold text-accent-primary"
-                  : "text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+          <div className="mt-6 space-y-0.5">
+            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              Status
+            </p>
+            {FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setFilter(f.value)}
+                className={`block w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                  filter === f.value
+                    ? "bg-accent-primary/10 font-semibold text-accent-primary"
+                    : "text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 space-y-0.5">
+            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              Sort by
+            </p>
+            {([
+              { key: "date", label: "Date" },
+              { key: "popularity", label: "Popularity" },
+              { key: "name", label: "Name" },
+            ] as const).map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setSort(s.key)}
+                className={`block w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                  sort === s.key
+                    ? "bg-accent-primary/10 font-semibold text-accent-primary"
+                    : "text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
       </nav>
 
-      <div className="lg:pl-56">
-        <main className="relative z-[1] mx-auto max-w-[1400px] px-6 py-10">
-          <h1 className="mb-6 text-2xl font-bold text-[var(--text-primary)]">Competitions</h1>
+      {/* Mobile filter bar */}
+      <div className="fixed left-0 right-0 top-14 z-30 flex gap-1.5 overflow-x-auto border-b border-[var(--border-default)] bg-[var(--bg-glass)] px-4 py-2 backdrop-blur-xl lg:hidden">
+        {(["all", "my"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              tab === t
+                ? "bg-accent-primary/10 font-semibold text-accent-primary"
+                : "text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)]"
+            }`}
+          >
+            {t === "all" ? "All" : "My"}
+          </button>
+        ))}
+        <div className="mx-1 w-px bg-[var(--border-default)]" />
+        {FILTERS.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setFilter(f.value)}
+            className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              filter === f.value
+                ? "bg-accent-primary/10 font-semibold text-accent-primary"
+                : "text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)]"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
 
-        <div>
+      {/* Main content area */}
+      <div className="flex flex-1 flex-col overflow-y-auto pt-10 lg:pt-0">
+        <main className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-8">
+          {/* Search bar */}
+          <div className="mb-6 flex items-center gap-4">
+            <div className="relative flex-1">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search competitions..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-input)] py-2.5 pl-10 pr-4 text-sm text-[var(--text-primary)] placeholder-[var(--text-placeholder)] outline-none transition focus:border-[var(--border-hover)] focus:ring-1 focus:ring-accent-primary/30"
+              />
+            </div>
+            {/* Mobile sort */}
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-input)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none lg:hidden"
+            >
+              <option value="date">Date</option>
+              <option value="popularity">Popular</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
+
+          {/* Featured competition hero */}
+          {featured && tab === "all" && !search && !filter && (
+            <FeaturedHero comp={featured} />
+          )}
+
+          {/* My competitions stats */}
           {tab === "my" && !user && (
             <div className="glass-card rounded-xl border-dashed p-10 text-center">
               <div className="mb-2 text-3xl">🔒</div>
@@ -112,7 +243,7 @@ export default function CompetitionsPage() {
             </div>
           )}
 
-          {tab === "my" && user && !myLoading && displayed.length > 0 && (
+          {tab === "my" && user && !myLoading && filtered.length > 0 && (
             <div className="mb-6 grid grid-cols-3 gap-4">
               <div className="glass-card rounded-xl p-4 text-center">
                 <div className="font-mono text-2xl font-bold text-[var(--text-primary)]">{myUpcoming}</div>
@@ -129,29 +260,118 @@ export default function CompetitionsPage() {
             </div>
           )}
 
+          {/* Competition grid */}
           {(loading || (tab === "my" && myLoading)) && (tab !== "my" || user) ? (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <SkeletonCard key={i} />
               ))}
             </div>
-          ) : (tab === "my" && !user) ? null : displayed.length === 0 ? (
+          ) : (tab === "my" && !user) ? null : filtered.length === 0 ? (
             <div className="glass-card rounded-xl border-dashed p-10 text-center text-[var(--text-tertiary)]">
               <div className="mb-2 text-3xl">🧊</div>
-              {tab === "my"
-                ? "You haven't registered for any competitions yet."
-                : "No competitions found — check back soon!"}
+              {search
+                ? `No competitions matching "${search}"`
+                : tab === "my"
+                  ? "You haven't registered for any competitions yet."
+                  : "No competitions found — check back soon!"}
             </div>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {displayed.map((c) => (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {filtered.map((c) => (
                 <CompetitionCard key={c.id} comp={c} />
               ))}
             </div>
           )}
-        </div>
         </main>
+
+        {/* Footer inside content area */}
+        <footer className="border-t border-[var(--border-default)] bg-[var(--bg-glass)] py-8 text-center text-xs text-[var(--text-tertiary)] backdrop-blur-md">
+          <p className="font-mono text-sm font-semibold text-accent-primary">🧊 Built for the cubing community</p>
+          <div className="mt-4 flex flex-wrap justify-center gap-6">
+            <Link href="/pages/about-us" className="transition hover:text-[var(--text-primary)]">About Us</Link>
+            <Link href="/pages/rules" className="transition hover:text-[var(--text-primary)]">Rules</Link>
+            <Link href="/pages/faqs" className="transition hover:text-[var(--text-primary)]">FAQs</Link>
+            <Link href="/pages/privacy-policy" className="transition hover:text-[var(--text-primary)]">Privacy Policy</Link>
+            <Link href="/pages/contact-us" className="transition hover:text-[var(--text-primary)]">Contact Us</Link>
+          </div>
+          <p className="mt-4">© {new Date().getFullYear()} Cubelelo Events. All rights reserved.</p>
+        </footer>
       </div>
-    </>
+    </div>
+  );
+}
+
+function FeaturedHero({ comp }: { comp: CompetitionSummary }) {
+  const hasBanner = comp.bannerUrl || comp.mobileBannerUrl;
+  const isLive = comp.status === "live";
+
+  return (
+    <Link
+      href={`/competitions/${comp.id}`}
+      className="group relative mb-8 block overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-card)] backdrop-blur-md transition hover:border-[var(--border-hover)] hover:shadow-[0_16px_48px_var(--accent-glow)]"
+    >
+      <div className="flex flex-col">
+        {/* Banner — 3:2 mobile, 3:1 desktop */}
+        <div className="relative w-full overflow-hidden">
+          <div className="aspect-[3/2] sm:aspect-[3/1]">
+            {hasBanner ? (
+              <img
+                src={assetUrl(comp.bannerUrl ?? comp.mobileBannerUrl!)}
+                alt=""
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-accent-primary/10 to-[var(--accent-secondary)]/10">
+                <span className="text-6xl opacity-20">🧊</span>
+              </div>
+            )}
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-card)]/40 to-transparent" />
+        </div>
+
+        {/* Details */}
+        <div className="flex flex-col gap-3 p-5 sm:p-6">
+          <div className="flex items-center gap-2">
+            <StatusBadge status={comp.status} />
+            {isLive && (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-accent-primary">
+                <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-accent-primary" />
+                LIVE NOW
+              </span>
+            )}
+          </div>
+          <h2 className="text-lg font-bold leading-tight text-[var(--text-primary)] group-hover:text-accent-primary sm:text-xl">
+            {comp.title}
+          </h2>
+          {comp.eventTypes && comp.eventTypes.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {comp.eventTypes.slice(0, 8).map((et) => (
+                <span
+                  key={et}
+                  className="flex h-6 w-6 items-center justify-center rounded-md border border-accent-primary/10 bg-accent-primary/10 text-accent-primary"
+                >
+                  <EventIcon eventId={et} size={13} />
+                </span>
+              ))}
+              {comp.eventTypes.length > 8 && (
+                <span className="flex h-6 items-center rounded-md px-1.5 text-[11px] font-medium text-[var(--text-tertiary)]">
+                  +{comp.eventTypes.length - 8}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
+            {comp.startsAt && (
+              <span>{new Date(comp.startsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+            )}
+            <span className="tabular-nums">{comp.registrationCount ?? 0} registered</span>
+            <span className="font-semibold text-accent-primary">
+              {comp.type === "free" ? "Free" : `₹${((comp.baseFee ?? 0) / 100).toFixed(0)}+`}
+            </span>
+          </div>
+        </div>
+      </div>
+    </Link>
   );
 }

@@ -34,16 +34,68 @@ import { Skeleton, SkeletonRow } from "@/components/Skeleton";
 import { Countdown } from "@/components/Countdown";
 import { Markdown } from "@/components/Markdown";
 
-const NAV_ITEMS: { id: string; label: string }[] = [
-  { id: "lobby", label: "Lobby" },
-  { id: "schedule", label: "Schedule" },
-  { id: "events", label: "Events" },
-  { id: "rules", label: "Rules" },
-  { id: "participants", label: "Participants" },
-  { id: "rankings", label: "Live Ranking" },
-  { id: "faqs", label: "FAQs" },
-  { id: "contact", label: "Contact Us" },
-];
+/* ── Dynamic nav items based on competition state ── */
+
+function getNavItems(
+  comp: CompetitionDetail,
+  isRegistered: boolean,
+  user: { clId: string; name: string } | null,
+): { id: string; label: string }[] {
+  const items: { id: string; label: string }[] = [
+    { id: "overview", label: "Overview" },
+  ];
+
+  const isUpcoming = ["published", "registration_open", "registration_closed", "upcoming"].includes(comp.status);
+  const isCancelled = comp.status === "cancelled";
+  const isCompleted = comp.status === "completed" || comp.status === "results_pending";
+  const hasPrizes = !!(comp as any).prizes;
+
+  // Prizes: show if data exists, or if upcoming/registration_open (placeholder)
+  if (hasPrizes || (isUpcoming && !isCancelled)) {
+    items.push({ id: "prizes", label: "Prizes & Rewards" });
+  }
+
+  items.push({ id: "schedule", label: "Schedule" });
+  items.push({ id: "events", label: "Events" });
+  items.push({ id: "video-rules", label: "Video Rules" });
+  items.push({ id: "rules", label: "Rules" });
+
+  // Lobby: hide for visitors on upcoming comps, hide for cancelled
+  if (!isCancelled) {
+    const showLobby =
+      comp.status === "live" ||
+      isCompleted ||
+      isRegistered;
+    if (showLobby) {
+      items.push({ id: "lobby", label: "Lobby" });
+    }
+  }
+
+  // Rankings: hide for cancelled
+  if (!isCancelled) {
+    items.push({ id: "rankings", label: "Live Ranking" });
+  }
+
+  // Participants: hide for cancelled
+  if (!isCancelled) {
+    items.push({ id: "participants", label: "Participants" });
+  }
+
+  // Organizers: only if staff data exists
+  if ((comp as any).staff) {
+    items.push({ id: "organizers", label: "Organizers" });
+  }
+
+  // Policies: only for paid comps
+  if (comp.type !== "free") {
+    items.push({ id: "policies", label: "Policies" });
+  }
+
+  items.push({ id: "faqs", label: "FAQs" });
+  items.push({ id: "contact", label: "Contact Us" });
+
+  return items;
+}
 
 export default function CompetitionDetailPage() {
   const params = useParams<{ id: string }>();
@@ -54,7 +106,7 @@ export default function CompetitionDetailPage() {
   const [myProgress, setMyProgress] = useState<RoundProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState("lobby");
+  const [activeSection, setActiveSection] = useState("overview");
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [eventPageCache] = useState(() => new Map<string, EventPageData>());
 
@@ -116,9 +168,14 @@ export default function CompetitionDetailPage() {
     };
   }, [allRoundIds, refreshComp, toast]);
 
+  const navItems = useMemo(
+    () => (comp ? getNavItems(comp, !!myReg, user) : []),
+    [comp, myReg, user],
+  );
+
   // IntersectionObserver to highlight active nav link on scroll
   useEffect(() => {
-    const ids = NAV_ITEMS.map((n) => n.id);
+    const ids = navItems.map((n) => n.id);
     const elements = ids.map((id) => document.getElementById(`section-${id}`)).filter(Boolean) as HTMLElement[];
     if (elements.length === 0) return;
 
@@ -136,7 +193,7 @@ export default function CompetitionDetailPage() {
 
     for (const el of elements) observer.observe(el);
     return () => observer.disconnect();
-  }, [comp]);
+  }, [navItems]);
 
   const scrollTo = useCallback((id: string) => {
     const el = document.getElementById(`section-${id}`);
@@ -207,6 +264,9 @@ export default function CompetitionDetailPage() {
 
   const isRegOpen = comp.status === "registration_open";
   const isLive = comp.status === "live";
+  const isCancelled = comp.status === "cancelled";
+  const isCompleted = comp.status === "completed" || comp.status === "results_pending";
+  const isUpcoming = ["published", "registration_open", "registration_closed", "upcoming"].includes(comp.status);
 
   const countdownTarget =
     comp.status === "registration_open" ? comp.registrationDeadline
@@ -219,11 +279,19 @@ export default function CompetitionDetailPage() {
       ? "Free entry"
       : `₹${((comp.baseFee ?? 0) / 100).toFixed(2)} base + ₹${((comp.perEventFee ?? 0) / 100).toFixed(2)}/event`;
 
+  const showLobby = !isCancelled && (isLive || isCompleted || !!myReg);
+  const showRankings = !isCancelled;
+  const showParticipants = !isCancelled;
+  const hasPrizes = !!(comp as any).prizes;
+  const showPrizes = hasPrizes || (isUpcoming && !isCancelled);
+  const hasStaff = !!(comp as any).staff;
+  const showPolicies = comp.type !== "free";
+
   return (
     <>
-      {/* ══ Sidebar nav — scroll checkpoints ══ */}
+      {/* Sidebar nav */}
       <nav className="flex gap-1.5 overflow-x-auto px-6 pb-2 pt-4 lg:fixed lg:left-0 lg:top-14 lg:z-30 lg:h-[calc(100vh-56px)] lg:w-56 lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:overflow-x-visible lg:border-r lg:border-[var(--border-default)] lg:bg-[var(--bg-glass)] lg:px-3 lg:py-6 lg:backdrop-blur-xl">
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <button
             key={item.id}
             onClick={() => scrollTo(item.id)}
@@ -235,113 +303,168 @@ export default function CompetitionDetailPage() {
             {item.label}
           </button>
         ))}
-
-        <div className="mt-auto hidden pt-4 lg:block">
-          <ShareCard title={comp?.title ?? ""} />
-        </div>
       </nav>
 
       <div className="lg:pl-56">
         <main className="mx-auto max-w-6xl px-6 py-10">
-          {/* Cover hero */}
-          {comp.coverUrl && (
-            <div
-              className="relative mb-6 h-56 overflow-hidden rounded-2xl bg-cover bg-center md:h-64"
-              style={{ backgroundImage: `url(${assetUrl(comp.coverUrl)})` }}
-            >
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-              <div className="absolute inset-x-0 bottom-0 p-6">
-                <div className="mb-2 flex items-center gap-3">
-                  <UserStatusBadge comp={comp} isRegistered={!!myReg} />
-                  <span className="text-xs text-zinc-200">{comp.type}</span>
+          {/* ══ Section: Overview ══ */}
+          <section id="section-overview" className="scroll-mt-20">
+            {/* Cover hero */}
+            {comp.coverUrl && (
+              <div
+                className="relative mb-6 h-56 overflow-hidden rounded-2xl bg-cover bg-center md:h-64"
+                style={{ backgroundImage: `url(${assetUrl(comp.coverUrl)})` }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 p-6">
+                  <div className="mb-2 flex items-center gap-3">
+                    <UserStatusBadge comp={comp} isRegistered={!!myReg} />
+                    {isLive && (
+                      <span className="flex items-center gap-1.5 rounded-full bg-red-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                        <span className="live-dot h-2 w-2 rounded-full bg-white" />
+                        LIVE
+                      </span>
+                    )}
+                    <span className="text-xs text-zinc-200">{comp.type}</span>
+                  </div>
+                  <h1 className="text-3xl font-bold text-white">{comp.title}</h1>
                 </div>
-                <h1 className="text-3xl font-bold text-white">{comp.title}</h1>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Banner hero (when no cover image) */}
-          {!comp.coverUrl && (comp.bannerUrl || comp.mobileBannerUrl) && (
-            <div className="mb-6 w-full overflow-hidden rounded-2xl">
-              {comp.bannerUrl && (
-                <img
-                  src={assetUrl(comp.bannerUrl)}
-                  alt={comp.title}
-                  className={`aspect-[3/1] w-full rounded-2xl object-cover object-top ${comp.mobileBannerUrl ? "hidden sm:block" : ""}`}
-                />
-              )}
-              {comp.mobileBannerUrl && (
-                <img
-                  src={assetUrl(comp.mobileBannerUrl)}
-                  alt={comp.title}
-                  className={`aspect-[3/2] w-full rounded-2xl object-cover object-top ${comp.bannerUrl ? "sm:hidden" : ""}`}
-                />
-              )}
-            </div>
-          )}
-
-          {/* Header (no cover or banner) */}
-          {!comp.coverUrl && (
-            <>
-              <div className="mb-4 flex items-center gap-3">
-                <UserStatusBadge comp={comp} isRegistered={!!myReg} />
-                <span className="text-xs text-zinc-500">{comp.type}</span>
-              </div>
-              <h1 className="mb-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{comp.title}</h1>
-            </>
-          )}
-          {comp.description && <p className="mb-6 text-zinc-500 dark:text-zinc-400">{comp.description}</p>}
-
-          {comp.status === "cancelled" && comp.cancellationReason && (
-            <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
-              <div className="mb-1 text-sm font-semibold text-red-700 dark:text-red-300">
-                This competition has been cancelled
-              </div>
-              <p className="text-sm text-red-600 dark:text-red-400">{comp.cancellationReason}</p>
-            </div>
-          )}
-
-          {/* ══ Registration CTA bar ══ */}
-          <div className="mb-8 flex flex-wrap items-center gap-4 rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-            {myReg ? (
-              <>
-                <RegistrationSteps paymentStatus={myReg.paymentStatus} />
-                {isLive && (
-                  <Button size="sm" onClick={() => scrollTo("lobby")}>
-                    Go to Lobby
-                  </Button>
+            {/* Banner hero (when no cover image) */}
+            {!comp.coverUrl && (comp.bannerUrl || comp.mobileBannerUrl) && (
+              <div className="mb-6 w-full overflow-hidden rounded-2xl">
+                {comp.bannerUrl && (
+                  <img
+                    src={assetUrl(comp.bannerUrl)}
+                    alt={comp.title}
+                    className={`aspect-[3/1] w-full rounded-2xl object-cover object-top ${comp.mobileBannerUrl ? "hidden sm:block" : ""}`}
+                  />
                 )}
-              </>
-            ) : isRegOpen ? (
-              user ? (
-                <>
-                  <RegistrationSteps paymentStatus={null} />
-                  <Link href={`/competitions/${comp.id}/register`}>
-                    <Button size="sm">Register Now</Button>
-                  </Link>
-                </>
-              ) : (
-                <Link href="/login" className="text-sm text-accent-primary underline hover:brightness-110">
-                  Sign in to register
-                </Link>
-              )
-            ) : (
-              <p className="text-sm text-zinc-500">Registration is not currently open.</p>
-            )}
-
-            {countdownTarget && (
-              <div className="ml-auto flex items-center gap-2 rounded-full bg-accent-warn/10 px-3 py-1.5 text-sm text-accent-warn">
-                ⏳ {countdownLabel} <Countdown target={countdownTarget} className="font-mono font-semibold" />
+                {comp.mobileBannerUrl && (
+                  <img
+                    src={assetUrl(comp.mobileBannerUrl)}
+                    alt={comp.title}
+                    className={`aspect-[3/2] w-full rounded-2xl object-cover object-top ${comp.bannerUrl ? "sm:hidden" : ""}`}
+                  />
+                )}
               </div>
             )}
-          </div>
+
+            {/* Header (no cover or banner) */}
+            {!comp.coverUrl && (
+              <>
+                <div className="mb-4 flex items-center gap-3">
+                  <UserStatusBadge comp={comp} isRegistered={!!myReg} />
+                  {isLive && (
+                    <span className="flex items-center gap-1.5 rounded-full bg-red-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                      <span className="live-dot h-2 w-2 rounded-full bg-white" />
+                      LIVE
+                    </span>
+                  )}
+                  <span className="text-xs text-zinc-500">{comp.type}</span>
+                </div>
+                <h1 className="mb-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100">{comp.title}</h1>
+              </>
+            )}
+            {comp.description && <p className="mb-6 text-zinc-500 dark:text-zinc-400">{comp.description}</p>}
+
+            {/* Cancellation notice */}
+            {isCancelled && comp.cancellationReason && (
+              <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+                <div className="mb-1 text-sm font-semibold text-red-700 dark:text-red-300">
+                  This competition has been cancelled
+                </div>
+                <p className="text-sm text-red-600 dark:text-red-400">{comp.cancellationReason}</p>
+              </div>
+            )}
+
+            {/* Competition ended notice */}
+            {isCompleted && (
+              <div className="mb-6 rounded-lg border border-zinc-300 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900/30">
+                <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                  This competition has ended. Results are {comp.status === "results_pending" ? "being processed" : "available below"}.
+                </p>
+              </div>
+            )}
+
+            {/* Stats row */}
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{feeText}</div>
+                <div className="text-xs text-zinc-500">Entry</div>
+              </div>
+              <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">{comp.events.length}</div>
+                <div className="text-xs text-zinc-500">Events</div>
+              </div>
+              <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">{comp.registrationCount ?? 0}</div>
+                <div className="text-xs text-zinc-500">Registered</div>
+              </div>
+              <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                  {isCompleted ? "Ended" : isLive ? lobby.roster.length : comp.status === "registration_closed" ? "Closed" : "--"}
+                </div>
+                <div className="text-xs text-zinc-500">{isCompleted ? "Status" : isLive ? "Online Now" : "Status"}</div>
+              </div>
+            </div>
+
+            {/* CTA bar + Calendar + Share */}
+            {!isCancelled && !isCompleted && (
+              <div className="mb-8 flex flex-wrap items-center gap-4 rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+                {myReg ? (
+                  <>
+                    <RegistrationSteps paymentStatus={myReg.paymentStatus} />
+                    {isLive && (
+                      <Button size="sm" onClick={() => scrollTo("lobby")}>
+                        Go to Lobby
+                      </Button>
+                    )}
+                  </>
+                ) : isRegOpen ? (
+                  user ? (
+                    <>
+                      <RegistrationSteps paymentStatus={null} />
+                      <Link href={`/competitions/${comp.id}/register`}>
+                        <Button size="sm">Register Now</Button>
+                      </Link>
+                    </>
+                  ) : (
+                    <Link href="/login" className="text-sm text-accent-primary underline hover:brightness-110">
+                      Sign in to register
+                    </Link>
+                  )
+                ) : (
+                  <p className="text-sm text-zinc-500">
+                    {comp.status === "registration_closed" ? "Registration is closed." : "Registration is not currently open."}
+                  </p>
+                )}
+
+                {countdownTarget && (
+                  <div className="ml-auto flex items-center gap-2 rounded-full bg-accent-warn/10 px-3 py-1.5 text-sm text-accent-warn">
+                    <span>&#9203;</span> {countdownLabel} <Countdown target={countdownTarget} className="font-mono font-semibold" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action bar: Add to Calendar + Share */}
+            <ActionBar comp={comp} />
+          </section>
 
           {/* ══ All sections stacked ══ */}
-          <div className="space-y-12">
-            <section id="section-lobby" className="scroll-mt-20">
-              <HomeTab comp={comp} feeText={feeText} myProgress={myProgress} isRegistered={!!myReg} roster={lobby.roster} user={user} onExpandEvent={handleExpandEvent} />
-            </section>
+          <div className="mt-12 space-y-12">
+            {/* 2. Prizes & Rewards */}
+            {showPrizes && (
+              <section id="section-prizes" className="scroll-mt-20">
+                <SectionHeading>Prizes &amp; Rewards</SectionHeading>
+                <PrizesSection comp={comp} />
+              </section>
+            )}
 
+            {/* 3. Schedule */}
             <section id="section-schedule" className="scroll-mt-20">
               <SectionHeading>Schedule</SectionHeading>
               <div className="space-y-6">
@@ -350,6 +473,7 @@ export default function CompetitionDetailPage() {
               </div>
             </section>
 
+            {/* 4. Events */}
             <section id="section-events" className="scroll-mt-20">
               <SectionHeading>Events</SectionHeading>
               <EventsTab
@@ -360,35 +484,69 @@ export default function CompetitionDetailPage() {
               />
             </section>
 
+            {/* 5. Video Rules */}
+            <section id="section-video-rules" className="scroll-mt-20">
+              <SectionHeading>Video Rules</SectionHeading>
+              <VideoRulesSection comp={comp} />
+            </section>
+
+            {/* 6. Rules */}
             <section id="section-rules" className="scroll-mt-20">
               <SectionHeading>Rules</SectionHeading>
               <RulesTab comp={comp} />
             </section>
 
-            <section id="section-participants" className="scroll-mt-20">
-              <SectionHeading>Participants</SectionHeading>
-              <ParticipantsTab compId={comp.id} />
-            </section>
+            {/* 7. Lobby */}
+            {showLobby && (
+              <section id="section-lobby" className="scroll-mt-20">
+                <SectionHeading>Lobby</SectionHeading>
+                <HomeTab comp={comp} feeText={feeText} myProgress={myProgress} isRegistered={!!myReg} roster={lobby.roster} user={user} onExpandEvent={handleExpandEvent} />
+              </section>
+            )}
 
-            <section id="section-rankings" className="scroll-mt-20">
-              <SectionHeading>Live Ranking</SectionHeading>
-              <RankingsTab comp={comp} showResultsLink={["results_pending", "completed", "live"].includes(comp.status)} />
-            </section>
+            {/* 8. Live Ranking */}
+            {showRankings && (
+              <section id="section-rankings" className="scroll-mt-20">
+                <SectionHeading>Live Ranking</SectionHeading>
+                <RankingsTab comp={comp} showResultsLink={["results_pending", "completed", "live"].includes(comp.status)} limitRows={isCompleted ? null : 10} />
+              </section>
+            )}
 
+            {/* 9. Participants */}
+            {showParticipants && (
+              <section id="section-participants" className="scroll-mt-20">
+                <SectionHeading>Participants</SectionHeading>
+                <ParticipantsTab compId={comp.id} limitRows={15} />
+              </section>
+            )}
+
+            {/* 10. Organizers */}
+            {hasStaff && (
+              <section id="section-organizers" className="scroll-mt-20">
+                <SectionHeading>Organizers</SectionHeading>
+                <OrganizersSection comp={comp} />
+              </section>
+            )}
+
+            {/* 11. Policies */}
+            {showPolicies && (
+              <section id="section-policies" className="scroll-mt-20">
+                <SectionHeading>Policies</SectionHeading>
+                <PoliciesSection comp={comp} />
+              </section>
+            )}
+
+            {/* 12. FAQs */}
             <section id="section-faqs" className="scroll-mt-20">
               <SectionHeading>FAQs</SectionHeading>
               <ContentPageTab slug="faqs" />
             </section>
 
+            {/* 13. Contact */}
             <section id="section-contact" className="scroll-mt-20">
               <SectionHeading>Contact Us</SectionHeading>
               <ContentPageTab slug="contact-us" />
             </section>
-          </div>
-
-          {/* Share — mobile only (desktop share is in left sidebar) */}
-          <div className="mt-8 lg:hidden">
-            <ShareCard title={comp.title} />
           </div>
         </main>
       </div>
@@ -403,6 +561,265 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
     <h2 className="mb-5 border-b border-zinc-200 pb-2 text-lg font-bold text-zinc-900 dark:border-zinc-800 dark:text-zinc-100">
       {children}
     </h2>
+  );
+}
+
+/* ── Action bar: Add to Calendar + Share ── */
+
+function ActionBar({ comp }: { comp: CompetitionDetail }) {
+  const [shareOpen, setShareOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!shareOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShareOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [shareOpen]);
+
+  const handleAddToCalendar = useCallback(() => {
+    const start = comp.startsAt ? formatIcsDate(comp.startsAt) : "";
+    const end = comp.endsAt ? formatIcsDate(comp.endsAt) : start;
+    const title = comp.title;
+    const description = comp.description ?? "";
+    const url = typeof window !== "undefined" ? window.location.href : "";
+
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Cubelelo Events//EN",
+      "BEGIN:VEVENT",
+      `DTSTART:${start}`,
+      `DTEND:${end}`,
+      `SUMMARY:${title}`,
+      `DESCRIPTION:${description}\\n${url}`,
+      `URL:${url}`,
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${comp.title.replace(/[^a-zA-Z0-9]/g, "_")}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  }, [comp]);
+
+  const handleCopyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { }
+  }, []);
+
+  const handleWhatsAppShare = useCallback(() => {
+    const url = window.location.href;
+    const text = `Check out this competition: ${comp.title} - ${url}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+    setShareOpen(false);
+  }, [comp.title]);
+
+  const handleNativeShare = useCallback(async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: comp.title, url: window.location.href });
+      } catch { }
+    }
+    setShareOpen(false);
+  }, [comp.title]);
+
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <button
+        onClick={handleAddToCalendar}
+        className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      >
+        <span>&#128197;</span>
+        Add to Calendar
+      </button>
+
+      <div className="relative" ref={dropdownRef}>
+        <button
+          onClick={() => setShareOpen((p) => !p)}
+          className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          <span>&#8599;</span>
+          Share
+        </button>
+
+        {shareOpen && (
+          <div className="absolute left-0 top-full z-50 mt-2 w-48 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <button
+              onClick={handleCopyLink}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              {copied ? "Copied!" : "Copy Link"}
+            </button>
+            <button
+              onClick={handleWhatsAppShare}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              WhatsApp
+            </button>
+            {typeof navigator !== "undefined" && "share" in navigator && (
+              <button
+                onClick={handleNativeShare}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                More...
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatIcsDate(isoDate: string): string {
+  const d = new Date(isoDate);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+}
+
+/* ── Prizes Section ── */
+
+function PrizesSection({ comp }: { comp: CompetitionDetail }) {
+  const prizes = (comp as any).prizes;
+
+  if (prizes && Array.isArray(prizes) && prizes.length > 0) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {prizes.map((prize: { place: string; reward: string; eventType?: string }, i: number) => (
+          <div
+            key={i}
+            className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40"
+          >
+            {prize.eventType && (
+              <div className="mb-2">
+                <EventIcon eventId={prize.eventType} size={20} className="text-zinc-500" />
+              </div>
+            )}
+            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{prize.place}</p>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{prize.reward}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Placeholder for upcoming competitions
+  return (
+    <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center dark:border-zinc-700 dark:bg-zinc-900/20">
+      <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+        Prizes to be announced
+      </p>
+      <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-600">
+        Prize details will be shared closer to the competition date.
+      </p>
+    </div>
+  );
+}
+
+/* ── Video Rules Section ── */
+
+const DEFAULT_VIDEO_RULES = `### Video Submission Rules
+
+1. **Camera angle**: The camera must show a clear, unobstructed view of the puzzle and your hands throughout the entire solve.
+2. **Timer visibility**: The timer display must be clearly visible in the recording.
+3. **Inspection**: The standard 15-second inspection period applies. The puzzle must remain covered or out of view until inspection begins.
+4. **Lighting**: Ensure adequate lighting so that all cube faces and movements are clearly visible.
+5. **Audio**: Keep audio enabled. External noise is fine, but the video must contain the original audio track.
+6. **Single continuous take**: The video must be a single, unedited continuous recording. Jump cuts or edits of any kind will result in disqualification.
+7. **Scramble verification**: Show the scrambled state of the puzzle clearly before starting your timer.
+8. **Submission deadline**: Submit your video within the specified deadline after your round closes. Late submissions will not be accepted.
+9. **Format**: Upload as MP4, MOV, or WebM. Maximum file size is 500 MB.`;
+
+function VideoRulesSection({ comp }: { comp: CompetitionDetail }) {
+  const videoRulesMd = (comp as any).videoRulesMd;
+  const content = videoRulesMd || DEFAULT_VIDEO_RULES;
+
+  return (
+    <div className="space-y-4">
+      <div className="prose prose-sm prose-zinc dark:prose-invert max-w-none rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
+        <Markdown>{content}</Markdown>
+      </div>
+
+      {/* Event-specific icons row */}
+      {comp.events.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <span className="text-xs font-medium text-zinc-500">Applies to:</span>
+          {comp.events.map((ev) => (
+            <span key={ev.id} className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+              <EventIcon eventId={ev.eventType} size={16} />
+              {eventDisplayName(ev.eventType)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Organizers Section ── */
+
+function OrganizersSection({ comp }: { comp: CompetitionDetail }) {
+  const staff = (comp as any).staff;
+  if (!staff || !Array.isArray(staff) || staff.length === 0) return null;
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {staff.map((member: { name: string; role?: string; avatarUrl?: string }, i: number) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/40"
+        >
+          {member.avatarUrl ? (
+            <img src={assetUrl(member.avatarUrl)} alt={member.name} className="h-10 w-10 rounded-full object-cover" />
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-sm font-bold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              {member.name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div>
+            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{member.name}</p>
+            {member.role && <p className="text-xs text-zinc-500">{member.role}</p>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Policies Section ── */
+
+const DEFAULT_REFUND_POLICY = `### Refund Policy
+
+- **Before registration closes**: Full refund available upon request. Contact the organizers.
+- **After registration closes, before competition starts**: 50% refund available. Processing may take 5-7 business days.
+- **After competition starts**: No refunds will be issued.
+- **Technical issues**: If you experience technical issues that prevent participation, contact support within 24 hours for review.
+
+All refund requests must be submitted via the contact form or email. Include your registration ID and reason for the request.`;
+
+function PoliciesSection({ comp }: { comp: CompetitionDetail }) {
+  const refundPolicyMd = (comp as any).refundPolicyMd;
+  const content = refundPolicyMd || DEFAULT_REFUND_POLICY;
+
+  return (
+    <div className="prose prose-sm prose-zinc dark:prose-invert max-w-none rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <Markdown>{content}</Markdown>
+    </div>
   );
 }
 
@@ -453,26 +870,6 @@ function HomeTab({
 
   return (
     <div className="space-y-6">
-      {/* Highlight stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
-          <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{feeText}</div>
-          <div className="text-xs text-zinc-500">Entry</div>
-        </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
-          <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">{comp.events.length}</div>
-          <div className="text-xs text-zinc-500">Events</div>
-        </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
-          <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">{comp.registrationCount ?? 0}</div>
-          <div className="text-xs text-zinc-500">Registered</div>
-        </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
-          <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">{roster.length}</div>
-          <div className="text-xs text-zinc-500">Online Now</div>
-        </div>
-      </div>
-
       {/* What's next milestone */}
       {nextMilestone && (
         <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
@@ -992,38 +1389,6 @@ function DetailedSchedule({ comp }: { comp: CompetitionDetail }) {
   );
 }
 
-/* ── Share card ── */
-
-function ShareCard({ title }: { title: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleShare = useCallback(async () => {
-    const url = window.location.href;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, url });
-        return;
-      } catch {
-        /* user cancelled — fall through to clipboard */
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { }
-  }, [title]);
-
-  return (
-    <button
-      onClick={handleShare}
-      className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white p-3 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400 dark:hover:bg-zinc-900"
-    >
-      {copied ? "Copied to clipboard! ✓" : "Share this competition ↗"}
-    </button>
-  );
-}
-
 /* ── Registration progress steps ── */
 
 function RegistrationSteps({ paymentStatus }: { paymentStatus: string | null }) {
@@ -1053,10 +1418,11 @@ function RegistrationSteps({ paymentStatus }: { paymentStatus: string | null }) 
 
 /* ── Participants Tab ── */
 
-function ParticipantsTab({ compId }: { compId: string }) {
+function ParticipantsTab({ compId, limitRows }: { compId: string; limitRows: number }) {
   const [participants, setParticipants] = useState<ParticipantEntry[]>([]);
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     fetchParticipants(compId)
@@ -1090,6 +1456,9 @@ function ParticipantsTab({ compId }: { compId: string }) {
     );
   }
 
+  const visibleParticipants = expanded ? participants : participants.slice(0, limitRows);
+  const hasMore = participants.length > limitRows;
+
   return (
     <div>
       <p className="mb-4 text-sm text-zinc-500">{count} participant{count !== 1 ? "s" : ""}</p>
@@ -1104,7 +1473,7 @@ function ParticipantsTab({ compId }: { compId: string }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {participants.map((p, i) => (
+            {visibleParticipants.map((p, i) => (
               <tr key={p.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
                 <td className="px-4 py-3 text-zinc-400">{i + 1}</td>
                 <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{p.name}</td>
@@ -1129,22 +1498,32 @@ function ParticipantsTab({ compId }: { compId: string }) {
           </tbody>
         </table>
       </div>
+      {hasMore && !expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="mt-4 w-full rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          View all {count} participants
+        </button>
+      )}
     </div>
   );
 }
 
 /* ── Rankings Tab ── */
 
-function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showResultsLink: boolean }) {
+function RankingsTab({ comp, showResultsLink, limitRows }: { comp: CompetitionDetail; showResultsLink: boolean; limitRows: number | null }) {
   const eventTypes = comp.events.map((e) => e.eventType);
   const [selectedEvent, setSelectedEvent] = useState(eventTypes[0] ?? "");
   const [ranking, setRanking] = useState<LiveRankingEntry[]>([]);
   const [roundInfo, setRoundInfo] = useState<{ roundNumber: number | null }>({ roundNumber: null });
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!selectedEvent) return;
     setLoading(true);
+    setExpanded(false);
     fetchLiveRanking(comp.id, selectedEvent)
       .then((d) => {
         setRanking(d.ranking);
@@ -1153,6 +1532,9 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
       .catch(() => setRanking([]))
       .finally(() => setLoading(false));
   }, [comp.id, selectedEvent]);
+
+  const visibleRanking = (limitRows !== null && !expanded) ? ranking.slice(0, limitRows) : ranking;
+  const hasMore = limitRows !== null && ranking.length > limitRows;
 
   return (
     <div>
@@ -1205,34 +1587,44 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
           No results yet for this event.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-zinc-50 dark:bg-zinc-900/60">
-              <tr>
-                <th className="px-4 py-3 font-medium text-zinc-500">Rank</th>
-                <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
-                <th className="px-4 py-3 font-medium text-zinc-500">ao5</th>
-                <th className="px-4 py-3 font-medium text-zinc-500">Best</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {ranking.map((r, i) => (
-                <tr key={r.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
-                  <td className="px-4 py-3 font-mono text-zinc-400">
-                    {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (r.rank ?? "—")}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{r.name}</td>
-                  <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
-                    {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
-                    {r.bestSingleMs !== null ? formatTime(r.bestSingleMs) : "—"}
-                  </td>
+        <>
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900/60">
+                <tr>
+                  <th className="px-4 py-3 font-medium text-zinc-500">Rank</th>
+                  <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
+                  <th className="px-4 py-3 font-medium text-zinc-500">ao5</th>
+                  <th className="px-4 py-3 font-medium text-zinc-500">Best</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {visibleRanking.map((r, i) => (
+                  <tr key={r.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+                    <td className="px-4 py-3 font-mono text-zinc-400">
+                      {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (r.rank ?? "—")}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{r.name}</td>
+                    <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
+                      {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
+                      {r.bestSingleMs !== null ? formatTime(r.bestSingleMs) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {hasMore && !expanded && (
+            <button
+              onClick={() => setExpanded(true)}
+              className="mt-4 w-full rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              View all {ranking.length} rankings
+            </button>
+          )}
+        </>
       )}
     </div>
   );

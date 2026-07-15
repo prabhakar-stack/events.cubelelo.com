@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { assetUrl, type CompetitionSummary } from "@/lib/api";
 import { EventIcon } from "@/components/EventIcon";
@@ -18,6 +18,32 @@ function formatTime(iso?: string | null) {
   return d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 }
 
+function extractBottomColor(img: HTMLImageElement): string | null {
+  try {
+    const canvas = document.createElement("canvas");
+    const size = 32;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, img.naturalHeight - img.naturalHeight * 0.15, img.naturalWidth, img.naturalHeight * 0.15, 0, 0, size, size);
+    const data = ctx.getImageData(0, 0, size, size).data;
+    let r = 0, g = 0, b = 0, count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+      count++;
+    }
+    r = Math.round(r / count);
+    g = Math.round(g / count);
+    b = Math.round(b / count);
+    return `${r}, ${g}, ${b}`;
+  } catch {
+    return null;
+  }
+}
+
 export function CompetitionCard({ comp }: { comp: CompetitionSummary }) {
   const hasBanner = comp.bannerUrl || comp.mobileBannerUrl;
   const dateLabel = formatDate(comp.startsAt);
@@ -28,44 +54,69 @@ export function CompetitionCard({ comp }: { comp: CompetitionSummary }) {
       ? "Free"
       : `₹${((comp.baseFee ?? 0) / 100).toFixed(2)}+`;
 
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [glowColor, setGlowColor] = useState<string | null>(null);
+
+  const handleImageLoad = () => {
+    if (imgRef.current) {
+      const color = extractBottomColor(imgRef.current);
+      if (color) setGlowColor(color);
+    }
+  };
+
   return (
     <Link
       href={`/competitions/${comp.id}`}
-      className="group relative flex h-[180px] overflow-hidden rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] backdrop-blur-md transition hover:-translate-y-0.5 hover:border-[var(--border-hover)] hover:shadow-[0_12px_32px_var(--accent-glow)]"
+      className="group relative flex flex-col overflow-hidden rounded-[14px] border border-[var(--border-default)] bg-[var(--bg-card)] backdrop-blur-md transition hover:-translate-y-0.5 hover:border-[var(--border-hover)] hover:shadow-[0_12px_32px_var(--accent-glow)]"
     >
-      {/* Banner — 55% width */}
-      <div className="relative h-full w-[55%] shrink-0 overflow-hidden bg-gradient-to-br from-[var(--bg-surface-dim)] to-[var(--bg-surface)]">
-        {hasBanner ? (
-          <>
-            {comp.bannerUrl && (
-              <img
-                src={assetUrl(comp.bannerUrl)}
-                alt=""
-                className={`h-full w-full object-cover ${comp.mobileBannerUrl ? "hidden sm:block" : ""}`}
-              />
-            )}
-            {comp.mobileBannerUrl && (
-              <img
-                src={assetUrl(comp.mobileBannerUrl)}
-                alt=""
-                className={`h-full w-full object-cover ${comp.bannerUrl ? "sm:hidden" : ""}`}
-              />
-            )}
-          </>
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <span className="text-4xl opacity-[0.06]">🧊</span>
-          </div>
-        )}
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-[var(--bg-card)]/30" />
+      {/* Banner — 3:2 on mobile, 3:1 on desktop */}
+      <div className="relative w-full overflow-hidden bg-gradient-to-br from-[var(--bg-surface-dim)] to-[var(--bg-surface)]">
+        <div className="aspect-[3/2] sm:aspect-[3/1]">
+          {hasBanner ? (
+            <>
+              {comp.bannerUrl && (
+                <img
+                  ref={!comp.mobileBannerUrl ? imgRef : undefined}
+                  src={assetUrl(comp.bannerUrl)}
+                  alt=""
+                  crossOrigin="anonymous"
+                  onLoad={!comp.mobileBannerUrl ? handleImageLoad : undefined}
+                  className={`h-full w-full object-cover ${comp.mobileBannerUrl ? "hidden sm:block" : ""}`}
+                />
+              )}
+              {comp.mobileBannerUrl && (
+                <img
+                  ref={imgRef}
+                  src={assetUrl(comp.mobileBannerUrl)}
+                  alt=""
+                  crossOrigin="anonymous"
+                  onLoad={handleImageLoad}
+                  className={`h-full w-full object-cover ${comp.bannerUrl ? "sm:hidden" : ""}`}
+                />
+              )}
+            </>
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <span className="text-4xl opacity-[0.06]">🧊</span>
+            </div>
+          )}
+        </div>
         <div className="absolute left-2.5 top-2.5">
           <StatusBadge status={comp.status} />
         </div>
       </div>
 
-      {/* Details — 45% */}
-      <div className="flex w-[45%] flex-col justify-between p-3.5">
-        <div>
+      {/* Details */}
+      <div className="relative flex flex-1 flex-col justify-between gap-2 p-3.5">
+        {glowColor && (
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 h-full transition-opacity duration-500"
+            style={{
+              background: `linear-gradient(to bottom, rgba(${glowColor}, 0.35) 0%, rgba(${glowColor}, 0.12) 30%, transparent 100%)`,
+            }}
+          />
+        )}
+        <div className="relative">
           <h3 className="mb-2 line-clamp-2 text-sm font-bold leading-snug text-[var(--text-primary)] group-hover:text-accent-primary sm:text-[15px]">
             {comp.title}
           </h3>
@@ -84,7 +135,7 @@ export function CompetitionCard({ comp }: { comp: CompetitionSummary }) {
           )}
         </div>
 
-        <div className="space-y-1">
+        <div className="relative space-y-1">
           {comp.status === "registration_open" && comp.registrationDeadline && (
             <CardCountdown deadline={comp.registrationDeadline} />
           )}

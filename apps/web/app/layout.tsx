@@ -33,7 +33,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`dark ${sans.variable} ${mono.variable}`}>
-      <body className="flex min-h-screen flex-col pt-14">
+      <body className="flex h-full flex-col pt-14 overflow-hidden">
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>
@@ -42,10 +42,10 @@ export default function RootLayout({
                 <PageProgressBar />
               </Suspense>
               <NavBar />
-              <div className="relative z-[1] flex flex-1 flex-col">
+              <div className="relative z-[1] flex flex-1 flex-col overflow-y-auto">
                 {children}
+                <Footer />
               </div>
-              <Footer />
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>
