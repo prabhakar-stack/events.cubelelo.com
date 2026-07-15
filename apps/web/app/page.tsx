@@ -123,11 +123,10 @@ function BannerSlider({ banners }: { banners: BannerDto[] }) {
   return (
     <div className="relative mb-6 w-full">
       <div
-        className="mx-auto grid gap-2"
+        className="grid w-full gap-2"
         style={{
-          width: "95vw",
           gridTemplateColumns: showPair && right ? "1fr 1fr" : "1fr",
-          height: showPair && right ? "calc(95vw / 6)" : "calc(95vw / 3)",
+          aspectRatio: showPair && right ? "6 / 1" : "3 / 1",
         }}
       >
         <BannerSlide key={left.id} banner={left} />
@@ -137,19 +136,19 @@ function BannerSlider({ banners }: { banners: BannerDto[] }) {
         <>
           <button
             onClick={() => { setIdx((i) => (i - 1 + len) % len); setTick((t) => t + 1); }}
-            className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/30 p-1.5 text-white/80 backdrop-blur-sm transition hover:bg-black/50 hover:text-white"
+            className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/30 p-1.5 text-white/80 backdrop-blur-sm transition hover:bg-black/50 hover:text-white"
             aria-label="Previous"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
           </button>
           <button
             onClick={() => { setIdx((i) => (i + step) % len); setTick((t) => t + 1); }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/30 p-1.5 text-white/80 backdrop-blur-sm transition hover:bg-black/50 hover:text-white"
+            className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/30 p-1.5 text-white/80 backdrop-blur-sm transition hover:bg-black/50 hover:text-white"
             aria-label="Next"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
           </button>
-          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+          <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">
             {banners.map((_, i) => (
               <button
                 key={i}
