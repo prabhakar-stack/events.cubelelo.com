@@ -3,27 +3,85 @@ import type { FastifyInstance } from "fastify";
 import type { RoundStatus } from "@cubers/types";
 import type { Repository } from "../db/repo";
 import { env } from "../config/env";
-import { createVerifier } from "../auth/verifier";
+import { type AuthClaims, createVerifier } from "../auth/verifier";
+import { isTokenBlocked } from "../lib/tokenBlocklist";
 
-/**
- * Real-time fan-out for live competition data. Routes depend only on this
- * interface; the actual Socket.io server is attached after the HTTP server
- * exists. A no-op default keeps inject-based tests simple.
- *
- * Rooms: `round:{roundId}`. Clients emit `join` (spectate) or `lobby:checkin`
- * (appear in the roster) with a roundId. Single-process for now — add
- * @socket.io/redis-adapter for horizontal scale once Redis is provisioned.
- */
+const REAUTH_INTERVAL_MS = 5 * 60 * 1000;
+const LEADERBOARD_DEBOUNCE_MS = 300;
+const MAX_ROOMS_PER_SOCKET = 10;
+
+// ── Per-socket rate limiter (token bucket) ────────────────────────────────
+
+interface RateBucket {
+  tokens: number;
+  lastRefill: number;
+}
+
+function checkRate(
+  buckets: Map<string, RateBucket>,
+  event: string,
+  maxTokens: number,
+  refillPerSec: number,
+): boolean {
+  const now = Date.now();
+  let bucket = buckets.get(event);
+  if (!bucket) {
+    bucket = { tokens: maxTokens, lastRefill: now };
+    buckets.set(event, bucket);
+  }
+  const elapsed = (now - bucket.lastRefill) / 1000;
+  bucket.tokens = Math.min(maxTokens, bucket.tokens + elapsed * refillPerSec);
+  bucket.lastRefill = now;
+  if (bucket.tokens < 1) return false;
+  bucket.tokens -= 1;
+  return true;
+}
+
+// ── Leaderboard payload slimming ──────────────────────────────────────────
+
+interface SlimResult {
+  id: string;
+  userId: string;
+  userName?: string;
+  userClId?: string;
+  ao5Ms: number | null;
+  bestSingleMs: number | null;
+  rank: number | null;
+  flagStatus: string;
+}
+
+function slimBoard(board: unknown): SlimResult[] {
+  if (!Array.isArray(board)) return [];
+  return board.map((r: Record<string, unknown>) => ({
+    id: r.id as string,
+    userId: r.userId as string,
+    userName: r.userName as string | undefined,
+    userClId: r.userClId as string | undefined,
+    ao5Ms: r.ao5Ms as number | null,
+    bestSingleMs: r.bestSingleMs as number | null,
+    rank: r.rank as number | null,
+    flagStatus: (r.flagStatus as string) ?? "clean",
+  }));
+}
+
+function boardFingerprint(board: SlimResult[]): string {
+  return board.map((r) => `${r.userId}:${r.rank}:${r.ao5Ms}:${r.bestSingleMs}:${r.flagStatus}`).join("|");
+}
+
+// ── Realtime interface ────────────────────────────────────────────────────
+
 export interface Realtime {
   emitLeaderboard(roundId: string, board: unknown): void;
   emitRoundStatus(roundId: string, status: RoundStatus, opensAt?: string): void;
   emitCompStatus(compId: string, status: string): void;
+  disconnectUser(userId: string): void;
 }
 
 export const noopRealtime: Realtime = {
   emitLeaderboard() {},
   emitRoundStatus() {},
   emitCompStatus() {},
+  disconnectUser() {},
 };
 
 export interface AttachableRealtime extends Realtime {
@@ -35,9 +93,59 @@ export function createRealtime(): AttachableRealtime {
   let io: Server | null = null;
   const roomOf = (roundId: string) => `round:${roundId}`;
 
+  // userId → set of socket IDs for instant revocation
+  const userSockets = new Map<string, Set<string>>();
+
+  // Leaderboard debounce: roundId → pending timer + latest board
+  const leaderboardPending = new Map<string, { timer: ReturnType<typeof setTimeout>; board: unknown }>();
+  // Last emitted fingerprint per round — skip broadcast if unchanged
+  const lastBoardFingerprint = new Map<string, string>();
+
+  function trackSocket(userId: string, socketId: string) {
+    let set = userSockets.get(userId);
+    if (!set) {
+      set = new Set();
+      userSockets.set(userId, set);
+    }
+    set.add(socketId);
+  }
+
+  function untrackSocket(userId: string | undefined, socketId: string) {
+    if (!userId) return;
+    const set = userSockets.get(userId);
+    if (!set) return;
+    set.delete(socketId);
+    if (set.size === 0) userSockets.delete(userId);
+  }
+
   return {
     emitLeaderboard(roundId, board) {
-      io?.to(roomOf(roundId)).emit("leaderboard:update", { roundId, board });
+      const flush = (b: unknown) => {
+        const slim = slimBoard(b);
+        const fp = boardFingerprint(slim);
+        if (lastBoardFingerprint.get(roundId) === fp) return;
+        lastBoardFingerprint.set(roundId, fp);
+        io?.to(roomOf(roundId)).emit("leaderboard:update", { roundId, board: slim });
+      };
+
+      const existing = leaderboardPending.get(roundId);
+      if (existing) {
+        clearTimeout(existing.timer);
+        existing.board = board;
+        existing.timer = setTimeout(() => {
+          leaderboardPending.delete(roundId);
+          flush(existing.board);
+        }, LEADERBOARD_DEBOUNCE_MS);
+      } else {
+        const entry = {
+          board,
+          timer: setTimeout(() => {
+            leaderboardPending.delete(roundId);
+            flush(entry.board);
+          }, LEADERBOARD_DEBOUNCE_MS),
+        };
+        leaderboardPending.set(roundId, entry);
+      }
     },
 
     emitRoundStatus(roundId, status, opensAt) {
@@ -46,6 +154,17 @@ export function createRealtime(): AttachableRealtime {
 
     emitCompStatus(compId, status) {
       io?.to(`comp:${compId}`).emit("comp:status", { compId, status });
+    },
+
+    disconnectUser(userId) {
+      const set = userSockets.get(userId);
+      if (!set || !io) return;
+      for (const socketId of set) {
+        const socket = io.sockets.sockets.get(socketId);
+        socket?.emit("auth:revoked", { reason: "session_invalidated" });
+        socket?.disconnect(true);
+      }
+      userSockets.delete(userId);
     },
 
     async attach(app, repo) {
@@ -76,6 +195,7 @@ export function createRealtime(): AttachableRealtime {
       };
 
       const verifier = createVerifier();
+
       io.use(async (socket, next) => {
         const token = socket.handshake.auth?.token as string | undefined;
         if (!token) {
@@ -83,7 +203,22 @@ export function createRealtime(): AttachableRealtime {
           return next();
         }
         try {
-          socket.data.authClaims = await verifier.verify(token);
+          const claims = await verifier.verify(token);
+
+          if (claims.jti && await isTokenBlocked(claims.jti)) {
+            return next(new Error("token_revoked"));
+          }
+
+          const linked = await repo.users.findBySupabaseId(claims.sub);
+          if (linked) {
+            if (linked.accountStage === "deleted" || linked.accountStage === "suspended" || linked.accountStage === "banned") {
+              return next(new Error("account_inactive"));
+            }
+            claims.sub = linked.id;
+          }
+
+          socket.data.authClaims = claims;
+          socket.data.rawToken = token;
         } catch {
           socket.data.authClaims = null;
         }
@@ -91,18 +226,73 @@ export function createRealtime(): AttachableRealtime {
       });
 
       io.on("connection", (socket) => {
-        socket.on("join", (payload: { roundId?: string; compId?: string }) => {
-          if (payload?.roundId) socket.join(roomOf(payload.roundId));
-          if (payload?.compId) socket.join(`comp:${payload.compId}`);
+        const claims = socket.data.authClaims as AuthClaims | null;
+        if (claims) {
+          trackSocket(claims.sub, socket.id);
+        }
+
+        // Per-socket rate limit state
+        const rateBuckets = new Map<string, RateBucket>();
+        let joinedRoomCount = 0;
+
+        // Periodic re-auth: verify token is still valid every 5 minutes
+        const reauthTimer = claims ? setInterval(async () => {
+          const c = socket.data.authClaims as AuthClaims | null;
+          if (!c) { clearInterval(reauthTimer!); return; }
+
+          if (c.jti && await isTokenBlocked(c.jti)) {
+            socket.emit("auth:revoked", { reason: "token_blocked" });
+            socket.disconnect(true);
+            return;
+          }
+
+          const user = await repo.users.findById(c.sub);
+          if (!user || user.accountStage === "deleted" || user.accountStage === "suspended" || user.accountStage === "banned") {
+            socket.emit("auth:revoked", { reason: "account_inactive" });
+            socket.disconnect(true);
+          }
+        }, REAUTH_INTERVAL_MS) : null;
+
+        socket.on("join", async (payload: { roundId?: string; compId?: string }) => {
+          // Rate limit: 5 joins/sec, burst of 10
+          if (!checkRate(rateBuckets, "join", 10, 5)) return;
+
+          if (joinedRoomCount >= MAX_ROOMS_PER_SOCKET) return;
+
+          if (payload?.roundId) {
+            const round = await repo.rounds.findById(payload.roundId);
+            if (!round) return;
+            socket.join(roomOf(payload.roundId));
+            joinedRoomCount++;
+          }
+          if (payload?.compId) {
+            if (joinedRoomCount >= MAX_ROOMS_PER_SOCKET) return;
+            const comp = await repo.competitions.findById(payload.compId);
+            if (!comp) return;
+            socket.join(`comp:${payload.compId}`);
+            joinedRoomCount++;
+          }
         });
 
         socket.on(
           "lobby:checkin",
           async (payload: { roundId?: string; name?: string }) => {
-            const claims = socket.data.authClaims;
             if (!claims) return;
+
+            // Rate limit: 1 checkin/sec, burst of 3
+            if (!checkRate(rateBuckets, "lobby:checkin", 3, 1)) return;
+
             const { roundId } = payload ?? {};
             if (!roundId) return;
+
+            // Validate round exists
+            const round = await repo.rounds.findById(roundId);
+            if (!round) return;
+
+            // Idempotent: skip if already checked into this round
+            const existingLobby = socket.data.lobby as { roundId: string; userId: string } | undefined;
+            if (existingLobby?.roundId === roundId) return;
+
             socket.join(roomOf(roundId));
             socket.data.lobby = { roundId, userId: claims.sub };
             const user = await repo.users.findById(claims.sub);
@@ -112,6 +302,10 @@ export function createRealtime(): AttachableRealtime {
         );
 
         socket.on("disconnect", async () => {
+          if (reauthTimer) clearInterval(reauthTimer);
+          const c = socket.data.authClaims as AuthClaims | null;
+          if (c) untrackSocket(c.sub, socket.id);
+
           const lobby = socket.data.lobby as
             | { roundId: string; userId: string }
             | undefined;
@@ -125,6 +319,8 @@ export function createRealtime(): AttachableRealtime {
     },
 
     async close() {
+      for (const entry of leaderboardPending.values()) clearTimeout(entry.timer);
+      leaderboardPending.clear();
       await io?.close();
       io = null;
     },

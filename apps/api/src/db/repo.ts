@@ -73,10 +73,13 @@ export interface Repository {
     findByCompetition(compId: string): Promise<Round[]>;
     create(round: Round): Promise<void>;
     update(id: string, fields: Partial<Round>): Promise<Round | null>;
+    /** Atomic CAS: update status only if current status matches expectedStatus. Returns true if updated. */
+    compareAndUpdateStatus(id: string, expectedStatus: string, newStatus: string): Promise<boolean>;
   };
 
   scrambleSets: {
     findByRound(roundId: string): Promise<ScrambleSet | null>;
+    findByRounds(roundIds: string[]): Promise<Map<string, ScrambleSet>>;
     upsert(set: ScrambleSet): Promise<void>;
   };
 
@@ -148,6 +151,7 @@ export interface Repository {
     /** Check if a user was shortlisted for a given round (used to gate round 2+ entry). */
     isAdvanced(roundId: string, userId: string): Promise<boolean>;
     findByRound(roundId: string): Promise<RoundAdvancement[]>;
+    findByRounds(roundIds: string[]): Promise<Map<string, RoundAdvancement[]>>;
   };
 
   personalBests: {

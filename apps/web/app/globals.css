@@ -121,18 +121,43 @@ kbd {
   border: 1px solid var(--border-default);
 }
 
+/* Pages that opt out of the animated background get a solid page color */
+body.no-bg {
+  background-color: var(--bg-page);
+}
+
+body.competition-mode {
+  background-color: #ffffff;
+}
+
+.dark body.competition-mode {
+  background-color: #09090b;
+}
+
 /* Competition mode — hide nav and footer for full-screen solve terminal */
 body.competition-mode [data-layout="navbar"],
 body.competition-mode [data-layout="footer"] {
   display: none !important;
 }
 
-/* Old CSS-based animated background removed — now using WebGL shader */
-
-
 /* ══════════════════════════════════════════════════
    ANIMATIONS
    ══════════════════════════════════════════════════ */
+
+@keyframes bg-drift {
+  0%   { background-position: 0% 0%; }
+  33%  { background-position: 4% 2%; }
+  66%  { background-position: 1% 4%; }
+  100% { background-position: 0% 0%; }
+}
+
+.bg-drift {
+  animation: bg-drift 60s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-drift { animation: none; }
+}
 
 @keyframes pulse-live {
   0%, 100% { opacity: 1; transform: scale(1); }

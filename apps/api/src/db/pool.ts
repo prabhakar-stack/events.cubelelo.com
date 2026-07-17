@@ -9,7 +9,7 @@ export function getPool(): InstanceType<typeof Pool> {
   if (!_pool) {
     _pool = new Pool({
       connectionString: env.DATABASE_URL,
-      max: 10,
+      max: 20,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 15_000,
     });

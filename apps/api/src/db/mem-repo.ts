@@ -222,11 +222,25 @@ export function createMemRepo(): Repository {
         Object.assign(round, fields);
         return round;
       },
+      async compareAndUpdateStatus(id, expectedStatus, newStatus) {
+        const round = rounds.get(id);
+        if (!round || round.status !== expectedStatus) return false;
+        round.status = newStatus as typeof round.status;
+        return true;
+      },
     },
 
     scrambleSets: {
       async findByRound(roundId) {
         return [...scrambleSets.values()].find((s) => s.roundId === roundId) ?? null;
+      },
+      async findByRounds(roundIds) {
+        const wanted = new Set(roundIds);
+        const map = new Map<string, ScrambleSet>();
+        for (const s of scrambleSets.values()) {
+          if (wanted.has(s.roundId)) map.set(s.roundId, s);
+        }
+        return map;
       },
       async upsert(set) { scrambleSets.set(set.id, set); },
     },
@@ -403,6 +417,14 @@ export function createMemRepo(): Repository {
         return (roundAdvancements.get(roundId) ?? []).some((e) => e.userId === userId);
       },
       async findByRound(roundId) { return roundAdvancements.get(roundId) ?? []; },
+      async findByRounds(roundIds) {
+        const map = new Map<string, RoundAdvancement[]>();
+        for (const id of roundIds) {
+          const entries = roundAdvancements.get(id);
+          if (entries && entries.length > 0) map.set(id, entries);
+        }
+        return map;
+      },
     },
 
     personalBests: {

@@ -12,6 +12,7 @@ import { smsService } from "../../lib/sms";
 import { authLimiter, loginLimiter, passwordResetLimiter } from "../../lib/rateLimiter";
 import { blockToken } from "../../lib/tokenBlocklist";
 import { transferUserData } from "../../lib/accountTransfer";
+import type { Realtime } from "../../sockets/realtime";
 
 function generateOtp(): string {
   return String(randomInt(100000, 999999));
@@ -33,6 +34,7 @@ export async function registerAuthRoutes(
   app: FastifyInstance,
   repo: Repository,
   verifier: Verifier,
+  realtime: Realtime,
 ): Promise<void> {
   // First-login sync: create the user row + assign a CL ID if needed.
   app.post(
@@ -105,6 +107,7 @@ export async function registerAuthRoutes(
     if (claims.jti && claims.exp) {
       await blockToken(claims.jti, claims.exp);
     }
+    realtime.disconnectUser(claims.sub);
     return { ok: true };
   });
 

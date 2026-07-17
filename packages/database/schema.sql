@@ -55,6 +55,7 @@ create table competitions (
   registration_deadline timestamptz,
   created_by            uuid references users(id),
   published_by          uuid references users(id),
+  registration_limit    integer,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
 );

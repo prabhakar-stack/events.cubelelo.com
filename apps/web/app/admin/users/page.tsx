@@ -36,7 +36,7 @@ export default function AdminUsersPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetchAdminUsers({ search: search || undefined, stage: stageFilter || undefined })
+    fetchAdminUsers({ search: search || undefined, stage: stageFilter || undefined, role: "user" })
       .then(setUsers)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));

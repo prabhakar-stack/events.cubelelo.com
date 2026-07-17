@@ -365,7 +365,7 @@ function FeaturedHero({ comp }: { comp: CompetitionSummary }) {
             {comp.startsAt && (
               <span>{new Date(comp.startsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
             )}
-            <span className="tabular-nums">{comp.registrationCount ?? 0} registered</span>
+            <span className="tabular-nums">{comp.registrationCount ?? 0}{comp.registrationLimit ? `/${comp.registrationLimit}` : ""} registered</span>
             <span className="font-semibold text-accent-primary">
               {comp.type === "free" ? "Free" : `₹${((comp.baseFee ?? 0) / 100).toFixed(0)}+`}
             </span>

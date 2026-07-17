@@ -42,7 +42,7 @@ export default function RootLayout({
                 <PageProgressBar />
               </Suspense>
               <NavBar />
-              <div className="relative z-[1] flex flex-1 flex-col overflow-y-auto">
+              <div className="relative z-[1] flex flex-1 flex-col overflow-y-auto [will-change:scroll-position]">
                 {children}
                 <Footer />
               </div>

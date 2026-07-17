@@ -91,6 +91,7 @@ export async function registerCompetitionRoutes(
         createdAt: c.createdAt,
         eventTypes: (eventsMap.get(c.id) ?? []).map((e) => e.eventType),
         registrationCount: regCountMap.get(c.id) ?? 0,
+        registrationLimit: c.registrationLimit ?? null,
         cancellationReason: c.cancellationReason ?? null,
       }));
     },
@@ -119,6 +120,9 @@ export async function registerCompetitionRoutes(
         competition.publishedBy ? repo.users.findById(competition.publishedBy) : null,
       ]);
 
+      // Batch fetch all scramble sets for this competition's rounds (eliminates N+1)
+      const scrambleMap = await repo.scrambleSets.findByRounds(rounds.map((r) => r.id));
+
       return {
         id: competition.id,
         title: competition.title,
@@ -141,42 +145,34 @@ export async function registerCompetitionRoutes(
         publishedByName: publisher?.name ?? null,
         createdAt: competition.createdAt,
         registrationCount: regCount,
+        registrationLimit: competition.registrationLimit ?? null,
         cancellationReason: competition.cancellationReason ?? null,
         videoDeadlineMinutes: competition.videoDeadlineMinutes,
-        events: await Promise.all(
-          events.map(async (e) => {
-            const eventRounds = rounds
-              .filter((r) => r.competitionEventId === e.id)
-              .sort((a, b) => a.roundNumber - b.roundNumber);
+        events: events.map((e) => {
+          const eventRounds = rounds
+            .filter((r) => r.competitionEventId === e.id)
+            .sort((a, b) => a.roundNumber - b.roundNumber);
 
-            const roundsWithScramble = await Promise.all(
-              eventRounds.map(async (r) => {
-                const set = await repo.scrambleSets.findByRound(r.id);
-                return {
-                  id: r.id,
-                  roundNumber: r.roundNumber,
-                  status: effectiveRoundStatus(r),
-                  eventType: e.eventType,
-                  opensAt: r.opensAt ?? null,
-                  closesAt: r.closesAt ?? null,
-                  advancementCount: r.advancementCount ?? null,
-                  advancementCriteria: r.advancementCriteria ?? null,
-                  scrambleLocked: Boolean(set?.lockedAt),
-                };
-              }),
-            );
-
-            return {
-              id: e.id,
+          return {
+            id: e.id,
+            eventType: e.eventType,
+            roundCount: e.roundCount,
+            cutoffMs: e.cutoffMs,
+            timeLimitMs: e.timeLimitMs,
+            fee: e.fee,
+            rounds: eventRounds.map((r) => ({
+              id: r.id,
+              roundNumber: r.roundNumber,
+              status: effectiveRoundStatus(r),
               eventType: e.eventType,
-              roundCount: e.roundCount,
-              cutoffMs: e.cutoffMs,
-              timeLimitMs: e.timeLimitMs,
-              fee: e.fee,
-              rounds: roundsWithScramble,
-            };
-          }),
-        ),
+              opensAt: r.opensAt ?? null,
+              closesAt: r.closesAt ?? null,
+              advancementCount: r.advancementCount ?? null,
+              advancementCriteria: r.advancementCriteria ?? null,
+              scrambleLocked: Boolean(scrambleMap.get(r.id)?.lockedAt),
+            })),
+          };
+        }),
       };
     },
   );
@@ -300,6 +296,130 @@ export async function registerCompetitionRoutes(
     },
   );
 
+  // Live competition view — comp metadata + active round + leaderboard in one request.
+  // Designed for 500 concurrent competitors: minimal queries, no N+1.
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/competitions/:id/live",
+    async (req, reply) => {
+      const competition = await repo.competitions.findById(req.params.id);
+      if (!competition) return reply.code(404).send({ error: "competition_not_found" });
+
+      const effStatus = effectiveCompStatus(competition);
+      if (effStatus === "draft") return reply.code(404).send({ error: "competition_not_found" });
+
+      const [events, rounds] = await Promise.all([
+        repo.competitionEvents.findByCompetition(competition.id),
+        repo.rounds.findByCompetition(competition.id),
+      ]);
+
+      // Find the single active round across the entire competition
+      let activeRound = rounds.find((r) => effectiveRoundStatus(r) === "open");
+      // Fallback: most recently closed/advanced round (for viewing results after close)
+      if (!activeRound) {
+        activeRound = [...rounds]
+          .filter((r) => {
+            const s = effectiveRoundStatus(r);
+            return s === "closed" || s === "advanced";
+          })
+          .sort((a, b) => {
+            const ta = a.closesAt ? new Date(a.closesAt).getTime() : 0;
+            const tb = b.closesAt ? new Date(b.closesAt).getTime() : 0;
+            return tb - ta;
+          })[0];
+      }
+
+      const activeEvent = activeRound
+        ? events.find((e) => e.id === activeRound!.competitionEventId)
+        : null;
+
+      // Build leaderboard + user progress for the active round only
+      let leaderboard: { userId: string; userName: string; userClId: string; rank: number | null; ao5Ms: number | null; bestSingleMs: number | null; flagStatus: string }[] = [];
+      let userResult: { id: string; rank: number | null; ao5Ms: number | null; bestSingleMs: number | null; flagStatus: string } | null = null;
+
+      if (activeRound) {
+        const results = await repo.results.findByRound(activeRound.id);
+        const userIds = [...new Set(results.map((r) => r.userId))];
+        const usersMap = await repo.users.findByIds(userIds);
+
+        leaderboard = results
+          .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity))
+          .map((r) => {
+            const u = usersMap.get(r.userId);
+            return {
+              userId: r.userId,
+              userName: u?.name ?? "Unknown",
+              userClId: u?.clId ?? r.userId,
+              rank: r.rank,
+              ao5Ms: r.ao5Ms,
+              bestSingleMs: r.bestSingleMs,
+              flagStatus: r.flagStatus,
+            };
+          });
+
+        // Caller's own result (if authenticated)
+        if (req.authClaims?.sub) {
+          const caller = await repo.users.findById(req.authClaims.sub);
+          if (caller) {
+            const myResult = results.find((r) => r.userId === caller.id);
+            if (myResult) {
+              userResult = {
+                id: myResult.id,
+                rank: myResult.rank,
+                ao5Ms: myResult.ao5Ms,
+                bestSingleMs: myResult.bestSingleMs,
+                flagStatus: myResult.flagStatus,
+              };
+            }
+          }
+        }
+      }
+
+      // Round summary — minimal metadata per round (no scramble lookups, no result counts)
+      const eventSummaries = events.map((e) => {
+        const eventRounds = rounds
+          .filter((r) => r.competitionEventId === e.id)
+          .sort((a, b) => a.roundNumber - b.roundNumber);
+        return {
+          id: e.id,
+          eventType: e.eventType,
+          roundCount: e.roundCount,
+          rounds: eventRounds.map((r) => ({
+            id: r.id,
+            roundNumber: r.roundNumber,
+            status: effectiveRoundStatus(r),
+            opensAt: r.opensAt ?? null,
+            closesAt: r.closesAt ?? null,
+          })),
+        };
+      });
+
+      return {
+        competition: {
+          id: competition.id,
+          title: competition.title,
+          type: competition.type,
+          status: effStatus,
+          startsAt: competition.startsAt ?? null,
+          endsAt: competition.endsAt ?? null,
+          videoDeadlineMinutes: competition.videoDeadlineMinutes,
+          cancellationReason: competition.cancellationReason ?? null,
+        },
+        events: eventSummaries,
+        activeRound: activeRound ? {
+          id: activeRound.id,
+          roundNumber: activeRound.roundNumber,
+          status: effectiveRoundStatus(activeRound),
+          eventId: activeRound.competitionEventId,
+          eventType: activeEvent?.eventType ?? null,
+          opensAt: activeRound.opensAt ?? null,
+          closesAt: activeRound.closesAt ?? null,
+        } : null,
+        leaderboard,
+        userResult,
+      };
+    },
+  );
+
   // Event detail page — combines competition, event, rounds, and user progress
   app.get<{ Params: { id: string; eventId: string } }>(
     "/api/v1/competitions/:id/event/:eventId",
@@ -319,32 +439,43 @@ export async function registerCompetitionRoutes(
         .filter((r) => r.competitionEventId === event.id)
         .sort((a, b) => a.roundNumber - b.roundNumber);
 
-      // Count participants for R1 = registrations for this event
-      const regs = (await repo.registrations.findByCompetition(competition.id))
-        .filter((r) => r.paymentStatus === "paid" || competition.type === "free" || competition.type === "practice");
-      const eventsByReg = await repo.registrations.findEventsForAll(regs.map((r) => r.id));
-      const r1Participants = regs.filter((r) =>
+      const roundIds = eventRounds.map((r) => r.id);
+
+      // Batch fetch results, advancements, and registrations (eliminates N+1)
+      const [allResults, advMap, regs] = await Promise.all([
+        repo.results.findByRounds(roundIds),
+        repo.advancements.findByRounds(roundIds),
+        repo.registrations.findByCompetition(competition.id),
+      ]);
+
+      const paidRegs = regs.filter((r) => r.paymentStatus === "paid" || competition.type === "free" || competition.type === "practice");
+      const eventsByReg = await repo.registrations.findEventsForAll(paidRegs.map((r) => r.id));
+      const r1Participants = paidRegs.filter((r) =>
         (eventsByReg.get(r.id) ?? []).some((e) => e.id === event.id),
       ).length;
 
-      const rounds = await Promise.all(
-        eventRounds.map(async (r) => {
-          const results = await repo.results.findByRound(r.id);
-          const advancements = r.roundNumber > 1
-            ? await repo.advancements.findByRound(r.id)
-            : [];
-          return {
-            id: r.id,
-            roundNumber: r.roundNumber,
-            status: effectiveRoundStatus(r),
-            opensAt: r.opensAt ?? null,
-            closesAt: r.closesAt ?? null,
-            advancementCriteria: r.advancementCriteria ?? null,
-            resultCount: results.length,
-            participantCount: r.roundNumber === 1 ? r1Participants : advancements.length,
-          };
-        }),
-      );
+      // Group results by round
+      const resultsByRound = new Map<string, typeof allResults>();
+      for (const r of allResults) {
+        const list = resultsByRound.get(r.roundId);
+        if (list) list.push(r);
+        else resultsByRound.set(r.roundId, [r]);
+      }
+
+      const rounds = eventRounds.map((r) => {
+        const results = resultsByRound.get(r.id) ?? [];
+        const advancements = advMap.get(r.id) ?? [];
+        return {
+          id: r.id,
+          roundNumber: r.roundNumber,
+          status: effectiveRoundStatus(r),
+          opensAt: r.opensAt ?? null,
+          closesAt: r.closesAt ?? null,
+          advancementCriteria: r.advancementCriteria ?? null,
+          resultCount: results.length,
+          participantCount: r.roundNumber === 1 ? r1Participants : advancements.length,
+        };
+      });
 
       // User progress (if authenticated)
       let userStatus: { registered: boolean; rounds: unknown[] } | null = null;
@@ -354,43 +485,41 @@ export async function registerCompetitionRoutes(
           const reg = await repo.registrations.findByUserAndComp(user.id, competition.id);
           if (reg) {
             const userResults = await repo.results.findByUser(user.id);
-            const roundProgress = await Promise.all(
-              eventRounds.map(async (r) => {
-                const status = effectiveRoundStatus(r);
-                const result = userResults.find((res) => res.roundId === r.id);
-                const advanced = r.roundNumber > 1
-                  ? await repo.advancements.isAdvanced(r.id, user.id)
-                  : true;
+            const roundProgress = eventRounds.map((r) => {
+              const status = effectiveRoundStatus(r);
+              const result = userResults.find((res) => res.roundId === r.id);
+              const adv = advMap.get(r.id) ?? [];
+              const advanced = r.roundNumber > 1
+                ? adv.some((a) => a.userId === user.id)
+                : true;
 
-                let userRoundStatus: string;
-                if (result) {
-                  if (status === "closed" || status === "advanced") {
-                    const adv = await repo.advancements.findByRound(r.id);
-                    const qualified = adv.some((a) => a.userId === user.id);
-                    userRoundStatus = qualified ? "qualified" : (adv.length > 0 ? "eliminated" : "result_pending");
-                  } else {
-                    userRoundStatus = "submitted";
-                  }
-                } else if (status === "cancelled") {
-                  userRoundStatus = "cancelled";
-                } else if (status === "open" && advanced) {
-                  userRoundStatus = "active";
-                } else if (status === "pending") {
-                  userRoundStatus = advanced ? "upcoming" : "locked";
+              let userRoundStatus: string;
+              if (result) {
+                if (status === "closed" || status === "advanced") {
+                  const qualified = adv.some((a) => a.userId === user.id);
+                  userRoundStatus = qualified ? "qualified" : (adv.length > 0 ? "eliminated" : "result_pending");
                 } else {
-                  userRoundStatus = advanced ? "not_submitted" : "locked";
+                  userRoundStatus = "submitted";
                 }
+              } else if (status === "cancelled") {
+                userRoundStatus = "cancelled";
+              } else if (status === "open" && advanced) {
+                userRoundStatus = "active";
+              } else if (status === "pending") {
+                userRoundStatus = advanced ? "upcoming" : "locked";
+              } else {
+                userRoundStatus = advanced ? "not_submitted" : "locked";
+              }
 
-                return {
-                  roundId: r.id,
-                  roundNumber: r.roundNumber,
-                  userStatus: userRoundStatus,
-                  result: result
-                    ? { id: result.id, rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs, videoUrl: result.videoUrl }
-                    : null,
-                };
-              }),
-            );
+              return {
+                roundId: r.id,
+                roundNumber: r.roundNumber,
+                userStatus: userRoundStatus,
+                result: result
+                  ? { id: result.id, rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs, videoUrl: result.videoUrl }
+                  : null,
+              };
+            });
             userStatus = { registered: true, rounds: roundProgress };
           } else {
             userStatus = { registered: false, rounds: [] };
@@ -402,14 +531,13 @@ export async function registerCompetitionRoutes(
       let finalStandings: { rank: number; userId: string; displayName: string }[] | null = null;
       const lastRound = eventRounds[eventRounds.length - 1];
       if (lastRound && effectiveRoundStatus(lastRound) === "advanced") {
-        const adv = await repo.advancements.findByRound(lastRound.id);
+        const adv = advMap.get(lastRound.id) ?? [];
         if (adv.length > 0) {
-          const entries = await Promise.all(
-            adv.map(async (a) => {
-              const u = await repo.users.findById(a.userId);
-              return { rank: a.rank, userId: a.userId, displayName: u?.name ?? u?.wcaId ?? "Unknown" };
-            }),
-          );
+          const usersMap = await repo.users.findByIds(adv.map((a) => a.userId));
+          const entries = adv.map((a) => {
+            const u = usersMap.get(a.userId);
+            return { rank: a.rank, userId: a.userId, displayName: u?.name ?? u?.wcaId ?? "Unknown" };
+          });
           finalStandings = entries.sort((a, b) => a.rank - b.rank);
         }
       }

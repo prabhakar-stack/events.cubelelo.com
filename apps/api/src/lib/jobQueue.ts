@@ -2,8 +2,14 @@ import { env } from "../config/env";
 
 type JobHandler = (data: Record<string, unknown>) => Promise<void>;
 
+interface JobOptions {
+  delay?: number;
+  jobId?: string;
+}
+
 interface QueueInterface {
-  add(name: string, data: Record<string, unknown>): Promise<void>;
+  add(name: string, data: Record<string, unknown>, opts?: JobOptions): Promise<void>;
+  remove(jobId: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -39,8 +45,17 @@ async function createBullQueue(): Promise<QueueInterface> {
 
   console.log("📋 BullMQ worker started");
   return {
-    async add(name, data) {
-      await q.add(name, data);
+    async add(name, data, opts) {
+      await q.add(name, data, {
+        delay: opts?.delay,
+        jobId: opts?.jobId,
+        removeOnComplete: true,
+        removeOnFail: 5,
+      });
+    },
+    async remove(jobId) {
+      const job = await q.getJob(jobId);
+      if (job) await job.remove();
     },
     async close() {
       await w.close();
@@ -50,16 +65,40 @@ async function createBullQueue(): Promise<QueueInterface> {
 }
 
 function createInMemoryQueue(): QueueInterface {
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
   return {
-    async add(name, data) {
-      const handler = handlers.get(name);
-      if (handler) {
-        handler(data).catch((err) =>
-          console.error(`Job ${name} failed:`, err),
-        );
+    async add(name, data, opts) {
+      const run = () => {
+        const handler = handlers.get(name);
+        if (handler) {
+          handler(data).catch((err) =>
+            console.error(`Job ${name} failed:`, err),
+          );
+        }
+        if (opts?.jobId) timers.delete(opts.jobId);
+      };
+      if (opts?.delay && opts.delay > 0) {
+        if (opts.jobId) {
+          const existing = timers.get(opts.jobId);
+          if (existing) clearTimeout(existing);
+        }
+        const t = setTimeout(run, opts.delay);
+        if (opts.jobId) timers.set(opts.jobId, t);
+      } else {
+        run();
       }
     },
-    async close() {},
+    async remove(jobId) {
+      const t = timers.get(jobId);
+      if (t) {
+        clearTimeout(t);
+        timers.delete(jobId);
+      }
+    },
+    async close() {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    },
   };
 }
 

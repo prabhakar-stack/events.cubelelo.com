@@ -6,8 +6,8 @@ import type { Result } from "../db/types";
 import type { Realtime } from "../sockets/realtime";
 
 /** Rank all results in a round: eligible sorted by ao5 then best single; disqualified get rank 0. */
-export async function recomputeRanks(repo: Repository, roundId: string): Promise<void> {
-  const all = await repo.results.findByRound(roundId);
+export async function recomputeRanks(repo: Repository, roundId: string, prefetched?: Result[]): Promise<Result[]> {
+  const all = prefetched ?? await repo.results.findByRound(roundId);
   const eligible = all.filter((r) => r.flagStatus !== "disqualified");
   const disqualified = all.filter((r) => r.flagStatus === "disqualified");
   const key = (n: number | null) => (n === null ? Number.POSITIVE_INFINITY : n);
@@ -17,6 +17,8 @@ export async function recomputeRanks(repo: Repository, roundId: string): Promise
   const updates = ranked.map((r, i) => ({ id: r.id, rank: i + 1 }));
   for (const r of disqualified) updates.push({ id: r.id, rank: 0 });
   await repo.results.updateRanks(updates);
+  const rankMap = new Map(updates.map((u) => [u.id, u.rank]));
+  return all.map((r) => ({ ...r, rank: rankMap.get(r.id) ?? r.rank }));
 }
 
 /**
@@ -98,14 +100,13 @@ export async function applyResultOverride(
   action: FlagStatus,
 ): Promise<void> {
   await repo.results.update(result.id, statsForAction(result, action));
-  await recomputeRanks(repo, result.roundId);
+  const board = await recomputeRanks(repo, result.roundId);
+  board.sort(
+    (a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),
+  );
 
   const event = await repo.competitionEvents.findByRound(result.roundId);
   if (event) await recomputePersonalBest(repo, result.userId, event.eventType);
 
-  const board = await repo.results.findByRound(result.roundId);
-  board.sort(
-    (a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),
-  );
   realtime.emitLeaderboard(result.roundId, board);
 }

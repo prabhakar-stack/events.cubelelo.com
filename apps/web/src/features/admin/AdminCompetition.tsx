@@ -143,6 +143,7 @@ export function AdminCompetition({ id }: { id: string }) {
   const [editRules, setEditRules] = useState("");
   const [editBaseFee, setEditBaseFee] = useState("");
   const [editPerEventFee, setEditPerEventFee] = useState("");
+  const [editRegLimit, setEditRegLimit] = useState("");
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [mobileBannerFile, setMobileBannerFile] = useState<File | null>(null);
 
@@ -188,6 +189,7 @@ export function AdminCompetition({ id }: { id: string }) {
       setEditRules(detail.rulesMd ?? "");
       setEditBaseFee(String((detail.baseFee ?? 0) / 100));
       setEditPerEventFee(String((detail.perEventFee ?? 0) / 100));
+      setEditRegLimit(detail.registrationLimit ? String(detail.registrationLimit) : "");
       setBannerFile(null);
       setMobileBannerFile(null);
       setRegOpens(toLocal(detail.registrationOpensAt));
@@ -398,7 +400,7 @@ export function AdminCompetition({ id }: { id: string }) {
             <span className="text-zinc-400 dark:text-zinc-500">Events</span>{" "}
             {detail.events.map((e) => e.eventType).join(", ")}
           </span>
-          <span><span className="text-zinc-400 dark:text-zinc-500">Registered</span> {detail.registrationCount ?? 0}</span>
+          <span><span className="text-zinc-400 dark:text-zinc-500">Registered</span> {detail.registrationCount ?? 0}{detail.registrationLimit != null && detail.registrationLimit > 0 ? `/${detail.registrationLimit}` : ""}</span>
           {detail.publishedByName && (
             <span><span className="text-zinc-400 dark:text-zinc-500">Published by</span> {detail.publishedByName}</span>
           )}
@@ -516,6 +518,17 @@ export function AdminCompetition({ id }: { id: string }) {
               </>
             )}
             <div>
+              <label className="mb-1 block text-xs text-zinc-500">Registration Limit <span className="text-zinc-400 dark:text-zinc-500">(blank = unlimited)</span></label>
+              <input
+                type="number"
+                min={1}
+                value={editRegLimit}
+                onChange={(e) => setEditRegLimit(e.target.value)}
+                placeholder="No limit"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </div>
+            <div>
               <label className="mb-1 block text-xs text-zinc-500">Desktop Banner <span className="text-zinc-400 dark:text-zinc-500">(1200×400 recommended)</span></label>
               {detail.bannerUrl && !bannerFile && (
                 <div className="mb-2">
@@ -560,6 +573,7 @@ export function AdminCompetition({ id }: { id: string }) {
                     baseFee: Math.round(Number(editBaseFee) * 100),
                     perEventFee: Math.round(Number(editPerEventFee) * 100),
                   } : {}),
+                  registrationLimit: editRegLimit ? Number(editRegLimit) : null,
                 });
                 if (bannerFile) await uploadCompetitionBanner(id, bannerFile);
                 if (mobileBannerFile) await uploadCompetitionMobileBanner(id, mobileBannerFile);

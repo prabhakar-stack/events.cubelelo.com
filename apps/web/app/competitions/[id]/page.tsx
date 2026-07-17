@@ -400,7 +400,11 @@ export default function CompetitionDetailPage() {
                 <div className="text-xs text-zinc-500">Events</div>
               </div>
               <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
-                <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">{comp.registrationCount ?? 0}</div>
+                <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                  {comp.registrationLimit != null && comp.registrationLimit > 0
+                    ? `${comp.registrationCount ?? 0}/${comp.registrationLimit}`
+                    : (comp.registrationCount ?? 0)}
+                </div>
                 <div className="text-xs text-zinc-500">Registered</div>
               </div>
               <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">

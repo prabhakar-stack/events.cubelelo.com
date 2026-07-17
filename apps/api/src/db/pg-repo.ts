@@ -90,6 +90,7 @@ function toComp(r: Row): Competition {
     coverCaption: (r.cover_caption as string) ?? undefined,
     cancellationReason: (r.cancellation_reason as string) ?? undefined,
     videoDeadlineMinutes: (r.video_deadline_minutes as number) ?? 1440,
+    registrationLimit: (r.registration_limit as number) ?? undefined,
     createdBy: (r.created_by as string) ?? undefined,
     publishedBy: (r.published_by as string) ?? undefined,
     createdAt: ts(r.created_at),
@@ -401,8 +402,9 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           `INSERT INTO competitions
              (id, title, type, status, cover_url, banner_url, mobile_banner_url, description, rules_md,
               base_fee, per_event_fee, registration_opens_at, registration_deadline,
-              starts_at, ends_at, featured, created_by, cancellation_reason, published_by, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$20)`,
+              starts_at, ends_at, featured, created_by, cancellation_reason, published_by,
+              registration_limit, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21)`,
           [
             comp.id, comp.title, comp.type, comp.status,
             comp.coverUrl ?? null, comp.bannerUrl ?? null, comp.mobileBannerUrl ?? null,
@@ -411,7 +413,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
             comp.registrationOpensAt ?? null, comp.registrationDeadline ?? null,
             comp.startsAt ?? null, comp.endsAt ?? null,
             comp.featured ?? false, comp.createdBy ?? null,
-            comp.cancellationReason ?? null, comp.publishedBy ?? null, comp.createdAt,
+            comp.cancellationReason ?? null, comp.publishedBy ?? null,
+            comp.registrationLimit ?? null, comp.createdAt,
           ],
         );
       },
@@ -438,7 +441,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           coverUrl: "cover_url", bannerUrl: "banner_url", mobileBannerUrl: "mobile_banner_url",
           featured: "featured", featuredOrder: "featured_order", coverCaption: "cover_caption",
           cancellationReason: "cancellation_reason", videoDeadlineMinutes: "video_deadline_minutes",
-          publishedBy: "published_by",
+          registrationLimit: "registration_limit", publishedBy: "published_by",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -615,6 +618,13 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
         return rows[0] ? toRound(rows[0]) : null;
       },
+      async compareAndUpdateStatus(id, expectedStatus, newStatus) {
+        const { rowCount } = await pool.query(
+          "UPDATE rounds SET status = $1 WHERE id = $2 AND status = $3",
+          [newStatus, id, expectedStatus],
+        );
+        return (rowCount ?? 0) > 0;
+      },
     },
 
     // ── scrambleSets ───────────────────────────────────────────────────────
@@ -625,6 +635,19 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           [roundId],
         );
         return rows[0] ? toScrambleSet(rows[0]) : null;
+      },
+      async findByRounds(roundIds) {
+        if (roundIds.length === 0) return new Map();
+        const { rows } = await pool.query(
+          `SELECT * FROM scramble_sets WHERE round_id = ANY($1)`,
+          [roundIds],
+        );
+        const map = new Map<string, ScrambleSet>();
+        for (const r of rows) {
+          const s = toScrambleSet(r);
+          map.set(s.roundId, s);
+        }
+        return map;
       },
       async upsert(set) {
         await pool.query(
@@ -1070,6 +1093,25 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           userId: r.user_id as string,
           rank: r.rank as number,
         }));
+      },
+      async findByRounds(roundIds) {
+        if (roundIds.length === 0) return new Map();
+        const { rows } = await pool.query(
+          "SELECT * FROM round_advancements WHERE round_id = ANY($1) ORDER BY rank",
+          [roundIds],
+        );
+        const map = new Map<string, RoundAdvancement[]>();
+        for (const r of rows) {
+          const adv: RoundAdvancement = {
+            roundId: r.round_id as string,
+            userId: r.user_id as string,
+            rank: r.rank as number,
+          };
+          const list = map.get(adv.roundId);
+          if (list) list.push(adv);
+          else map.set(adv.roundId, [adv]);
+        }
+        return map;
       },
     },
 

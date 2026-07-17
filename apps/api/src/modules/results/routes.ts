@@ -64,12 +64,12 @@ export async function registerResultRoutes(
     "/api/v1/rounds/:id/results",
     { preHandler: [submitLimiter, requireAuth] },
     async (req, reply) => {
-      const round = await repo.rounds.findById(req.params.id);
+      const [round, user] = await Promise.all([
+        repo.rounds.findById(req.params.id),
+        repo.users.findById(req.authClaims!.sub),
+      ]);
       if (!round) return reply.code(404).send({ error: "round_not_found" });
-
       if (effectiveRoundStatus(round) !== "open") return reply.code(409).send({ error: "round_not_open" });
-
-      const user = await repo.users.findById(req.authClaims!.sub);
       if (!user) return reply.code(403).send({ error: "not_synced" });
 
       // For round 2+: only shortlisted participants may submit
@@ -78,13 +78,14 @@ export async function registerResultRoutes(
         if (!advanced) return reply.code(403).send({ error: "not_shortlisted" });
       }
 
-      // Prevent duplicate submissions
-      const existingResults = await repo.results.findByRound(round.id);
+      const [existingResults, event] = await Promise.all([
+        repo.results.findByRound(round.id),
+        repo.competitionEvents.findByRound(round.id),
+      ]);
+
       if (existingResults.some((r) => r.userId === user.id)) {
         return reply.code(409).send({ error: "already_submitted" });
       }
-
-      const event = await repo.competitionEvents.findByRound(round.id);
       const expectedCount = solveCountForEvent(event?.eventType ?? "333");
       const solves = parseSolves(req.body?.solves, expectedCount);
       if (!solves) return reply.code(400).send({ error: "invalid_solves" });
@@ -153,23 +154,6 @@ export async function registerResultRoutes(
       };
       try {
         await repo.results.create(result);
-        await recomputeRanks(repo, round.id);
-        // Update personal bests
-        if (event) {
-          const existing = (await repo.personalBests.findByUser(user.id))
-            .find((pb) => pb.eventType === event.eventType);
-          await repo.personalBests.upsert({
-            id: existing?.id ?? randomUUID(),
-            userId: user.id,
-            eventType: event.eventType,
-            bestSingleMs: result.bestSingleMs,
-            bestAo5Ms: result.ao5Ms,
-            bestMeanMs: result.meanMs,
-            bestMedianMs: result.medianMs,
-            bestRank: null,
-            updatedAt: new Date().toISOString(),
-          });
-        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("duplicate") || msg.includes("unique")) {
@@ -178,7 +162,8 @@ export async function registerResultRoutes(
         return reply.code(400).send({ error: "save_failed", detail: msg });
       }
 
-      const board = await repo.results.findByRound(round.id);
+      const allResults = [...existingResults, result];
+      const board = await recomputeRanks(repo, round.id, allResults);
       board.sort(
         (a, b) =>
           (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),

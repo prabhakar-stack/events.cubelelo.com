@@ -12,6 +12,7 @@ import { validateCompetitionSchedule, validateScheduleFields } from "../../lib/s
 import { collectCertificateData, generateCertificatePDF } from "../../lib/certificate";
 import { emailService, sendBulk, roundNotificationEmail, bulkEmail, migrationEmail, staffWelcomeEmail } from "../../lib/email";
 import { applyResultOverride } from "../../lib/resultStats";
+import { scheduleRoundJobs } from "../../lib/roundScheduler";
 import { transferUserData } from "../../lib/accountTransfer";
 import { ZipArchive } from "archiver";
 import { ANTICHEAT_THRESHOLDS, DEFAULT_ANTICHEAT_THRESHOLD } from "../../lib/eventConfig";
@@ -47,6 +48,7 @@ export async function registerAdminRoutes(
       startsAt?: string;
       endsAt?: string;
       saveAsDraft?: boolean;
+      registrationLimit?: number;
       eventType?: string;
       roundCount?: number;
       events?: Array<{
@@ -64,7 +66,8 @@ export async function registerAdminRoutes(
     };
   }>("/api/v1/admin/competitions", adminOnly, async (req, reply) => {
     const { title, type, description, rulesMd, baseFee, perEventFee,
-            registrationOpensAt, registrationDeadline, startsAt, endsAt, saveAsDraft } =
+            registrationOpensAt, registrationDeadline, startsAt, endsAt, saveAsDraft,
+            registrationLimit } =
       req.body ?? {};
     if (!title || typeof title !== "string")
       return reply.code(400).send({ error: "missing_title" });
@@ -88,6 +91,7 @@ export async function registerAdminRoutes(
       endsAt: typeof endsAt === "string" ? endsAt : undefined,
       featured: false,
       videoDeadlineMinutes: 1440,
+      registrationLimit: typeof registrationLimit === "number" && registrationLimit > 0 ? registrationLimit : undefined,
       createdBy: user?.id,
       createdAt: now,
     };
@@ -145,6 +149,7 @@ export async function registerAdminRoutes(
           durationMinutes: roundDuration,
         };
         await repo.rounds.create(round);
+        if (round.opensAt || round.closesAt) await scheduleRoundJobs(round);
       }
     }
 
@@ -264,6 +269,7 @@ export async function registerAdminRoutes(
       startsAt: updated.startsAt ?? null,
       endsAt: updated.endsAt ?? null,
       featured: updated.featured,
+      registrationLimit: updated.registrationLimit ?? null,
       cancellationReason: updated.cancellationReason ?? null,
     };
   });
@@ -362,6 +368,7 @@ export async function registerAdminRoutes(
       endsAt: copySched ? source.endsAt : undefined,
       featured: false,
       videoDeadlineMinutes: source.videoDeadlineMinutes,
+      registrationLimit: source.registrationLimit,
       createdBy: user?.id,
       createdAt: now,
     };
@@ -398,6 +405,7 @@ export async function registerAdminRoutes(
           durationMinutes: copySched ? srcRound.durationMinutes : undefined,
         };
         await repo.rounds.create(round);
+        if (round.opensAt || round.closesAt) await scheduleRoundJobs(round);
 
         if (req.body?.reuseScrambles) {
           const srcSet = await repo.scrambleSets.findByRound(srcRound.id);
@@ -443,6 +451,7 @@ export async function registerAdminRoutes(
       endsAt: req.body?.endsAt ?? undefined,
       featured: false,
       videoDeadlineMinutes: source.videoDeadlineMinutes,
+      registrationLimit: source.registrationLimit,
       createdBy: user?.id,
       createdAt: now,
     };
@@ -894,6 +903,10 @@ export async function registerAdminRoutes(
     const updated = await repo.users.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "user_not_found" });
 
+    if (fields.accountStage === "suspended" || fields.accountStage === "banned" || fields.accountStage === "deleted") {
+      realtime.disconnectUser(req.params.id);
+    }
+
     await repo.auditLog.create({
       id: randomUUID(),
       adminId: admin?.id ?? req.authClaims!.sub,
@@ -928,6 +941,7 @@ export async function registerAdminRoutes(
         passwordHash: undefined,
         accountStage: "deleted",
       });
+      realtime.disconnectUser(req.params.id);
 
       const admin = await repo.users.findById(req.authClaims!.sub);
       await repo.auditLog.create({
@@ -1772,6 +1786,7 @@ export async function registerAdminRoutes(
       accountStage: "suspended" as import("@cubers/types").AccountStage,
       name: `[MERGED → ${keepUser.clId}] ${mergeUser.name}`,
     });
+    realtime.disconnectUser(mergeUserId);
 
     const admin = await repo.users.findById(req.authClaims!.sub);
     await repo.auditLog.create({

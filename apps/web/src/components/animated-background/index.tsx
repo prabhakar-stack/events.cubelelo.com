@@ -1,18 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useMotionValue, useSpring } from "motion/react";
-import { ShaderCanvas } from "./shader-canvas";
-import { FloatingLayers } from "./floating-layers";
+import { useEffect, useState } from "react";
+import { StaticBackground } from "./static-background";
 
 export function AnimatedBackground() {
   const [isDark, setIsDark] = useState(true);
-  const mouse = useRef({ x: 0, y: 0 });
-
-  const pxRaw = useMotionValue(0);
-  const pyRaw = useMotionValue(0);
-  const px = useSpring(pxRaw, { stiffness: 60, damping: 20, mass: 0.6 });
-  const py = useSpring(pyRaw, { stiffness: 60, damping: 20, mass: 0.6 });
+  const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
     const check = () => {
@@ -20,38 +13,32 @@ export function AnimatedBackground() {
     };
     check();
     const observer = new MutationObserver(check);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
     return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
-    const handle = (clientX: number, clientY: number) => {
-      const nx = (clientX / window.innerWidth) * 2 - 1;
-      const ny = (clientY / window.innerHeight) * 2 - 1;
-      mouse.current.x = nx;
-      mouse.current.y = -ny;
-      pxRaw.set(nx);
-      pyRaw.set(ny);
+    const check = () => {
+      const cl = document.body.classList;
+      setHidden(cl.contains("competition-mode") || cl.contains("no-bg"));
     };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
-    const onMouse = (e: MouseEvent) => handle(e.clientX, e.clientY);
-    const onTouch = (e: TouchEvent) => {
-      const t = e.touches[0];
-      if (t) handle(t.clientX, t.clientY);
-    };
-
-    window.addEventListener("mousemove", onMouse, { passive: true });
-    window.addEventListener("touchmove", onTouch, { passive: true });
-    return () => {
-      window.removeEventListener("mousemove", onMouse);
-      window.removeEventListener("touchmove", onTouch);
-    };
-  }, [pxRaw, pyRaw]);
+  if (hidden) return null;
 
   return (
     <div className="fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
-      <ShaderCanvas mouse={mouse} isDark={isDark} />
-      <FloatingLayers px={px} py={py} isDark={isDark} />
+      <StaticBackground isDark={isDark} />
 
       {/* soft radial glow */}
       <div

@@ -60,7 +60,7 @@ export async function buildApp(
     }
   });
 
-  await registerAuthRoutes(app, repo, verifier);
+  await registerAuthRoutes(app, repo, verifier, realtime);
   await registerCompetitionRoutes(app, repo);
   await registerRoundRoutes(app, repo, realtime);
   await registerResultRoutes(app, repo, realtime);

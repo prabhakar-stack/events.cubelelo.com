@@ -1,16 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useBodyClass } from "@/hooks/useBodyClass";
 
 export default function RoundLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  useEffect(() => {
-    document.body.classList.add("competition-mode");
-    return () => document.body.classList.remove("competition-mode");
-  }, []);
+  useBodyClass("competition-mode");
 
   return <>{children}</>;
 }

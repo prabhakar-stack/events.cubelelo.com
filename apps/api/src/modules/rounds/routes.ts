@@ -9,6 +9,7 @@ import { validateRoundTimes } from "../../lib/scheduleValidation";
 import { recordScrambleFetch } from "../../lib/scrambleTiming";
 import { scrambleLimiter, adminLimiter } from "../../lib/rateLimiter";
 import { ensureScramblesGenerated } from "../../lib/roundLifecycle";
+import { scheduleRoundJobs, cancelRoundJobs } from "../../lib/roundScheduler";
 
 export async function registerRoundRoutes(
   app: FastifyInstance,
@@ -179,6 +180,7 @@ export async function registerRoundRoutes(
 
       const updated = await repo.rounds.update(round.id, { status: "cancelled" });
       if (!updated) return reply.code(404).send({ error: "round_not_found" });
+      await cancelRoundJobs(round.id);
       realtime.emitRoundStatus(updated.id, "cancelled", updated.opensAt);
       return { id: updated.id, status: "cancelled" };
     },
@@ -214,6 +216,7 @@ export async function registerRoundRoutes(
 
       const now = new Date().toISOString();
       await repo.rounds.update(round.id, { status: "open", opensAt: now, closesAt: undefined });
+      await cancelRoundJobs(round.id);
       realtime.emitRoundStatus(round.id, "open" as RoundStatus, now);
       return { id: round.id, status: "open" };
     },
@@ -287,6 +290,9 @@ export async function registerRoundRoutes(
 
     const updated = await repo.rounds.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "round_not_found" });
+    if (fields.opensAt !== undefined || fields.closesAt !== undefined) {
+      await scheduleRoundJobs(updated);
+    }
     return {
       id: updated.id, status: updated.status,
       advancementCount: updated.advancementCount,

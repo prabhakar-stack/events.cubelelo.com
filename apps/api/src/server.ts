@@ -6,6 +6,7 @@ import { env } from "./config/env";
 import { registerJobs } from "./lib/jobs";
 import { getQueue } from "./lib/jobQueue";
 import { startRoundTicker } from "./lib/roundTicker";
+import { initRoundScheduler, scheduleRoundJobs } from "./lib/roundScheduler";
 
 // Choose storage backend: PostgreSQL when DATABASE_URL is set, in-memory otherwise.
 let repo;
@@ -29,6 +30,14 @@ const realtime = createRealtime();
 const app = await buildApp(repo, realtime);
 await app.ready();
 await realtime.attach(app, repo);
+
+initRoundScheduler(repo, realtime);
+const activeRounds = await repo.rounds.findActive();
+for (const round of activeRounds) {
+  if (round.opensAt || round.closesAt) await scheduleRoundJobs(round);
+}
+if (activeRounds.length > 0) console.log(`📋 Scheduled jobs for ${activeRounds.length} active rounds`);
+
 startRoundTicker(repo, realtime);
 
 try {

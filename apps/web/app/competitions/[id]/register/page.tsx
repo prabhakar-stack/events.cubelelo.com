@@ -59,6 +59,10 @@ function RegisterContent() {
     );
   }
 
+  const regCount = comp.registrationCount ?? 0;
+  const regLimit = comp.registrationLimit;
+  const isFull = regLimit != null && regLimit > 0 && regCount >= regLimit;
+
   const baseFee = comp.baseFee ?? 0;
   const defaultPerEventFee = comp.perEventFee ?? 0;
   const eventFeeSum = [...selected].reduce((sum, eid) => {
@@ -180,7 +184,17 @@ function RegisterContent() {
         setSuccess(true);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const raw = e instanceof Error ? e.message : String(e);
+      const codeMatch = raw.match(/"error"\s*:\s*"([^"]+)"/);
+      const code = codeMatch?.[1] ?? raw;
+      const friendly: Record<string, string> = {
+        registration_full: "This competition is full — no more spots available.",
+        registration_not_open: "Registration is not open for this competition.",
+        already_registered: "You are already registered for this competition.",
+        email_not_verified: "Please verify your email before registering.",
+        no_events_selected: "Please select at least one event.",
+      };
+      setError(friendly[code] ?? raw);
     } finally {
       setBusy(false);
     }
@@ -232,9 +246,26 @@ function RegisterContent() {
       <h1 className="mb-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
         Register for {comp.title}
       </h1>
-      <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
         Select the events you want to compete in.
       </p>
+
+      {regLimit != null && regLimit > 0 && (
+        <div className={`mb-6 flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm ${
+          isFull
+            ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400"
+            : "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400"
+        }`}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+          <span className="tabular-nums font-medium">{regCount}/{regLimit}</span>
+          <span>{isFull ? "— Registration full" : "spots taken"}</span>
+        </div>
+      )}
 
       <div className="mb-6 space-y-2">
         {comp.events.map((ev) => (
@@ -342,9 +373,9 @@ function RegisterContent() {
         size="lg"
         onClick={handleRegister}
         loading={busy}
-        disabled={selected.size === 0}
+        disabled={selected.size === 0 || isFull}
       >
-        {isFree ? "Register (Free)" : `Pay ₹${(totalFee / 100).toFixed(2)}`}
+        {isFull ? "Registration Full" : isFree ? "Register (Free)" : `Pay ₹${(totalFee / 100).toFixed(2)}`}
       </Button>
 
       {/* Email verification popup */}

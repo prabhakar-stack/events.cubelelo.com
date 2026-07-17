@@ -76,6 +76,7 @@ export interface CompetitionSummary {
   createdAt?: string;
   eventTypes?: string[];
   registrationCount?: number;
+  registrationLimit?: number | null;
   cancellationReason?: string | null;
 }
 
@@ -111,6 +112,7 @@ export interface CompetitionDetail {
   publishedByName?: string | null;
   createdAt?: string;
   registrationCount?: number;
+  registrationLimit?: number | null;
   cancellationReason?: string | null;
   videoDeadlineMinutes?: number;
   events: EventDetail[];
@@ -281,6 +283,40 @@ export function fetchLiveRanking(compId: string, event?: string): Promise<{
 }> {
   const q = event ? `?event=${encodeURIComponent(event)}` : "";
   return getJson(`/api/v1/competitions/${compId}/live-ranking${q}`);
+}
+
+export interface LiveCompetitionView {
+  competition: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    startsAt: string | null;
+    endsAt: string | null;
+    videoDeadlineMinutes: number;
+    cancellationReason: string | null;
+  };
+  events: {
+    id: string;
+    eventType: string;
+    roundCount: number;
+    rounds: { id: string; roundNumber: number; status: string; opensAt: string | null; closesAt: string | null }[];
+  }[];
+  activeRound: {
+    id: string;
+    roundNumber: number;
+    status: string;
+    eventId: string;
+    eventType: string | null;
+    opensAt: string | null;
+    closesAt: string | null;
+  } | null;
+  leaderboard: LiveRankingEntry[];
+  userResult: { id: string; rank: number | null; ao5Ms: number | null; bestSingleMs: number | null; flagStatus: string } | null;
+}
+
+export function fetchLiveCompetition(compId: string): Promise<LiveCompetitionView> {
+  return getJson<LiveCompetitionView>(`/api/v1/competitions/${compId}/live`);
 }
 
 export interface ParticipantEntry {
@@ -581,6 +617,7 @@ export function updateCompetition(
     featured?: boolean;
     bannerUrl?: string;
     mobileBannerUrl?: string;
+    registrationLimit?: number | null;
     cancellationReason?: string;
   },
 ): Promise<{ id: string; title: string; status: string }> {

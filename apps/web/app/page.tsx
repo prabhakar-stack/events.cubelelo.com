@@ -235,7 +235,7 @@ function LiveCard({ comp }: { comp: CompetitionSummary }) {
         <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
           <span className="flex items-center gap-1.5">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
-            <span className="font-semibold text-[var(--text-primary)]">{comp.registrationCount ?? 0}</span> competing
+            <span className="font-semibold text-[var(--text-primary)]">{comp.registrationCount ?? 0}{comp.registrationLimit ? `/${comp.registrationLimit}` : ""}</span> competing
           </span>
         </div>
       </div>
@@ -436,7 +436,7 @@ function ScrollCard({ comp }: { comp: CompetitionSummary }) {
           )}
           <span className="flex items-center gap-1.5 text-[11px] tabular-nums text-[var(--text-tertiary)]">
             <UsersIcon />
-            {comp.registrationCount ?? 0}
+            {comp.registrationCount ?? 0}{comp.registrationLimit ? `/${comp.registrationLimit}` : ""}
           </span>
         </div>
       </div>

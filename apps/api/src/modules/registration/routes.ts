@@ -24,6 +24,13 @@ export async function registerRegistrationRoutes(
         return reply.code(409).send({ error: "registration_not_open" });
       }
 
+      if (comp.registrationLimit != null && comp.registrationLimit > 0) {
+        const count = await repo.competitions.countRegistrations(comp.id);
+        if (count >= comp.registrationLimit) {
+          return reply.code(409).send({ error: "registration_full" });
+        }
+      }
+
       const user = await repo.users.findById(req.authClaims!.sub);
       if (!user) return reply.code(403).send({ error: "not_synced" });
 

@@ -1,10 +1,11 @@
 import type { RoundStatus } from "@cubers/types";
 import type { Repository } from "../db/repo";
 import type { Realtime } from "../sockets/realtime";
-import { effectiveRoundStatus, effectiveCompStatus } from "./statusUtils";
+import { effectiveRoundStatus } from "./statusUtils";
 import { closeRound, shortlistRound } from "./roundLifecycle";
+import { scheduleRoundJobs } from "./roundScheduler";
 
-const TICK_INTERVAL_MS = 10_000;
+const TICK_INTERVAL_MS = 60_000;
 
 export function startRoundTicker(repo: Repository, realtime: Realtime): () => void {
   let running = false;
@@ -23,17 +24,17 @@ export function startRoundTicker(repo: Repository, realtime: Realtime): () => vo
         if (effective === "open" && round.status === "pending") {
           await repo.rounds.update(round.id, { status: "open" });
           realtime.emitRoundStatus(round.id, "open" as RoundStatus, round.opensAt);
-          console.log(`⏱ Round ${round.id} auto-opened`);
+          await scheduleRoundJobs(round);
+          console.log(`⏱ Round ${round.id} recovery-opened`);
         }
 
         if (effective === "closed" && (round.status === "open" || round.status === "pending")) {
           await closeRound(repo, realtime, round);
-          console.log(`⏱ Round ${round.id} auto-closed`);
+          console.log(`⏱ Round ${round.id} recovery-closed`);
         }
       }
 
       await checkVerificationComplete(repo, realtime, rounds);
-      await checkCompetitionCompletion(repo, realtime);
     } catch (err) {
       console.error("Round ticker error:", err);
     } finally {
@@ -61,39 +62,5 @@ async function checkVerificationComplete(
 
     await shortlistRound(repo, realtime, round);
     console.log(`⏱ Round ${round.id} auto-shortlisted (all results verified)`);
-  }
-}
-
-async function checkCompetitionCompletion(repo: Repository, realtime: Realtime): Promise<void> {
-  const allComps = await repo.competitions.findAll();
-  const comps = allComps.filter((c) => {
-    const s = effectiveCompStatus(c);
-    return s === "results_pending";
-  });
-  for (const comp of comps) {
-
-    const events = await repo.competitionEvents.findByCompetition(comp.id);
-    if (events.length === 0) continue;
-
-    const rounds = await repo.rounds.findByCompetition(comp.id);
-    let allResolved = true;
-
-    for (const event of events) {
-      const eventRounds = rounds
-        .filter((r) => r.competitionEventId === event.id)
-        .sort((a, b) => a.roundNumber - b.roundNumber);
-      const finalRound = eventRounds[eventRounds.length - 1];
-      if (!finalRound) { allResolved = false; break; }
-
-      const results = await repo.results.findByRound(finalRound.id);
-      if (results.length === 0) { allResolved = false; break; }
-      if (results.some((r) => r.flagStatus === "flagged")) { allResolved = false; break; }
-    }
-
-    if (allResolved) {
-      await repo.competitions.update(comp.id, { status: "completed" });
-      realtime.emitCompStatus(comp.id, "completed");
-      console.log(`⏱ Competition ${comp.id} auto-completed`);
-    }
   }
 }

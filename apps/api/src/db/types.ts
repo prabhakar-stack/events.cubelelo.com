@@ -65,6 +65,7 @@ export interface Competition {
   coverCaption?: string;
   cancellationReason?: string;
   videoDeadlineMinutes: number;
+  registrationLimit?: number;
   createdBy?: string;
   publishedBy?: string;
   createdAt: string;

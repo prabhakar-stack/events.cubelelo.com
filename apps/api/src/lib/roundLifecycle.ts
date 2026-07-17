@@ -74,8 +74,9 @@ export async function shortlistRound(
 
   if (shortlisted.length === 0) return;
 
-  const existing = await repo.advancements.findByRound(round.id);
-  if (existing.length > 0) return;
+  // CAS: atomically claim the round for shortlisting — only one caller wins
+  const claimed = await repo.rounds.compareAndUpdateStatus(round.id, "closed", "advanced");
+  if (!claimed) return;
 
   const advanced: RoundAdvancement[] = shortlisted.map((r, i) => ({
     roundId: round.id,
@@ -84,8 +85,40 @@ export async function shortlistRound(
   }));
 
   await repo.advancements.save(round.id, advanced);
-  await repo.rounds.update(round.id, { status: "advanced" });
   realtime.emitRoundStatus(round.id, "advanced" as RoundStatus, round.opensAt);
+
+  await checkCompetitionCompletion(repo, realtime, round);
+}
+
+async function checkCompetitionCompletion(
+  repo: Repository,
+  realtime: Realtime,
+  round: Round,
+): Promise<void> {
+  const event = await repo.competitionEvents.findByRound(round.id);
+  if (!event) return;
+  const comp = await repo.competitions.findById(event.competitionId);
+  if (!comp || comp.status === "completed" || comp.status === "cancelled" || comp.status === "draft") return;
+
+  const events = await repo.competitionEvents.findByCompetition(comp.id);
+  const rounds = await repo.rounds.findByCompetition(comp.id);
+
+  for (const ev of events) {
+    const eventRounds = rounds
+      .filter((r) => r.competitionEventId === ev.id)
+      .sort((a, b) => a.roundNumber - b.roundNumber);
+    const finalRound = eventRounds[eventRounds.length - 1];
+    if (!finalRound) return;
+
+    if (finalRound.status !== "advanced" && finalRound.status !== "closed") return;
+    const results = await repo.results.findByRound(finalRound.id);
+    if (results.length === 0) return;
+    if (results.some((r) => r.flagStatus === "flagged")) return;
+  }
+
+  await repo.competitions.update(comp.id, { status: "completed" });
+  realtime.emitCompStatus(comp.id, "completed");
+  console.log(`⏱ Competition ${comp.id} auto-completed (all final rounds resolved)`);
 }
 
 function applyMethod<T extends { ao5Ms: number | null }>(

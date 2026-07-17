@@ -1,5 +1,6 @@
 import { RouteGuard } from "@/features/auth/RouteGuard";
 import { AdminShell } from "@/features/admin/AdminShell";
+import { BodyClass } from "@/components/BodyClass";
 
 export default function AdminLayout({
   children,
@@ -8,6 +9,7 @@ export default function AdminLayout({
 }) {
   return (
     <RouteGuard role="admin">
+      <BodyClass className="no-bg" />
       <AdminShell>{children}</AdminShell>
     </RouteGuard>
   );
