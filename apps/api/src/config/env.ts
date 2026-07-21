@@ -51,4 +51,7 @@ if (process.env.NODE_ENV === "production") {
   if (env.RAZORPAY_KEY_ID && !env.RAZORPAY_WEBHOOK_SECRET) {
     throw new Error("FATAL: RAZORPAY_WEBHOOK_SECRET must be set when Razorpay is enabled in production");
   }
+  if (!env.REDIS_URL) {
+    throw new Error("FATAL: REDIS_URL must be set in production (required for roster, job queue, rate limiting)");
+  }
 }

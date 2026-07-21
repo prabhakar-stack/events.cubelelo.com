@@ -11,6 +11,8 @@ import { getScrambleFetchTime } from "../../lib/scrambleTiming";
 import { submitLimiter } from "../../lib/rateLimiter";
 import { recomputeRanks } from "../../lib/resultStats";
 import { ANTICHEAT_THRESHOLDS, DEFAULT_ANTICHEAT_THRESHOLD } from "../../lib/eventConfig";
+import { withAdvisoryLock } from "../../db/pool";
+import { setLeaderboardCache, getLeaderboardCache, type CachedLeaderboardEntry } from "../../lib/leaderboardCache";
 
 const PENALTIES: SolvePenalty[] = ["none", "plus2", "dnf"];
 
@@ -72,16 +74,17 @@ export async function registerResultRoutes(
       if (effectiveRoundStatus(round) !== "open") return reply.code(409).send({ error: "round_not_open" });
       if (!user) return reply.code(403).send({ error: "not_synced" });
 
-      // For round 2+: only shortlisted participants may submit
+      const event = await repo.competitionEvents.findByRound(round.id);
+
       if (round.roundNumber > 1) {
         const advanced = await repo.advancements.isAdvanced(round.id, user.id);
         if (!advanced) return reply.code(403).send({ error: "not_shortlisted" });
+      } else if (event) {
+        const registered = await repo.registrations.isRegisteredForEvent(user.id, event.id);
+        if (!registered) return reply.code(403).send({ error: "not_registered_for_event" });
       }
 
-      const [existingResults, event] = await Promise.all([
-        repo.results.findByRound(round.id),
-        repo.competitionEvents.findByRound(round.id),
-      ]);
+      const existingResults = await repo.results.findByRound(round.id);
 
       if (existingResults.some((r) => r.userId === user.id)) {
         return reply.code(409).send({ error: "already_submitted" });
@@ -152,23 +155,47 @@ export async function registerResultRoutes(
         flagStatus,
         submittedAt: new Date().toISOString(),
       };
-      try {
-        await repo.results.create(result);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("duplicate") || msg.includes("unique")) {
-          return reply.code(409).send({ error: "already_submitted" });
-        }
-        return reply.code(400).send({ error: "save_failed", detail: msg });
+      const inserted = await withAdvisoryLock(`round:${round.id}`, async (client) => {
+        const { rows: dupeCheck } = await client.query(
+          "SELECT 1 FROM results WHERE round_id = $1 AND user_id = $2 LIMIT 1",
+          [round.id, user.id],
+        );
+        if (dupeCheck.length > 0) return false;
+
+        await client.query(
+          `INSERT INTO results
+             (id, round_id, user_id, solves_json, best_single_ms, ao5_ms, mean_ms,
+              median_ms, std_ms, rank, video_url, flag_status, verified_by, verified_at,
+              submitted_at)
+           VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          [result.id, result.roundId, result.userId, JSON.stringify(result.solves),
+           result.bestSingleMs, result.ao5Ms, result.meanMs, result.medianMs, result.stdMs,
+           result.rank, result.videoUrl, result.flagStatus, null, null, result.submittedAt],
+        );
+        return true;
+      });
+
+      if (!inserted) {
+        return reply.code(409).send({ error: "already_submitted" });
       }
 
-      const allResults = [...existingResults, result];
-      const board = await recomputeRanks(repo, round.id, allResults);
+      const board = await recomputeRanks(repo, round.id);
       board.sort(
         (a, b) =>
           (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER),
       );
-      realtime.emitLeaderboard(round.id, board);
+
+      const userIds = [...new Set(board.map((r) => r.userId))];
+      const usersMap = await repo.users.findByIds(userIds);
+      const enriched: CachedLeaderboardEntry[] = board.map((r) => {
+        const u = usersMap.get(r.userId);
+        return {
+          id: r.id, userId: r.userId, userName: u?.name ?? r.userId, userClId: u?.clId ?? r.userId,
+          ao5Ms: r.ao5Ms, bestSingleMs: r.bestSingleMs, rank: r.rank, flagStatus: r.flagStatus,
+        };
+      });
+      await setLeaderboardCache(round.id, enriched);
+      realtime.emitLeaderboard(round.id, enriched);
 
       return reply.code(201).send(result);
     },
@@ -215,10 +242,13 @@ export async function registerResultRoutes(
     },
   );
 
-  // Leaderboard for a round.
+  // Leaderboard for a round — serves from Redis cache when available.
   app.get<{ Params: { id: string } }>(
     "/api/v1/rounds/:id/results",
     async (req) => {
+      const cached = await getLeaderboardCache(req.params.id);
+      if (cached) return cached;
+
       const board = await repo.results.findByRound(req.params.id);
       board.sort(
         (a, b) =>
@@ -226,10 +256,15 @@ export async function registerResultRoutes(
       );
       const userIds = [...new Set(board.map((r) => r.userId))];
       const usersMap = await repo.users.findByIds(userIds);
-      return board.map((r) => {
+      const enriched: CachedLeaderboardEntry[] = board.map((r) => {
         const u = usersMap.get(r.userId);
-        return { ...r, userName: u?.name ?? r.userId, userClId: u?.clId ?? r.userId };
+        return {
+          id: r.id, userId: r.userId, userName: u?.name ?? r.userId, userClId: u?.clId ?? r.userId,
+          ao5Ms: r.ao5Ms, bestSingleMs: r.bestSingleMs, rank: r.rank, flagStatus: r.flagStatus,
+        };
       });
+      await setLeaderboardCache(req.params.id, enriched);
+      return enriched;
     },
   );
 

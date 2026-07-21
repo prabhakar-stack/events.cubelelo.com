@@ -8,6 +8,14 @@ import type { Realtime } from "../sockets/realtime";
 /** Rank all results in a round: eligible sorted by ao5 then best single; disqualified get rank 0. */
 export async function recomputeRanks(repo: Repository, roundId: string, prefetched?: Result[]): Promise<Result[]> {
   const all = prefetched ?? await repo.results.findByRound(roundId);
+  const updates = computeRankUpdates(all);
+  await repo.results.updateRanks(updates);
+  const rankMap = new Map(updates.map((u) => [u.id, u.rank]));
+  return all.map((r) => ({ ...r, rank: rankMap.get(r.id) ?? r.rank }));
+}
+
+/** Same ranking logic but works on slim results (no solve data needed). */
+export function computeRankUpdates(all: { id: string; ao5Ms: number | null; bestSingleMs: number | null; flagStatus: string }[]): { id: string; rank: number }[] {
   const eligible = all.filter((r) => r.flagStatus !== "disqualified");
   const disqualified = all.filter((r) => r.flagStatus === "disqualified");
   const key = (n: number | null) => (n === null ? Number.POSITIVE_INFINITY : n);
@@ -16,9 +24,7 @@ export async function recomputeRanks(repo: Repository, roundId: string, prefetch
   );
   const updates = ranked.map((r, i) => ({ id: r.id, rank: i + 1 }));
   for (const r of disqualified) updates.push({ id: r.id, rank: 0 });
-  await repo.results.updateRanks(updates);
-  const rankMap = new Map(updates.map((u) => [u.id, u.rank]));
-  return all.map((r) => ({ ...r, rank: rankMap.get(r.id) ?? r.rank }));
+  return updates;
 }
 
 /**

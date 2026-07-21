@@ -10,6 +10,7 @@ import {
   type AuthUser,
 } from "@/lib/api";
 import { getSupabase, supabaseEnabled } from "@/lib/supabase";
+import { reconnectSocket } from "@/features/realtime/socket";
 
 const TOKEN_KEY = "cubers_token";
 
@@ -39,6 +40,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { token } = await authLogin(identifier, password);
     localStorage.setItem(TOKEN_KEY, token);
     setAuthToken(token);
+    reconnectSocket();
     set({ user: await fetchMe().catch(() => syncUser()) });
   },
 
@@ -46,6 +48,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { token, otpSentTo } = await authRegister(identifier, password, name);
     localStorage.setItem(TOKEN_KEY, token);
     setAuthToken(token);
+    reconnectSocket();
     set({ user: await fetchMe().catch(() => syncUser()) });
     return { otpSentTo };
   },
@@ -90,6 +93,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           const { data } = await sb.auth.getSession();
           if (data.session) {
             resolved = true;
+            localStorage.setItem(TOKEN_KEY, data.session.access_token);
             setAuthToken(data.session.access_token);
             try {
               const u = await syncUser();
@@ -105,7 +109,9 @@ export const useAuthStore = create<AuthState>((set) => ({
         sb.auth.onAuthStateChange(async (event, session) => {
           console.log("[auth] onAuthStateChange event:", event, !!session);
           if (session) {
+            localStorage.setItem(TOKEN_KEY, session.access_token);
             setAuthToken(session.access_token);
+            reconnectSocket();
             try {
               set({ user: await syncUser() });
             } catch (err) {

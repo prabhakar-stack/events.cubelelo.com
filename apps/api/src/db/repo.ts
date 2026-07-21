@@ -5,6 +5,7 @@ import type {
   Round,
   ScrambleSet,
   Result,
+  ResultSlim,
   Registration,
   Payment,
   AuditLogEntry,
@@ -86,6 +87,7 @@ export interface Repository {
   results: {
     findById(id: string): Promise<Result | null>;
     findByRound(roundId: string): Promise<Result[]>;
+    findByRoundSlim(roundId: string): Promise<ResultSlim[]>;
     findByRounds(roundIds: string[]): Promise<Result[]>;
     /** userId is the user UUID (users.id). */
     findByUser(userId: string): Promise<Result[]>;
@@ -112,6 +114,7 @@ export interface Repository {
     /** Events for many registrations at once, keyed by registration id. */
     findEventsForAll(registrationIds: string[]): Promise<Map<string, CompetitionEvent[]>>;
     hasPaidRegistration(userId: string): Promise<boolean>;
+    isRegisteredForEvent(userId: string, competitionEventId: string): Promise<boolean>;
   };
 
   payments: {

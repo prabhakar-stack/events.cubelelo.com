@@ -9,7 +9,7 @@ export function getPool(): InstanceType<typeof Pool> {
   if (!_pool) {
     _pool = new Pool({
       connectionString: env.DATABASE_URL,
-      max: 20,
+      max: 60,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 15_000,
     });
@@ -30,6 +30,25 @@ export async function withTransaction<T>(
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function withAdvisoryLock<T>(
+  lockKey: string,
+  fn: (client: import("pg").PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
     const result = await fn(client);
     await client.query("COMMIT");
     return result;

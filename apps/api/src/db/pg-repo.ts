@@ -219,6 +219,7 @@ function toPayment(r: Row): Payment {
     currency: r.currency as string,
     razorpayOrderId: (r.razorpay_order_id as string) ?? undefined,
     razorpayPaymentId: (r.razorpay_payment_id as string) ?? undefined,
+    promoCodeId: (r.promo_code_id as string) ?? undefined,
     status: r.status as Payment["status"],
     createdAt: ts(r.created_at),
   };
@@ -679,6 +680,20 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
         return rows.map(toResult);
       },
+      async findByRoundSlim(roundId) {
+        const { rows } = await pool.query(
+          "SELECT id, user_id, ao5_ms, best_single_ms, rank, flag_status FROM results WHERE round_id = $1",
+          [roundId],
+        );
+        return rows.map((r: Row) => ({
+          id: r.id as string,
+          userId: r.user_id as string,
+          ao5Ms: (r.ao5_ms as number) ?? null,
+          bestSingleMs: (r.best_single_ms as number) ?? null,
+          rank: (r.rank as number) ?? null,
+          flagStatus: r.flag_status as Result["flagStatus"],
+        }));
+      },
       async findByUser(userId) {
         const { rows } = await pool.query(
           "SELECT * FROM results WHERE user_id = $1 ORDER BY submitted_at",
@@ -857,6 +872,17 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const { rows } = await pool.query(
           "SELECT 1 FROM registrations WHERE user_id = $1 AND payment_status = 'paid' LIMIT 1",
           [userId],
+        );
+        return rows.length > 0;
+      },
+      async isRegisteredForEvent(userId: string, competitionEventId: string) {
+        const { rows } = await pool.query(
+          `SELECT 1 FROM registrations r
+           JOIN registration_events re ON re.registration_id = r.id
+           WHERE r.user_id = $1 AND re.competition_event_id = $2
+             AND r.payment_status = 'paid'
+           LIMIT 1`,
+          [userId, competitionEventId],
         );
         return rows.length > 0;
       },
@@ -1076,10 +1102,22 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           client.release();
         }
       },
-      async isAdvanced(roundId, userId) {
+      async isAdvanced(destRoundId, userId) {
+        const redis = await getRedis();
+        if (redis) {
+          const cached = await redis.sismember(`adv:${destRoundId}`, userId);
+          if (cached) return true;
+          const exists = await redis.exists(`adv:${destRoundId}`);
+          if (exists) return false;
+        }
         const { rows } = await pool.query(
-          "SELECT 1 FROM round_advancements WHERE round_id = $1 AND user_id = $2",
-          [roundId, userId],
+          `SELECT 1 FROM round_advancements ra
+           JOIN rounds src ON ra.round_id = src.id
+           JOIN rounds dst ON dst.competition_event_id = src.competition_event_id
+             AND dst.round_number = src.round_number + 1
+           WHERE dst.id = $1 AND ra.user_id = $2
+           LIMIT 1`,
+          [destRoundId, userId],
         );
         return rows.length > 0;
       },
@@ -1743,26 +1781,30 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
     },
 
-    // ── roster (always in-memory) ──────────────────────────────────────────
+    // ── roster (Redis primary, in-memory fallback for dev) ─────────────────
     roster: {
       async join(roundId, userId, name) {
+        const redis = await getRedis();
+        if (redis) {
+          await redis.hset(`roster:${roundId}`, userId, name);
+          return;
+        }
         if (!roster.has(roundId)) roster.set(roundId, new Map());
         roster.get(roundId)!.set(userId, name);
-        const redis = await getRedis();
-        if (redis) await redis.hset(`roster:${roundId}`, userId, name).catch(() => {});
       },
       async leave(roundId, userId) {
-        roster.get(roundId)?.delete(userId);
         const redis = await getRedis();
-        if (redis) await redis.hdel(`roster:${roundId}`, userId).catch(() => {});
+        if (redis) {
+          await redis.hdel(`roster:${roundId}`, userId);
+          return;
+        }
+        roster.get(roundId)?.delete(userId);
       },
       async snapshot(roundId) {
         const redis = await getRedis();
         if (redis) {
-          const data = await redis.hgetall(`roster:${roundId}`).catch(() => null);
-          if (data && Object.keys(data).length > 0) {
-            return Object.entries(data).map(([userId, name]) => ({ userId, name }));
-          }
+          const data = await redis.hgetall(`roster:${roundId}`);
+          return Object.entries(data).map(([userId, name]) => ({ userId, name }));
         }
         const r = roster.get(roundId);
         if (!r) return [];

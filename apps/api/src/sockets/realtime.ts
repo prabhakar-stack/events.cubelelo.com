@@ -101,6 +101,10 @@ export function createRealtime(): AttachableRealtime {
   // Last emitted fingerprint per round — skip broadcast if unchanged
   const lastBoardFingerprint = new Map<string, string>();
 
+  // Roster debounce: coalesce rapid check-ins into a single broadcast
+  const ROSTER_DEBOUNCE_MS = 300;
+  const rosterPending = new Map<string, ReturnType<typeof setTimeout>>();
+
   function trackSocket(userId: string, socketId: string) {
     let set = userSockets.get(userId);
     if (!set) {
@@ -187,11 +191,31 @@ export function createRealtime(): AttachableRealtime {
         }
       }
 
-      const broadcastRoster = async (roundId: string) => {
-        io?.to(roomOf(roundId)).emit("lobby:roster", {
-          roundId,
-          competitors: await repo.roster.snapshot(roundId),
+      const userNameCache = new Map<string, Map<string, { name: string; clId?: string }>>();
+
+      const doBroadcastRoster = async (roundId: string) => {
+        const raw = await repo.roster.snapshot(roundId);
+        let cache = userNameCache.get(roundId);
+        const uncachedIds = raw.filter((r) => !cache?.has(r.userId)).map((r) => r.userId);
+        if (uncachedIds.length > 0) {
+          const fetched = await repo.users.findByIds(uncachedIds);
+          if (!cache) { cache = new Map(); userNameCache.set(roundId, cache); }
+          for (const [id, u] of fetched) cache.set(id, { name: u.name, clId: u.clId });
+        }
+        const competitors = raw.map((r) => {
+          const u = cache?.get(r.userId);
+          return { userId: r.userId, name: r.name, clId: u?.clId ?? undefined };
         });
+        io?.to(roomOf(roundId)).emit("lobby:roster", { roundId, competitors });
+      };
+
+      const broadcastRoster = (roundId: string) => {
+        const existing = rosterPending.get(roundId);
+        if (existing) clearTimeout(existing);
+        rosterPending.set(roundId, setTimeout(() => {
+          rosterPending.delete(roundId);
+          doBroadcastRoster(roundId).catch((err) => console.error("Roster broadcast error:", err));
+        }, ROSTER_DEBOUNCE_MS));
       };
 
       const verifier = createVerifier();
@@ -297,9 +321,20 @@ export function createRealtime(): AttachableRealtime {
             socket.data.lobby = { roundId, userId: claims.sub };
             const user = await repo.users.findById(claims.sub);
             await repo.roster.join(roundId, claims.sub, payload.name?.trim() || user?.name || claims.name || claims.sub.slice(0, 8));
-            await broadcastRoster(roundId);
+            broadcastRoster(roundId);
           },
         );
+
+        socket.on("lobby:checkout", async (payload: { roundId?: string }) => {
+          if (!claims) return;
+          if (!checkRate(rateBuckets, "lobby:checkout", 3, 1)) return;
+          const lobby = socket.data.lobby as { roundId: string; userId: string } | undefined;
+          if (!lobby || lobby.roundId !== payload?.roundId) return;
+          socket.data.lobby = undefined;
+          socket.leave(roomOf(lobby.roundId));
+          await repo.roster.leave(lobby.roundId, lobby.userId);
+          broadcastRoster(lobby.roundId);
+        });
 
         socket.on("disconnect", async () => {
           if (reauthTimer) clearInterval(reauthTimer);
@@ -311,7 +346,7 @@ export function createRealtime(): AttachableRealtime {
             | undefined;
           if (!lobby) return;
           await repo.roster.leave(lobby.roundId, lobby.userId);
-          await broadcastRoster(lobby.roundId);
+          broadcastRoster(lobby.roundId);
         });
       });
 
@@ -321,6 +356,8 @@ export function createRealtime(): AttachableRealtime {
     async close() {
       for (const entry of leaderboardPending.values()) clearTimeout(entry.timer);
       leaderboardPending.clear();
+      for (const timer of rosterPending.values()) clearTimeout(timer);
+      rosterPending.clear();
       await io?.close();
       io = null;
     },

@@ -4,9 +4,10 @@ import { seed } from "./db/seed";
 import { createRealtime } from "./sockets/realtime";
 import { env } from "./config/env";
 import { registerJobs } from "./lib/jobs";
-import { getQueue } from "./lib/jobQueue";
+import { getQueue, closeQueue } from "./lib/jobQueue";
 import { startRoundTicker } from "./lib/roundTicker";
 import { initRoundScheduler, scheduleRoundJobs } from "./lib/roundScheduler";
+import { closeRedis } from "./lib/redis";
 
 // Choose storage backend: PostgreSQL when DATABASE_URL is set, in-memory otherwise.
 let repo;
@@ -38,11 +39,10 @@ for (const round of activeRounds) {
 }
 if (activeRounds.length > 0) console.log(`📋 Scheduled jobs for ${activeRounds.length} active rounds`);
 
-startRoundTicker(repo, realtime);
+const stopTicker = startRoundTicker(repo, realtime);
 
 try {
   await app.listen({ port: env.PORT, host: env.HOST });
-  // eslint-disable-next-line no-console
   console.log(
     `🧊 API + realtime on http://localhost:${env.PORT} (auth: ${env.authMode})`,
   );
@@ -50,3 +50,23 @@ try {
   app.log.error(err);
   process.exit(1);
 }
+
+let shuttingDown = false;
+async function gracefulShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n⏳ ${signal} received — shutting down gracefully…`);
+  stopTicker();
+  await realtime.close();
+  await closeQueue();
+  await app.close();
+  if (env.DATABASE_URL) {
+    const { closePool } = await import("./db/pool");
+    await closePool();
+  }
+  await closeRedis();
+  console.log("✅ Shutdown complete");
+  process.exit(0);
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

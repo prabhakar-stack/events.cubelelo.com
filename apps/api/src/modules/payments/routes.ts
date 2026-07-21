@@ -92,11 +92,6 @@ export async function registerPaymentRoutes(
             return reply.code(409).send({ error: "promo_already_used" });
           }
         }
-        const claimed = await repo.promoCodes.incrementUsed(promo.id);
-        if (!claimed) {
-          return reply.code(409).send({ error: "promo_fully_redeemed" });
-        }
-        await repo.promoCodes.recordUsage(promo.id, user.id);
         if (promo.competitionEventId) {
           const targetEvent = regEvents.find((e) => e.id === promo.competitionEventId);
           const eventFee = targetEvent?.fee ?? comp?.perEventFee ?? 0;
@@ -124,6 +119,17 @@ export async function registerPaymentRoutes(
           createdAt: new Date().toISOString(),
         };
         await withTransaction(async (client) => {
+          if (appliedPromoId) {
+            const { rowCount } = await client.query(
+              "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = $1 AND (max_uses = 0 OR used_count < max_uses)",
+              [appliedPromoId],
+            );
+            if ((rowCount ?? 0) === 0) throw Object.assign(new Error("promo_fully_redeemed"), { statusCode: 409 });
+            await client.query(
+              "INSERT INTO promo_code_usages (id, promo_code_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+              [randomUUID(), appliedPromoId, user.id],
+            );
+          }
           await client.query(
             `INSERT INTO payments (id, user_id, registration_id, amount, currency, promo_code_id, status, created_at)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -161,7 +167,25 @@ export async function registerPaymentRoutes(
         status: "pending",
         createdAt: new Date().toISOString(),
       };
-      await repo.payments.create(payment);
+      await withTransaction(async (client) => {
+        if (appliedPromoId) {
+          const { rowCount } = await client.query(
+            "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = $1 AND (max_uses = 0 OR used_count < max_uses)",
+            [appliedPromoId],
+          );
+          if ((rowCount ?? 0) === 0) throw Object.assign(new Error("promo_fully_redeemed"), { statusCode: 409 });
+          await client.query(
+            "INSERT INTO promo_code_usages (id, promo_code_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            [randomUUID(), appliedPromoId, user.id],
+          );
+        }
+        await client.query(
+          `INSERT INTO payments (id, user_id, registration_id, amount, currency, promo_code_id, status, razorpay_order_id, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [payment.id, payment.userId, payment.registrationId, payment.amount, payment.currency,
+           payment.promoCodeId ?? null, payment.status, payment.razorpayOrderId, payment.createdAt],
+        );
+      });
 
       return reply.code(201).send({
         orderId,
@@ -303,6 +327,10 @@ export async function registerPaymentRoutes(
         await client.query(
           "UPDATE payments SET razorpay_payment_id = $1, status = $2 WHERE id = $3",
           [rzpPaymentId, "failed", payment.id],
+        );
+        await client.query(
+          "UPDATE registrations SET payment_status = $1 WHERE id = $2",
+          ["failed", payment.registrationId],
         );
       });
       return { status: "marked_failed" };

@@ -250,6 +250,11 @@ export function createMemRepo(): Repository {
       async findByRound(roundId) {
         return [...results.values()].filter((r) => r.roundId === roundId);
       },
+      async findByRoundSlim(roundId) {
+        return [...results.values()]
+          .filter((r) => r.roundId === roundId)
+          .map((r) => ({ id: r.id, userId: r.userId, ao5Ms: r.ao5Ms, bestSingleMs: r.bestSingleMs, rank: r.rank, flagStatus: r.flagStatus }));
+      },
       async findByUser(userId) {
         return [...results.values()].filter((r) => r.userId === userId);
       },
@@ -344,6 +349,12 @@ export function createMemRepo(): Repository {
       async hasPaidRegistration(userId) {
         return [...registrations.values()].some((r) => r.userId === userId && r.paymentStatus === "paid");
       },
+      async isRegisteredForEvent(userId, competitionEventId) {
+        const userRegs = [...registrations.values()].filter((r) => r.userId === userId && r.paymentStatus === "paid");
+        return userRegs.some((r) =>
+          registrationEvents.some((re) => re.registrationId === r.id && re.competitionEventId === competitionEventId),
+        );
+      },
     },
 
     payments: {
@@ -413,8 +424,17 @@ export function createMemRepo(): Repository {
 
     advancements: {
       async save(roundId, entries) { roundAdvancements.set(roundId, entries); },
-      async isAdvanced(roundId, userId) {
-        return (roundAdvancements.get(roundId) ?? []).some((e) => e.userId === userId);
+      async isAdvanced(destRoundId, userId) {
+        // Advancement records are keyed by SOURCE round; callers pass the DESTINATION round
+        const dst = rounds.get(destRoundId);
+        if (!dst) return false;
+        for (const [srcId, advs] of roundAdvancements.entries()) {
+          const src = rounds.get(srcId);
+          if (src && src.competitionEventId === dst.competitionEventId && src.roundNumber === dst.roundNumber - 1) {
+            return advs.some((e) => e.userId === userId);
+          }
+        }
+        return false;
       },
       async findByRound(roundId) { return roundAdvancements.get(roundId) ?? []; },
       async findByRounds(roundIds) {

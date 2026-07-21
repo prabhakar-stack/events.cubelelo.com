@@ -503,6 +503,7 @@ export function globalSearch(q: string): Promise<GlobalSearchResult[]> {
 export interface RosterEntry {
   userId: string;
   name: string;
+  clId?: string;
 }
 
 export interface LobbyState {

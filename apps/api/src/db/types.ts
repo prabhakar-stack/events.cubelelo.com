@@ -127,6 +127,15 @@ export interface Result {
   submittedAt: string;
 }
 
+export interface ResultSlim {
+  id: string;
+  userId: string;
+  ao5Ms: number | null;
+  bestSingleMs: number | null;
+  rank: number | null;
+  flagStatus: FlagStatus;
+}
+
 export interface Registration {
   id: string;
   userId: string;

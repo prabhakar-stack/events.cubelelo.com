@@ -35,7 +35,12 @@ export function useLobby(
       .catch(() => {});
 
     const socket = acquireSocket();
-    socket.emit("lobby:checkin", { roundId, name: me.name });
+
+    const checkin = () => {
+      socket.emit("lobby:checkin", { roundId, name: me.name });
+    };
+    checkin();
+    socket.on("connect", checkin);
 
     const rosterHandler = (p: { roundId: string; competitors: RosterEntry[] }) => {
       if (p.roundId === roundId) setServerRoster(p.competitors);
@@ -50,6 +55,8 @@ export function useLobby(
 
     return () => {
       active = false;
+      socket.emit("lobby:checkout", { roundId });
+      socket.off("connect", checkin);
       socket.off("lobby:roster", rosterHandler);
       socket.off("round:status", statusHandler);
       releaseSocket();

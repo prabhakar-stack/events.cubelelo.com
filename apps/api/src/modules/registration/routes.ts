@@ -24,13 +24,6 @@ export async function registerRegistrationRoutes(
         return reply.code(409).send({ error: "registration_not_open" });
       }
 
-      if (comp.registrationLimit != null && comp.registrationLimit > 0) {
-        const count = await repo.competitions.countRegistrations(comp.id);
-        if (count >= comp.registrationLimit) {
-          return reply.code(409).send({ error: "registration_full" });
-        }
-      }
-
       const user = await repo.users.findById(req.authClaims!.sub);
       if (!user) return reply.code(403).send({ error: "not_synced" });
 
@@ -45,7 +38,15 @@ export async function registerRegistrationRoutes(
       }
 
       const existing = await repo.registrations.findByUserAndComp(user.id, comp.id);
-      if (existing) return reply.code(409).send({ error: "already_registered" });
+      if (existing && existing.paymentStatus !== "failed") {
+        return reply.code(409).send({ error: "already_registered" });
+      }
+      if (existing && existing.paymentStatus === "failed") {
+        await withTransaction(async (client) => {
+          await client.query("DELETE FROM registration_events WHERE registration_id = $1", [existing.id]);
+          await client.query("DELETE FROM registrations WHERE id = $1", [existing.id]);
+        });
+      }
 
       // Validate event IDs belong to this competition and have at least one non-cancelled round
       const compEvents = await repo.competitionEvents.findByCompetition(comp.id);

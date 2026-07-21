@@ -7,7 +7,7 @@ import { type Competition, type CompetitionEvent, type Round, type AuditLogEntry
 import type { Realtime } from "../../sockets/realtime";
 import { requireRole } from "../../auth/plugin";
 import { effectiveCompStatus, effectiveRoundStatus } from "../../lib/statusUtils";
-import { shortlistRound, ensureScramblesGenerated } from "../../lib/roundLifecycle";
+import { shortlistRound, reshortlistAdvancedRound, ensureScramblesGenerated } from "../../lib/roundLifecycle";
 import { validateCompetitionSchedule, validateScheduleFields } from "../../lib/scheduleValidation";
 import { collectCertificateData, generateCertificatePDF } from "../../lib/certificate";
 import { emailService, sendBulk, roundNotificationEmail, bulkEmail, migrationEmail, staffWelcomeEmail } from "../../lib/email";
@@ -710,6 +710,11 @@ export async function registerAdminRoutes(
       if (!hasFlagged) {
         await shortlistRound(repo, realtime, round);
       }
+    }
+
+    // If the round is already advanced and a result was DQ'd, re-derive the advancement list
+    if (round && round.status === "advanced" && action === "disqualified") {
+      await reshortlistAdvancedRound(repo, realtime, round, result.userId);
     }
 
     return { id: result.id, flagStatus: action };

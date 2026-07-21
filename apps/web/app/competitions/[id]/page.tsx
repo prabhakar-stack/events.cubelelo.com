@@ -60,25 +60,9 @@ function getNavItems(
   items.push({ id: "video-rules", label: "Video Rules" });
   items.push({ id: "rules", label: "Rules" });
 
-  // Lobby: hide for visitors on upcoming comps, hide for cancelled
+  // Users & Rankings: hide for cancelled
   if (!isCancelled) {
-    const showLobby =
-      comp.status === "live" ||
-      isCompleted ||
-      isRegistered;
-    if (showLobby) {
-      items.push({ id: "lobby", label: "Lobby" });
-    }
-  }
-
-  // Rankings: hide for cancelled
-  if (!isCancelled) {
-    items.push({ id: "rankings", label: "Live Ranking" });
-  }
-
-  // Participants: hide for cancelled
-  if (!isCancelled) {
-    items.push({ id: "participants", label: "Participants" });
+    items.push({ id: "users-rankings", label: "Users & Rankings" });
   }
 
   // Organizers: only if staff data exists
@@ -234,7 +218,7 @@ export default function CompetitionDetailPage() {
   }, [comp]);
 
   const me = useMemo(
-    () => user ? { userId: user.clId, name: user.name } : { userId: "guest", name: "Guest" },
+    () => user ? { userId: user.id, name: user.name } : { userId: "guest", name: "Guest" },
     [user],
   );
   const lobby = useLobby(activeRoundId, me);
@@ -279,9 +263,7 @@ export default function CompetitionDetailPage() {
       ? "Free entry"
       : `₹${((comp.baseFee ?? 0) / 100).toFixed(2)} base + ₹${((comp.perEventFee ?? 0) / 100).toFixed(2)}/event`;
 
-  const showLobby = !isCancelled && (isLive || isCompleted || !!myReg);
-  const showRankings = !isCancelled;
-  const showParticipants = !isCancelled;
+  const showUsersRankings = !isCancelled;
   const hasPrizes = !!(comp as any).prizes;
   const showPrizes = hasPrizes || (isUpcoming && !isCancelled);
   const hasStaff = !!(comp as any).staff;
@@ -500,27 +482,19 @@ export default function CompetitionDetailPage() {
               <RulesTab comp={comp} />
             </section>
 
-            {/* 7. Lobby */}
-            {showLobby && (
+            {/* 7. Lobby (milestone + live rounds + your progress) */}
+            {showUsersRankings && (
               <section id="section-lobby" className="scroll-mt-20">
                 <SectionHeading>Lobby</SectionHeading>
-                <HomeTab comp={comp} feeText={feeText} myProgress={myProgress} isRegistered={!!myReg} roster={lobby.roster} user={user} onExpandEvent={handleExpandEvent} />
+                <HomeTab comp={comp} feeText={feeText} myProgress={myProgress} isRegistered={!!myReg} user={user} onExpandEvent={handleExpandEvent} />
               </section>
             )}
 
-            {/* 8. Live Ranking */}
-            {showRankings && (
-              <section id="section-rankings" className="scroll-mt-20">
-                <SectionHeading>Live Ranking</SectionHeading>
-                <RankingsTab comp={comp} showResultsLink={["results_pending", "completed", "live"].includes(comp.status)} limitRows={isCompleted ? null : 10} />
-              </section>
-            )}
-
-            {/* 9. Participants */}
-            {showParticipants && (
-              <section id="section-participants" className="scroll-mt-20">
-                <SectionHeading>Participants</SectionHeading>
-                <ParticipantsTab compId={comp.id} limitRows={15} />
+            {/* 8. Users & Rankings (Active / Participants / Rankings) */}
+            {showUsersRankings && (
+              <section id="section-users-rankings" className="scroll-mt-20">
+                <SectionHeading>Users &amp; Rankings</SectionHeading>
+                <UsersAndRankingsSection comp={comp} roster={lobby.roster} user={user} isCompleted={isCompleted} />
               </section>
             )}
 
@@ -834,7 +808,6 @@ function HomeTab({
   feeText,
   myProgress,
   isRegistered,
-  roster,
   user,
   onExpandEvent,
 }: {
@@ -842,8 +815,7 @@ function HomeTab({
   feeText: string;
   myProgress: RoundProgress[];
   isRegistered: boolean;
-  roster: RosterEntry[];
-  user: { clId: string; name: string } | null;
+  user: { id: string; clId: string; name: string } | null;
   onExpandEvent: (eventId: string) => void;
 }) {
   const now = Date.now();
@@ -858,19 +830,6 @@ function HomeTab({
 
   const isLive = comp.status === "live";
   const isUpcoming = ["published", "registration_open", "registration_closed", "upcoming"].includes(comp.status);
-
-  // Join animation tracking
-  const prevRosterSize = useRef(roster.length);
-  const [justJoined, setJustJoined] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (roster.length > prevRosterSize.current) {
-      const newIds = new Set(roster.slice(prevRosterSize.current).map((c) => c.userId));
-      setJustJoined(newIds);
-      const t = setTimeout(() => setJustJoined(new Set()), 900);
-      return () => clearTimeout(t);
-    }
-    prevRosterSize.current = roster.length;
-  }, [roster]);
 
   return (
     <div className="space-y-6">
@@ -1002,42 +961,6 @@ function HomeTab({
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* Real-time competitors online */}
-      <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
-          Competitors Online
-          <span className="ml-2 font-mono text-xs font-normal text-zinc-400">{roster.length}</span>
-        </h2>
-        <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
-          {roster.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-zinc-400 dark:text-zinc-600">
-              Waiting for competitors to check in…
-            </p>
-          ) : (
-            <ul className="max-h-[300px] divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800/60">
-              {roster.map((c, i) => (
-                <li
-                  key={c.userId}
-                  className={`flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${justJoined.has(c.userId) ? "row-count-in bg-accent-primary/10" : ""
-                    } ${c.userId === user?.clId ? "bg-accent-primary/5" : ""}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="w-5 text-right text-xs text-zinc-400">{i + 1}</span>
-                    <span className="font-medium text-zinc-800 dark:text-zinc-200">
-                      {c.name}
-                      {c.userId === user?.clId && (
-                        <span className="ml-1 text-xs text-accent-primary">(you)</span>
-                      )}
-                    </span>
-                  </div>
-                  <span className="font-mono text-xs text-zinc-400">{c.userId}</span>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       </div>
 
@@ -1629,6 +1552,121 @@ function RankingsTab({ comp, showResultsLink, limitRows }: { comp: CompetitionDe
             </button>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+/* ── Users & Rankings (tabbed section) ── */
+
+type URTab = "active" | "participants" | "rankings";
+
+function UsersAndRankingsSection({
+  comp,
+  roster,
+  user,
+  isCompleted,
+}: {
+  comp: CompetitionDetail;
+  roster: RosterEntry[];
+  user: { id: string; clId: string; name: string } | null;
+  isCompleted: boolean;
+}) {
+  const [tab, setTab] = useState<URTab>("active");
+
+  const prevRosterSize = useRef(roster.length);
+  const [justJoined, setJustJoined] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (roster.length > prevRosterSize.current) {
+      const newIds = new Set(roster.slice(prevRosterSize.current).map((c) => c.userId));
+      setJustJoined(newIds);
+      const t = setTimeout(() => setJustJoined(new Set()), 900);
+      return () => clearTimeout(t);
+    }
+    prevRosterSize.current = roster.length;
+  }, [roster]);
+
+  const tabs: { id: URTab; label: string; count?: number }[] = [
+    { id: "active", label: "Active Competitors", count: roster.length },
+    { id: "participants", label: "Participants" },
+    { id: "rankings", label: "Live Rankings" },
+  ];
+
+  return (
+    <div>
+      <div className="mb-4 flex gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800/60">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
+              tab === t.id
+                ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+            }`}
+          >
+            {t.label}
+            {t.count != null && (
+              <span className="ml-1.5 font-mono text-xs font-normal text-zinc-400">{t.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === "active" && (
+        <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
+          {roster.length === 0 ? (
+            <p className="px-5 py-8 text-center text-sm text-zinc-400 dark:text-zinc-600">
+              Waiting for competitors to check in…
+            </p>
+          ) : (
+            <ul className="max-h-[400px] divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800/60">
+              {roster.map((c, i) => {
+                const isMe = c.userId === user?.id;
+                return (
+                  <li
+                    key={c.userId}
+                    className={`flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
+                      justJoined.has(c.userId) ? "row-count-in bg-accent-primary/10" : ""
+                    } ${isMe ? "bg-accent-primary/5" : ""}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-5 text-right text-xs text-zinc-400">{i + 1}</span>
+                      {c.clId ? (
+                        <a href={`/profile/${c.clId}`} className="font-medium text-zinc-800 hover:text-accent-primary dark:text-zinc-200 dark:hover:text-accent-primary transition-colors">
+                          {c.name}
+                          {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
+                        </a>
+                      ) : (
+                        <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                          {c.name}
+                          {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
+                        </span>
+                      )}
+                    </div>
+                    {c.clId && (
+                      <a href={`/profile/${c.clId}`} className="font-mono text-xs text-zinc-400 hover:text-accent-primary transition-colors">
+                        {c.clId}
+                      </a>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {tab === "participants" && (
+        <ParticipantsTab compId={comp.id} limitRows={15} />
+      )}
+
+      {tab === "rankings" && (
+        <RankingsTab
+          comp={comp}
+          showResultsLink={["results_pending", "completed", "live"].includes(comp.status)}
+          limitRows={isCompleted ? null : 10}
+        />
       )}
     </div>
   );

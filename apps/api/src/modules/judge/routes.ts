@@ -4,7 +4,7 @@ import type { FlagStatus } from "@cubers/types";
 import type { Repository } from "../../db/repo";
 import type { AuditLogEntry } from "../../db/types";
 import { requireRole } from "../../auth/plugin";
-import { shortlistRound } from "../../lib/roundLifecycle";
+import { shortlistRound, reshortlistAdvancedRound } from "../../lib/roundLifecycle";
 import { applyResultOverride } from "../../lib/resultStats";
 import type { Realtime } from "../../sockets/realtime";
 
@@ -163,6 +163,11 @@ export async function registerJudgeRoutes(
       if (!hasFlagged) {
         await shortlistRound(repo, realtime, round);
       }
+    }
+
+    // If the round is already advanced and a result was DQ'd, re-derive the advancement list
+    if (round && round.status === "advanced" && action === "disqualified") {
+      await reshortlistAdvancedRound(repo, realtime, round, result.userId);
     }
 
     return { id: result.id, flagStatus: action };

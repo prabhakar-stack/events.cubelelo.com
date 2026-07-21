@@ -64,7 +64,14 @@ export async function registerRoundRoutes(
           title: competition?.title ?? null,
           rulesMd: competition?.rulesMd ?? null,
         },
-        roster: await repo.roster.snapshot(round.id),
+        roster: await (async () => {
+          const raw = await repo.roster.snapshot(round.id);
+          const userMap = raw.length > 0 ? await repo.users.findByIds(raw.map((r) => r.userId)) : new Map();
+          return raw.map((r) => {
+            const u = userMap.get(r.userId);
+            return { userId: r.userId, name: r.name, clId: u?.clId ?? undefined };
+          });
+        })(),
       };
     },
   );
@@ -89,12 +96,18 @@ export async function registerRoundRoutes(
         if (!set || !set.lockedAt) return reply.code(409).send({ error: "scrambles_not_ready" });
       }
 
-      // For round 2+: only shortlisted participants can access scrambles
+      const user = await repo.users.findById(req.authClaims!.sub);
+      if (!user) return reply.code(403).send({ error: "not_synced" });
+
       if (round.roundNumber > 1) {
-        const user = await repo.users.findById(req.authClaims!.sub);
-        if (!user) return reply.code(403).send({ error: "not_synced" });
         const advanced = await repo.advancements.isAdvanced(round.id, user.id);
         if (!advanced) return reply.code(403).send({ error: "not_shortlisted" });
+      } else {
+        const event = await repo.competitionEvents.findByRound(round.id);
+        if (event) {
+          const registered = await repo.registrations.isRegisteredForEvent(user.id, event.id);
+          if (!registered) return reply.code(403).send({ error: "not_registered_for_event" });
+        }
       }
 
       await recordScrambleFetch(round.id, req.authClaims!.sub);
