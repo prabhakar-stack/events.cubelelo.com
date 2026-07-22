@@ -1,4 +1,4 @@
-import { randomUUID, createHmac } from "node:crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { Repository } from "../../db/repo";
 import type { Payment } from "../../db/types";
@@ -218,7 +218,7 @@ export async function registerPaymentRoutes(
       const expected = createHmac("sha256", env.RAZORPAY_KEY_SECRET)
         .update(`${razorpay_order_id}|${razorpay_payment_id}`)
         .digest("hex");
-      if (expected !== razorpay_signature)
+      if (!timingSafeEqual(Buffer.from(expected), Buffer.from(razorpay_signature)))
         return reply.code(400).send({ error: "invalid_signature" });
 
       const payment = await repo.payments.findByOrderId(razorpay_order_id);
@@ -281,7 +281,7 @@ export async function registerPaymentRoutes(
     const expected = createHmac("sha256", env.RAZORPAY_WEBHOOK_SECRET)
       .update(rawBody ?? "")
       .digest("hex");
-    if (expected !== headerSig)
+    if (!timingSafeEqual(Buffer.from(expected), Buffer.from(headerSig)))
       return reply.code(400).send({ error: "invalid_signature" });
 
     const event = body.event as string | undefined;

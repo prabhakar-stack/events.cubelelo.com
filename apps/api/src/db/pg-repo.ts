@@ -342,8 +342,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       async update(id, fields) {
         const COL: Record<string, string> = {
           name: "name", lastName: "last_name", gender: "gender", dob: "dob",
-          mobileNo: "mobile_no", city: "city", state: "state", country: "country",
-          address: "address", landmark: "landmark", pincode: "pincode",
+          email: "email", mobileNo: "mobile_no", city: "city", state: "state",
+          country: "country", address: "address", landmark: "landmark", pincode: "pincode",
           avatarUrl: "avatar_url", instagram: "instagram", wcaId: "wca_id",
           wcaVerified: "wca_verified", role: "role", accountStage: "account_stage",
           emailVerified: "email_verified", mobileVerified: "mobile_verified",

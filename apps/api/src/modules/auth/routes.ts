@@ -1,4 +1,4 @@
-import { randomUUID, randomInt } from "node:crypto";
+import { randomUUID, randomInt, createHash, timingSafeEqual } from "node:crypto";
 import { SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import type { FastifyInstance } from "fastify";
@@ -20,6 +20,10 @@ function generateOtp(): string {
 
 function isEmail(input: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 function normalizeMobile(input: string): string {
@@ -106,6 +110,8 @@ export async function registerAuthRoutes(
     const claims = req.authClaims!;
     if (claims.jti && claims.exp) {
       await blockToken(claims.jti, claims.exp);
+    } else if (claims.jti) {
+      await blockToken(claims.jti, Math.ceil(Date.now() / 1000) + 7 * 24 * 3600);
     }
     realtime.disconnectUser(claims.sub);
     return { ok: true };
@@ -311,7 +317,9 @@ export async function registerAuthRoutes(
         await repo.verificationTokens.delete(entry.id);
         return reply.code(410).send({ error: "otp_expired" });
       }
-      if (entry.token !== code.trim()) {
+      const a = Buffer.from(entry.token);
+      const b = Buffer.from(code.trim());
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
         return reply.code(400).send({ error: "invalid_otp" });
       }
 
@@ -385,7 +393,7 @@ export async function registerAuthRoutes(
       const resetToken = randomUUID();
       await repo.verificationTokens.create({
         id: randomUUID(), userId: user.id, type: "reset",
-        token: resetToken, identifier: user.email,
+        token: hashToken(resetToken), identifier: user.email,
         expiresAt: Date.now() + 60 * 60 * 1000,
       });
       const re = passwordResetEmail(user.name, resetToken);
@@ -403,7 +411,7 @@ export async function registerAuthRoutes(
       if (!token || !newPassword) return reply.code(400).send({ error: "missing_fields" });
       if (newPassword.length < 6) return reply.code(400).send({ error: "password_too_short" });
 
-      const entry = await repo.verificationTokens.findByToken(token, "reset");
+      const entry = await repo.verificationTokens.findByToken(hashToken(token), "reset");
       if (!entry) return reply.code(400).send({ error: "invalid_token" });
       if (Date.now() > entry.expiresAt) {
         await repo.verificationTokens.delete(entry.id);

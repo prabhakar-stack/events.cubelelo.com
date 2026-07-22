@@ -175,7 +175,12 @@ export function createRealtime(): AttachableRealtime {
       const corsOrigin = process.env.CORS_ORIGINS
         ? process.env.CORS_ORIGINS.split(",")
         : true;
-      io = new Server(app.server, { cors: { origin: corsOrigin } });
+      io = new Server(app.server, {
+        cors: { origin: corsOrigin },
+        maxHttpBufferSize: 64 * 1024,
+        pingInterval: 25000,
+        pingTimeout: 20000,
+      });
 
       // Use Redis pub/sub adapter for horizontal scaling when REDIS_URL is set
       if (env.REDIS_URL) {

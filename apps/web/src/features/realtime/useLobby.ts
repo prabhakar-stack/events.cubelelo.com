@@ -14,25 +14,39 @@ export interface LobbyLive {
 export function useLobby(
   roundId: string | null,
   me: { userId: string; name: string },
-): LobbyLive {
+): LobbyLive & { fetchError: boolean } {
   const [serverRoster, setServerRoster] = useState<RosterEntry[]>([]);
   const [status, setStatus] = useState<string>("pending");
   const [opensAt, setOpensAt] = useState<string | null>(null);
   const [rulesMd, setRulesMd] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
     if (!roundId) return;
     let active = true;
+    let attempt = 0;
 
-    fetchLobby(roundId)
-      .then((s) => {
-        if (!active) return;
-        setServerRoster(s.roster);
-        setStatus(s.round.status);
-        setOpensAt(s.round.opensAt);
-        setRulesMd(s.competition.rulesMd);
-      })
-      .catch(() => {});
+    const load = () => {
+      fetchLobby(roundId)
+        .then((s) => {
+          if (!active) return;
+          setFetchError(false);
+          setServerRoster(s.roster);
+          setStatus(s.round.status);
+          setOpensAt(s.round.opensAt);
+          setRulesMd(s.competition.rulesMd);
+        })
+        .catch(() => {
+          if (!active) return;
+          attempt++;
+          if (attempt < 3) {
+            setTimeout(load, attempt * 2000);
+          } else {
+            setFetchError(true);
+          }
+        });
+    };
+    load();
 
     const socket = acquireSocket();
 
@@ -69,5 +83,5 @@ export function useLobby(
     return [{ userId: me.userId, name: me.name }, ...serverRoster];
   }, [serverRoster, me.userId, me.name]);
 
-  return { roster, status, opensAt, rulesMd };
+  return { roster, status, opensAt, rulesMd, fetchError };
 }
