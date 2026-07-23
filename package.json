@@ -16,7 +16,8 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "test:e2e": "npx playwright test"
+    "test:e2e": "npx playwright test",
+    "start": "npm run start --workspace=apps/api"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
