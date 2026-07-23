@@ -54,6 +54,10 @@ export async function buildApp(
   registerAuth(app, repo, verifier);
 
   app.get("/health", async (_req, reply) => {
+    return reply.redirect("/api/v1/health");
+  });
+
+  app.get("/api/v1/health", async (_req, reply) => {
     try {
       const db = await repo.ping();
       let redis: { status: string; latencyMs?: number } = { status: "not_configured" };

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAuth } from "@/features/auth/AuthProvider";
+import { notFound } from "next/navigation";
 
 interface HealthData {
   status: "ok" | "error";
@@ -22,6 +24,7 @@ interface CheckResult {
 const REFRESH_INTERVAL = 30_000;
 
 export default function HealthPage() {
+  const { user, loading: authLoading } = useAuth();
   const [result, setResult] = useState<CheckResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [history, setHistory] = useState<CheckResult[]>([]);
@@ -30,7 +33,7 @@ export default function HealthPage() {
     setLoading(true);
     const t0 = performance.now();
     try {
-      const res = await fetch("/health", { cache: "no-store" });
+      const res = await fetch("/api/v1/health", { cache: "no-store" });
       const data: HealthData = await res.json();
       const entry: CheckResult = {
         data,
@@ -62,6 +65,9 @@ export default function HealthPage() {
 
   const isUp = result?.data?.status === "ok";
   const dbOk = result?.data?.db != null;
+
+  if (authLoading) return null;
+  if (!user || user.role !== "admin") return notFound();
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 font-[var(--font-sans)]">
