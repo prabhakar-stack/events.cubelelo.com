@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { notFound } from "next/navigation";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+
 interface HealthData {
   status: "ok" | "error";
   db: { backend: string; latencyMs: number } | null;
@@ -33,7 +35,7 @@ export default function HealthPage() {
     setLoading(true);
     const t0 = performance.now();
     try {
-      const res = await fetch("/api/v1/health", { cache: "no-store" });
+      const res = await fetch(`${API_BASE}/api/v1/health`, { cache: "no-store" });
       const data: HealthData = await res.json();
       const entry: CheckResult = {
         data,
