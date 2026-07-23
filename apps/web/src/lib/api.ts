@@ -14,7 +14,10 @@ export function setAuthToken(token: string | null): void {
   authToken = token;
 }
 function authHeaders(): Record<string, string> {
-  return authToken ? { authorization: `Bearer ${authToken}` } : {};
+  const h: Record<string, string> = {};
+  if (authToken) h.authorization = `Bearer ${authToken}`;
+  if (BASE_URL.includes("ngrok")) h["ngrok-skip-browser-warning"] = "1";
+  return h;
 }
 
 export interface AuthUser {
