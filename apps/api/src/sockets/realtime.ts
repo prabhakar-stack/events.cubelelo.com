@@ -70,11 +70,18 @@ function boardFingerprint(board: SlimResult[]): string {
 
 // ── Realtime interface ────────────────────────────────────────────────────
 
+export interface RealtimeStats {
+  connections: number;
+  uniqueUsers: number;
+  rooms: number;
+}
+
 export interface Realtime {
   emitLeaderboard(roundId: string, board: unknown): void;
   emitRoundStatus(roundId: string, status: RoundStatus, opensAt?: string): void;
   emitCompStatus(compId: string, status: string): void;
   disconnectUser(userId: string): void;
+  stats(): RealtimeStats;
 }
 
 export const noopRealtime: Realtime = {
@@ -82,6 +89,7 @@ export const noopRealtime: Realtime = {
   emitRoundStatus() {},
   emitCompStatus() {},
   disconnectUser() {},
+  stats() { return { connections: 0, uniqueUsers: 0, rooms: 0 }; },
 };
 
 export interface AttachableRealtime extends Realtime {
@@ -123,6 +131,13 @@ export function createRealtime(): AttachableRealtime {
   }
 
   return {
+    stats() {
+      const connections = io?.sockets.sockets.size ?? 0;
+      const uniqueUsers = userSockets.size;
+      const rooms = io ? io.sockets.adapter.rooms.size - connections : 0;
+      return { connections, uniqueUsers, rooms: Math.max(0, rooms) };
+    },
+
     emitLeaderboard(roundId, board) {
       const flush = (b: unknown) => {
         const slim = slimBoard(b);

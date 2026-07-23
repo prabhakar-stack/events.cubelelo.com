@@ -5,6 +5,8 @@ import { useEffect, useState, useCallback } from "react";
 interface HealthData {
   status: "ok" | "error";
   db: { backend: string; latencyMs: number } | null;
+  redis: { status: string; latencyMs?: number } | null;
+  websocket: { connections: number; uniqueUsers: number; rooms: number } | null;
   email: string;
   sms: string;
   error?: string;
@@ -141,6 +143,34 @@ export default function HealthPage() {
           }
         />
         <ServiceCard
+          label="Redis"
+          status={
+            result === null
+              ? "loading"
+              : result.data?.redis?.status === "ok"
+                ? "ok"
+                : result.data?.redis?.status === "not_configured"
+                  ? "warn"
+                  : "error"
+          }
+          detail={
+            result?.data?.redis?.status === "ok"
+              ? `${result.data.redis.latencyMs}ms latency`
+              : result?.data?.redis?.status ?? undefined
+          }
+        />
+        <ServiceCard
+          label="WebSocket"
+          status={result === null ? "loading" : result.data?.websocket ? "ok" : "warn"}
+          detail={
+            result?.data?.websocket
+              ? `${result.data.websocket.connections} connections · ${result.data.websocket.uniqueUsers} users · ${result.data.websocket.rooms} rooms`
+              : result
+                ? "Not attached"
+                : undefined
+          }
+        />
+        <ServiceCard
           label="Email Service"
           status={
             result === null
@@ -177,7 +207,9 @@ export default function HealthPage() {
                   <th className="px-4 py-2.5 font-medium">Time</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5 font-medium text-right">Response</th>
-                  <th className="px-4 py-2.5 font-medium text-right">DB Latency</th>
+                  <th className="px-4 py-2.5 font-medium text-right">DB</th>
+                  <th className="px-4 py-2.5 font-medium text-right">Redis</th>
+                  <th className="px-4 py-2.5 font-medium text-right">WS</th>
                 </tr>
               </thead>
               <tbody>
@@ -210,6 +242,12 @@ export default function HealthPage() {
                     </td>
                     <td className="px-4 py-2 text-right font-mono text-xs">
                       {h.data?.db?.latencyMs != null ? `${h.data.db.latencyMs}ms` : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-xs">
+                      {h.data?.redis?.latencyMs != null ? `${h.data.redis.latencyMs}ms` : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-xs">
+                      {h.data?.websocket ? h.data.websocket.connections : "—"}
                     </td>
                   </tr>
                 ))}

@@ -67,6 +67,7 @@ export async function buildApp(
         status: "ok",
         db: db ?? { backend: "memory", latencyMs: 0 },
         redis,
+        websocket: realtime.stats(),
         email: emailServiceName(),
         sms: process.env.TWILIO_ACCOUNT_SID ? "twilio" : "none",
       };
