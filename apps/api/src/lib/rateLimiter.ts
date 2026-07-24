@@ -80,7 +80,7 @@ export function rateLimit(config: RateLimitConfig) {
 export const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 20 });
 export const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 10 });
 export const passwordResetLimiter = rateLimit({ windowMs: 60 * 60 * 1000, maxRequests: 5 });
-export const submitLimiter = rateLimit({ windowMs: 60 * 1000, maxRequests: 300 });
-export const scrambleLimiter = rateLimit({ windowMs: 60 * 1000, maxRequests: 300 });
+export const submitLimiter = rateLimit({ windowMs: 60 * 1000, maxRequests: 5 });
+export const scrambleLimiter = rateLimit({ windowMs: 60 * 1000, maxRequests: 10 });
 export const apiLimiter = rateLimit({ windowMs: 60 * 1000, maxRequests: 60 });
 export const adminLimiter = rateLimit({ windowMs: 60 * 1000, maxRequests: 100 });
