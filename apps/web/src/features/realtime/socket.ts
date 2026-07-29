@@ -7,6 +7,27 @@ let instance: Socket | null = null;
 let refCount = 0;
 let connectedWithToken: string | null = null;
 
+const joinedRooms = new Map<string, number>();
+
+function rejoinRooms(socket: Socket): void {
+  for (const roundId of joinedRooms.keys()) {
+    socket.emit("join", { roundId });
+  }
+}
+
+export function trackJoin(roundId: string): void {
+  joinedRooms.set(roundId, (joinedRooms.get(roundId) ?? 0) + 1);
+}
+
+export function trackLeave(roundId: string): void {
+  const count = joinedRooms.get(roundId) ?? 0;
+  if (count <= 1) {
+    joinedRooms.delete(roundId);
+  } else {
+    joinedRooms.set(roundId, count - 1);
+  }
+}
+
 export function acquireSocket(): Socket {
   const token =
     typeof window !== "undefined"
@@ -27,6 +48,9 @@ export function acquireSocket(): Socket {
         cb(token ? { token } : {});
       },
     });
+    instance.on("connect", () => {
+      if (instance) rejoinRooms(instance);
+    });
   }
   refCount++;
   return instance;
@@ -39,6 +63,7 @@ export function releaseSocket(): void {
     instance = null;
     connectedWithToken = null;
     refCount = 0;
+    joinedRooms.clear();
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { fetchLobby, type RosterEntry } from "@/lib/api";
-import { acquireSocket, releaseSocket } from "./socket";
+import { acquireSocket, releaseSocket, trackJoin, trackLeave } from "./socket";
 
 export interface LobbyLive {
   roster: RosterEntry[];
@@ -49,6 +49,7 @@ export function useLobby(
     load();
 
     const socket = acquireSocket();
+    trackJoin(roundId);
 
     const checkin = () => {
       socket.emit("lobby:checkin", { roundId, name: me.name });
@@ -73,6 +74,7 @@ export function useLobby(
       socket.off("connect", checkin);
       socket.off("lobby:roster", rosterHandler);
       socket.off("round:status", statusHandler);
+      trackLeave(roundId);
       releaseSocket();
     };
   }, [roundId, me.userId, me.name]);

@@ -25,8 +25,6 @@ import { useLobby } from "@/features/realtime/useLobby";
 import { acquireSocket, releaseSocket } from "@/features/realtime/socket";
 import { UserStatusBadge } from "@/features/competitions/UserStatusBadge";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
-import { EventRoundPanel } from "@/features/competitions/detail/EventRoundPanel";
-import type { EventPageData } from "@/lib/api";
 import { formatTime } from "@cubers/timer-core";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -91,8 +89,6 @@ export default function CompetitionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState("overview");
-  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
-  const [eventPageCache] = useState(() => new Map<string, EventPageData>());
 
   const refreshComp = useCallback(() => {
     if (!params.id) return;
@@ -183,26 +179,6 @@ export default function CompetitionDetailPage() {
     const el = document.getElementById(`section-${id}`);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
-
-  // Hash deep-linking: #event-{eventId} auto-expands and scrolls
-  useEffect(() => {
-    if (!comp) return;
-    const hash = window.location.hash;
-    const match = hash.match(/^#event-(.+)$/);
-    if (match) {
-      const eid = match[1];
-      const found = comp.events.find((e) => e.id === eid);
-      if (found) {
-        setExpandedEventId(eid);
-        setTimeout(() => scrollTo("events"), 100);
-      }
-    }
-  }, [comp, scrollTo]);
-
-  const handleExpandEvent = useCallback((eventId: string) => {
-    setExpandedEventId((prev) => (prev === eventId ? null : eventId));
-    setTimeout(() => scrollTo("events"), 100);
-  }, [scrollTo]);
 
   const activeRoundId = useMemo(() => {
     if (!comp) return null;
@@ -391,9 +367,9 @@ export default function CompetitionDetailPage() {
               </div>
               <div className="rounded-xl border border-zinc-200 bg-white p-4 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
                 <div className="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                  {isCompleted ? "Ended" : isLive ? lobby.roster.length : comp.status === "registration_closed" ? "Closed" : "--"}
+                  {isCompleted ? "Ended" : isLive ? "Live" : comp.status === "registration_closed" ? "Closed" : "--"}
                 </div>
-                <div className="text-xs text-zinc-500">{isCompleted ? "Status" : isLive ? "Online Now" : "Status"}</div>
+                <div className="text-xs text-zinc-500">Status</div>
               </div>
             </div>
 
@@ -401,14 +377,7 @@ export default function CompetitionDetailPage() {
             {!isCancelled && !isCompleted && (
               <div className="mb-8 flex flex-wrap items-center gap-4 rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
                 {myReg ? (
-                  <>
-                    <RegistrationSteps paymentStatus={myReg.paymentStatus} />
-                    {isLive && (
-                      <Button size="sm" onClick={() => scrollTo("lobby")}>
-                        Go to Lobby
-                      </Button>
-                    )}
-                  </>
+                  <RegistrationSteps paymentStatus={myReg.paymentStatus} />
                 ) : isRegOpen ? (
                   user ? (
                     <>
@@ -455,6 +424,7 @@ export default function CompetitionDetailPage() {
               <SectionHeading>Schedule</SectionHeading>
               <div className="space-y-6">
                 <ScheduleTimeline comp={comp} />
+                <WhatsNextCard comp={comp} />
                 <DetailedSchedule comp={comp} />
               </div>
             </section>
@@ -462,12 +432,7 @@ export default function CompetitionDetailPage() {
             {/* 4. Events */}
             <section id="section-events" className="scroll-mt-20">
               <SectionHeading>Events</SectionHeading>
-              <EventsTab
-                comp={comp}
-                expandedEventId={expandedEventId}
-                onToggleEvent={handleExpandEvent}
-                eventPageCache={eventPageCache}
-              />
+              <EventCardsSection comp={comp} myProgress={myProgress} isRegistered={!!myReg} />
             </section>
 
             {/* 5. Video Rules */}
@@ -482,15 +447,7 @@ export default function CompetitionDetailPage() {
               <RulesTab comp={comp} />
             </section>
 
-            {/* 7. Lobby (milestone + live rounds + your progress) */}
-            {showUsersRankings && (
-              <section id="section-lobby" className="scroll-mt-20">
-                <SectionHeading>Lobby</SectionHeading>
-                <HomeTab comp={comp} feeText={feeText} myProgress={myProgress} isRegistered={!!myReg} user={user} onExpandEvent={handleExpandEvent} />
-              </section>
-            )}
-
-            {/* 8. Users & Rankings (Active / Participants / Rankings) */}
+            {/* 7. Users & Rankings (Active / Participants / Rankings) */}
             {showUsersRankings && (
               <section id="section-users-rankings" className="scroll-mt-20">
                 <SectionHeading>Users &amp; Rankings</SectionHeading>
@@ -801,298 +758,139 @@ function PoliciesSection({ comp }: { comp: CompetitionDetail }) {
   );
 }
 
-/* ── Home tab (Lobby) ── */
+/* ── What's Next card (moved from Lobby to Schedule) ── */
 
-function HomeTab({
-  comp,
-  feeText,
-  myProgress,
-  isRegistered,
-  user,
-  onExpandEvent,
-}: {
-  comp: CompetitionDetail;
-  feeText: string;
-  myProgress: RoundProgress[];
-  isRegistered: boolean;
-  user: { id: string; clId: string; name: string } | null;
-  onExpandEvent: (eventId: string) => void;
-}) {
+function WhatsNextCard({ comp }: { comp: CompetitionDetail }) {
   const now = Date.now();
-
   const milestones: { label: string; at: string | null | undefined }[] = [
     { label: "Registration opens", at: comp.registrationOpensAt },
     { label: "Registration closes", at: comp.registrationDeadline },
     { label: "Competition starts", at: comp.startsAt },
     { label: "Competition ends", at: comp.endsAt },
   ];
-  const nextMilestone = milestones.find((s) => s.at && new Date(s.at).getTime() > now);
+  const next = milestones.find((s) => s.at && new Date(s.at).getTime() > now);
+  if (!next) return null;
 
   const isLive = comp.status === "live";
-  const isUpcoming = ["published", "registration_open", "registration_closed", "upcoming"].includes(comp.status);
 
   return (
-    <div className="space-y-6">
-      {/* What's next milestone */}
-      {nextMilestone && (
-        <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-          <span className="text-lg">{isLive ? "🔴" : "⏳"}</span>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              {isLive ? "Competition Live" : "What's Next"}
-            </p>
-            <p className="text-sm text-zinc-700 dark:text-zinc-300">
-              <span className="font-semibold">{nextMilestone.label}</span>{" "}
-              {new Date(nextMilestone.at!).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Live round cards — one per event */}
+    <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <span className="text-lg">{isLive ? "🔴" : "⏳"}</span>
       <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">
-          {isLive ? "Live Rounds" : "Event Rounds"}
-        </h2>
-        <div className="space-y-3">
-          {comp.events.map((ev) => {
-            const activeRound =
-              ev.rounds.find((r) => r.status === "open") ??
-              ev.rounds.find((r) => r.status === "pending") ??
-              [...ev.rounds].reverse().find((r) => r.status === "closed" || r.status === "advanced");
-
-            if (!activeRound) {
-              return (
-                <div
-                  key={ev.id}
-                  className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/40"
-                >
-                  <div className="flex items-center gap-3">
-                    <EventIcon eventId={ev.eventType} size={20} className="text-zinc-400" />
-                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                      {eventDisplayName(ev.eventType)}
-                    </span>
-                  </div>
-                  <span className="text-xs text-zinc-400">No rounds scheduled</span>
-                </div>
-              );
-            }
-
-            const roundOpen = activeRound.status === "open";
-            const roundPending = activeRound.status === "pending";
-            const roundClosed = activeRound.status === "closed" || activeRound.status === "advanced";
-
-            const userRound = myProgress.find((p) => p.roundId === activeRound.id);
-            const submitted = userRound?.userStatus === "submitted";
-
-            return (
-              <div
-                key={ev.id}
-                className={`rounded-xl border px-5 py-4 transition ${roundOpen
-                    ? "border-accent-primary/40 bg-accent-primary/5 dark:border-accent-primary/30 dark:bg-accent-primary/5"
-                    : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40"
-                  }`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    {roundOpen && <span className="live-dot h-2 w-2 rounded-full bg-red-500" />}
-                    <EventIcon eventId={ev.eventType} size={20} className={roundOpen ? "text-accent-primary" : "text-zinc-400"} />
-                    <div>
-                      <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                        {eventDisplayName(ev.eventType)}
-                      </span>
-                      <span className="ml-2 text-xs text-zinc-500">
-                        Round {activeRound.roundNumber} of {ev.roundCount}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <StatusBadge status={activeRound.status} />
-                    {roundOpen && isRegistered && !submitted && (
-                      <Link href={`/competitions/${comp.id}/round/${activeRound.roundNumber}?eventId=${ev.eventType}`}>
-                        <Button size="sm">Enter Round</Button>
-                      </Link>
-                    )}
-                    {submitted && (
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                        Submitted
-                      </span>
-                    )}
-                    <button
-                      onClick={() => onExpandEvent(ev.id)}
-                      className="text-xs text-zinc-400 underline hover:text-zinc-200"
-                    >
-                      Details
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-4 text-xs text-zinc-500">
-                  {roundOpen && activeRound.closesAt && (
-                    <span>
-                      Closes {new Date(activeRound.closesAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
-                    </span>
-                  )}
-                  {roundPending && activeRound.opensAt && (
-                    <span className="flex items-center gap-1">
-                      Starts in <Countdown target={activeRound.opensAt} className="font-mono font-semibold text-amber-500" />
-                    </span>
-                  )}
-                  {roundClosed && <span>Round completed</span>}
-                </div>
-                {submitted && userRound?.result && (
-                  <div className="mt-2 flex gap-4 text-xs">
-                    {userRound.result.ao5Ms !== null && (
-                      <span className="text-zinc-600 dark:text-zinc-400">
-                        ao5: <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-200">{formatTime(userRound.result.ao5Ms)}</span>
-                      </span>
-                    )}
-                    {userRound.result.bestSingleMs !== null && (
-                      <span className="text-zinc-600 dark:text-zinc-400">
-                        Best: <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-200">{formatTime(userRound.result.bestSingleMs)}</span>
-                      </span>
-                    )}
-                    {userRound.result.rank !== null && (
-                      <span className="text-zinc-600 dark:text-zinc-400">
-                        Rank: <span className="font-semibold text-zinc-800 dark:text-zinc-200">#{userRound.result.rank}</span>
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          {isLive ? "Competition Live" : "What's Next"}
+        </p>
+        <p className="text-sm text-zinc-700 dark:text-zinc-300">
+          <span className="font-semibold">{next.label}</span>{" "}
+          {new Date(next.at!).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+        </p>
       </div>
-
-      {/* Your progress summary */}
-      {isRegistered && myProgress.length > 0 && myProgress.some((p) => p.userStatus === "submitted") && (
-        <div>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">Your Progress</h2>
-          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 dark:bg-zinc-900/60">
-                <tr>
-                  <th className="px-4 py-2.5 font-medium text-zinc-500">Event</th>
-                  <th className="px-4 py-2.5 font-medium text-zinc-500">Round</th>
-                  <th className="px-4 py-2.5 font-medium text-zinc-500">ao5</th>
-                  <th className="px-4 py-2.5 font-medium text-zinc-500">Best</th>
-                  <th className="px-4 py-2.5 font-medium text-zinc-500">Rank</th>
-                  <th className="px-4 py-2.5 font-medium text-zinc-500">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {myProgress
-                  .filter((p) => p.userStatus === "submitted")
-                  .map((p) => (
-                    <tr key={p.roundId} className="bg-white dark:bg-zinc-900/40">
-                      <td className="px-4 py-2.5">
-                        <span className="flex items-center gap-2 text-zinc-800 dark:text-zinc-200">
-                          {p.eventType && <EventIcon eventId={p.eventType} size={14} />}
-                          {eventDisplayName(p.eventType ?? "")}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-zinc-500">R{p.roundNumber}</td>
-                      <td className="px-4 py-2.5 font-mono text-zinc-700 dark:text-zinc-300">
-                        {p.result?.ao5Ms != null ? formatTime(p.result.ao5Ms) : "—"}
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-zinc-700 dark:text-zinc-300">
-                        {p.result?.bestSingleMs != null ? formatTime(p.result.bestSingleMs) : "—"}
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-zinc-700 dark:text-zinc-300">
-                        {p.result?.rank != null ? `#${p.result.rank}` : "—"}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                          {p.status === "advanced" ? "Advanced" : "Done"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Pre-competition placeholder */}
-      {isUpcoming && (
-        <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-center dark:border-zinc-700 dark:bg-zinc-900/20">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            The competition hasn&apos;t started yet. Rounds will appear here once the competition goes live.
-          </p>
-        </div>
-      )}
     </div>
   );
 }
 
-/* ── Events tab ── */
+/* ── Event cards (non-expandable, rounds inline) ── */
 
-function EventsTab({
+function EventCardsSection({
   comp,
-  expandedEventId,
-  onToggleEvent,
-  eventPageCache,
+  myProgress,
+  isRegistered,
 }: {
   comp: CompetitionDetail;
-  expandedEventId: string | null;
-  onToggleEvent: (id: string) => void;
-  eventPageCache: Map<string, EventPageData>;
+  myProgress: RoundProgress[];
+  isRegistered: boolean;
 }) {
-  const handleCache = useCallback(
-    (eventId: string) => (data: EventPageData) => {
-      eventPageCache.set(eventId, data);
-    },
-    [eventPageCache],
-  );
-
   return (
-    <div className="space-y-4">
+    <div className="grid gap-4 sm:grid-cols-2">
       {comp.events.map((ev) => {
-        const isExpanded = expandedEventId === ev.id;
         const latestRound = [...ev.rounds]
           .reverse()
           .find((r) => r.status !== "pending") ?? ev.rounds[0];
 
         return (
-          <div key={ev.id}>
-            <button
-              onClick={() => onToggleEvent(ev.id)}
-              className={`group relative flex w-full flex-col overflow-hidden rounded-xl border p-5 text-left transition ${
-                isExpanded
-                  ? "border-accent-primary/40 bg-accent-primary/5 dark:border-accent-primary/30"
-                  : "border-zinc-200 bg-white/70 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-accent-primary/40"
-              }`}
-            >
-              <div className="shimmer-sweep pointer-events-none absolute inset-0" />
-              <div className="relative flex items-center justify-between">
-                <span className="flex items-center gap-2 text-lg font-semibold text-zinc-900 group-hover:text-black dark:text-zinc-100 dark:group-hover:text-white">
-                  <EventIcon eventId={ev.eventType} size={18} />
-                  {eventDisplayName(ev.eventType)}
-                </span>
+          <div
+            key={ev.id}
+            className="rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700"
+          >
+            <div className="mb-3 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-primary/10">
+                <EventIcon eventId={ev.eventType} size={22} className="text-accent-primary" />
+              </div>
+              <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  {latestRound && <StatusBadge status={latestRound.status} />}
-                  <span className="text-zinc-400 transition group-hover:text-zinc-200">
-                    {isExpanded ? "▲" : "▼"}
+                  <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                    {eventDisplayName(ev.eventType)}
                   </span>
+                  {latestRound && <StatusBadge status={latestRound.status} />}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                  <span>{ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}</span>
+                  {ev.cutoffMs && <span>· Cutoff {(ev.cutoffMs / 1000).toFixed(0)}s</span>}
+                  {ev.timeLimitMs && <span>· Limit {(ev.timeLimitMs / 1000).toFixed(0)}s</span>}
                 </div>
               </div>
-              <div className="relative mt-1 flex items-center gap-3 text-xs text-zinc-500">
-                <span>{ev.roundCount} round{ev.roundCount > 1 ? "s" : ""}</span>
-                {ev.cutoffMs && <span>Cutoff: {(ev.cutoffMs / 1000).toFixed(1)}s</span>}
-                {ev.timeLimitMs && <span>Limit: {(ev.timeLimitMs / 1000).toFixed(1)}s</span>}
-              </div>
-            </button>
+            </div>
 
-            {isExpanded && (
-              <EventRoundPanel
-                compId={comp.id}
-                eventId={ev.id}
-                eventType={ev.eventType}
-                videoDeadlineMinutes={comp.videoDeadlineMinutes ?? 1440}
-                cached={eventPageCache.get(ev.id) ?? null}
-                onCache={handleCache(ev.id)}
-              />
+            {/* Rounds chips */}
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {ev.rounds.map((r) => {
+                const isOpen = r.status === "open";
+                const isClosed = r.status === "closed" || r.status === "advanced";
+                const userRound = myProgress.find((p) => p.roundId === r.id);
+                const submitted = userRound?.userStatus === "submitted";
+                return (
+                  <span
+                    key={r.id}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                      isOpen
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                        : isClosed
+                          ? "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500"
+                          : "bg-zinc-50 text-zinc-400 dark:bg-zinc-800/50 dark:text-zinc-600"
+                    }`}
+                  >
+                    {isOpen && <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                    R{r.roundNumber} — {r.status === "open" ? "Open" : r.status === "pending" ? "Pending" : r.status === "advanced" ? "Advanced" : "Closed"}
+                    {submitted && " ✓"}
+                  </span>
+                );
+              })}
+            </div>
+
+            {/* Round schedule details */}
+            <div className="space-y-1 text-xs text-zinc-500">
+              {ev.rounds.map((r) => (
+                <div key={r.id} className="flex justify-between">
+                  <span>R{r.roundNumber} {r.opensAt ? "opens" : ""}</span>
+                  <span className="font-medium text-zinc-600 dark:text-zinc-400">
+                    {r.opensAt
+                      ? new Date(r.opensAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
+                      : "TBD"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Enter round CTA */}
+            {ev.rounds.some((r) => r.status === "open") && isRegistered && (
+              <div className="mt-3">
+                {(() => {
+                  const openRound = ev.rounds.find((r) => r.status === "open")!;
+                  const userRound = myProgress.find((p) => p.roundId === openRound.id);
+                  if (userRound?.userStatus === "submitted") {
+                    return (
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                        Submitted
+                      </span>
+                    );
+                  }
+                  return (
+                    <Link href={`/competitions/${comp.id}/round/${openRound.roundNumber}?eventId=${ev.eventType}`}>
+                      <Button size="sm">Enter Round {openRound.roundNumber}</Button>
+                    </Link>
+                  );
+                })()}
+              </div>
             )}
           </div>
         );
@@ -1191,6 +989,11 @@ function ScheduleTimeline({ comp }: { comp: CompetitionDetail }) {
               <p className="mt-0.5 text-[11px] text-zinc-500">
                 {s.at ? new Date(s.at).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"}
               </p>
+              {s.at && (
+                <p className="text-[11px] font-semibold text-zinc-500">
+                  {new Date(s.at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
+                </p>
+              )}
             </div>
             {i < steps.length - 1 && (
               <div className={`mt-3.5 h-0.5 flex-1 ${i < activeIndex ? "bg-accent-primary" : "bg-zinc-200 dark:bg-zinc-800"}`} />
@@ -1343,95 +1146,209 @@ function RegistrationSteps({ paymentStatus }: { paymentStatus: string | null }) 
   );
 }
 
+/* ── Pagination ── */
+
+const ROWS_PER_PAGE = 10;
+
+function Pagination({ currentPage, totalPages, onPageChange }: { currentPage: number; totalPages: number; onPageChange: (p: number) => void }) {
+  if (totalPages <= 1) return null;
+
+  const pages: (number | "...")[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (currentPage > 3) pages.push("...");
+    for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) pages.push(i);
+    if (currentPage < totalPages - 2) pages.push("...");
+    pages.push(totalPages);
+  }
+
+  return (
+    <div className="mt-4 flex items-center justify-center gap-1">
+      <button
+        onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+        disabled={currentPage === 1}
+        className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-500 transition hover:bg-zinc-50 disabled:opacity-30 dark:border-zinc-700 dark:bg-zinc-900/40 dark:hover:bg-zinc-800"
+      >
+        ‹
+      </button>
+      {pages.map((p, i) =>
+        p === "..." ? (
+          <span key={`dots-${i}`} className="px-1.5 text-sm text-zinc-400">…</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onPageChange(p)}
+            className={`min-w-[32px] rounded-lg border px-2.5 py-1.5 text-sm font-medium transition ${
+              currentPage === p
+                ? "border-accent-primary bg-accent-primary text-zinc-950"
+                : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <button
+        onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+        disabled={currentPage === totalPages}
+        className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-500 transition hover:bg-zinc-50 disabled:opacity-30 dark:border-zinc-700 dark:bg-zinc-900/40 dark:hover:bg-zinc-800"
+      >
+        ›
+      </button>
+    </div>
+  );
+}
+
+/* ── Event & Round dropdown selectors (shared by all U&R tabs) ── */
+
+function EventRoundDropdowns({
+  comp,
+  selectedEvent,
+  selectedRound,
+  onEventChange,
+  onRoundChange,
+}: {
+  comp: CompetitionDetail;
+  selectedEvent: string;
+  selectedRound: number;
+  onEventChange: (e: string) => void;
+  onRoundChange: (r: number) => void;
+}) {
+  const event = comp.events.find((e) => e.eventType === selectedEvent);
+  const rounds = event?.rounds ?? [];
+
+  return (
+    <div className="mb-4 flex flex-wrap gap-3">
+      <select
+        value={selectedEvent}
+        onChange={(e) => { onEventChange(e.target.value); onRoundChange(1); }}
+        className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300"
+      >
+        {comp.events.map((ev) => (
+          <option key={ev.eventType} value={ev.eventType}>
+            {eventDisplayName(ev.eventType)}
+          </option>
+        ))}
+      </select>
+      <select
+        value={selectedRound}
+        onChange={(e) => onRoundChange(Number(e.target.value))}
+        className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300"
+      >
+        {rounds.map((r) => (
+          <option key={r.id} value={r.roundNumber}>
+            Round {r.roundNumber}{r.roundNumber === 1 ? " (all participants)" : " (advanced only)"}
+          </option>
+        ))}
+        {rounds.length === 0 && <option value={1}>Round 1</option>}
+      </select>
+    </div>
+  );
+}
+
 /* ── Participants Tab ── */
 
-function ParticipantsTab({ compId, limitRows }: { compId: string; limitRows: number }) {
+function ParticipantsTab({ comp }: { comp: CompetitionDetail }) {
+  const [selectedEvent, setSelectedEvent] = useState(comp.events[0]?.eventType ?? "");
+  const [selectedRound, setSelectedRound] = useState(1);
   const [participants, setParticipants] = useState<ParticipantEntry[]>([]);
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
-    fetchParticipants(compId)
+    setLoading(true);
+    setPage(1);
+    fetchParticipants(comp.id)
       .then((d) => {
-        setParticipants(d.participants);
-        setCount(d.count);
+        const filtered = selectedEvent
+          ? d.participants.filter((p) => p.eventTypes.includes(selectedEvent))
+          : d.participants;
+        setParticipants(filtered);
+        setCount(filtered.length);
       })
       .catch(() => { })
       .finally(() => setLoading(false));
-  }, [compId]);
+  }, [comp.id, selectedEvent]);
 
-  if (loading) {
-    return (
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-sm">
-          <tbody>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <SkeletonRow key={i} cols={4} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-
-  if (participants.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
-        No participants yet.
-      </div>
-    );
-  }
-
-  const visibleParticipants = expanded ? participants : participants.slice(0, limitRows);
-  const hasMore = participants.length > limitRows;
+  const totalPages = Math.ceil(count / ROWS_PER_PAGE);
+  const visibleParticipants = participants.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
 
   return (
     <div>
-      <p className="mb-4 text-sm text-zinc-500">{count} participant{count !== 1 ? "s" : ""}</p>
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-50 dark:bg-zinc-900/60">
-            <tr>
-              <th className="px-4 py-3 font-medium text-zinc-500">#</th>
-              <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
-              <th className="px-4 py-3 font-medium text-zinc-500">CL ID</th>
-              <th className="px-4 py-3 font-medium text-zinc-500">Events</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {visibleParticipants.map((p, i) => (
-              <tr key={p.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
-                <td className="px-4 py-3 text-zinc-400">{i + 1}</td>
-                <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{p.name}</td>
-                <td className="px-4 py-3 font-mono text-xs text-zinc-500">
-                  {p.clId}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {p.eventTypes.map((e) => (
-                      <span
-                        key={e}
-                        title={eventDisplayName(e)}
-                        className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                      >
-                        <EventIcon eventId={e} size={16} /> {eventDisplayName(e)}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {hasMore && !expanded && (
-        <button
-          onClick={() => setExpanded(true)}
-          className="mt-4 w-full rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          View all {count} participants
-        </button>
+      <EventRoundDropdowns
+        comp={comp}
+        selectedEvent={selectedEvent}
+        selectedRound={selectedRound}
+        onEventChange={setSelectedEvent}
+        onRoundChange={setSelectedRound}
+      />
+
+      {selectedRound > 1 && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
+          <span>⚠</span>
+          <span>Showing only users who advanced from previous round. If previous round results aren&apos;t verified yet, this list may be incomplete.</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+          <table className="w-full text-sm">
+            <tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <SkeletonRow key={i} cols={4} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : participants.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
+          No participants yet.
+        </div>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-zinc-500">{count} participant{count !== 1 ? "s" : ""}</p>
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900/60">
+                <tr>
+                  <th className="px-4 py-3 font-medium text-zinc-500">#</th>
+                  <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
+                  <th className="px-4 py-3 font-medium text-zinc-500">CL ID</th>
+                  <th className="px-4 py-3 font-medium text-zinc-500">Events</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {visibleParticipants.map((p, i) => (
+                  <tr key={p.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+                    <td className="px-4 py-3 text-zinc-400">{(page - 1) * ROWS_PER_PAGE + i + 1}</td>
+                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{p.name}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-zinc-500">{p.clId}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {p.eventTypes.map((e) => (
+                          <span
+                            key={e}
+                            title={eventDisplayName(e)}
+                            className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                          >
+                            <EventIcon eventId={e} size={16} /> {eventDisplayName(e)}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+          <p className="mt-2 text-center text-xs text-zinc-400">
+            Showing {(page - 1) * ROWS_PER_PAGE + 1}–{Math.min(page * ROWS_PER_PAGE, count)} of {count}
+          </p>
+        </>
       )}
     </div>
   );
@@ -1439,18 +1356,18 @@ function ParticipantsTab({ compId, limitRows }: { compId: string; limitRows: num
 
 /* ── Rankings Tab ── */
 
-function RankingsTab({ comp, showResultsLink, limitRows }: { comp: CompetitionDetail; showResultsLink: boolean; limitRows: number | null }) {
-  const eventTypes = comp.events.map((e) => e.eventType);
-  const [selectedEvent, setSelectedEvent] = useState(eventTypes[0] ?? "");
+function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showResultsLink: boolean }) {
+  const [selectedEvent, setSelectedEvent] = useState(comp.events[0]?.eventType ?? "");
+  const [selectedRound, setSelectedRound] = useState(1);
   const [ranking, setRanking] = useState<LiveRankingEntry[]>([]);
   const [roundInfo, setRoundInfo] = useState<{ roundNumber: number | null }>({ roundNumber: null });
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     if (!selectedEvent) return;
     setLoading(true);
-    setExpanded(false);
+    setPage(1);
     fetchLiveRanking(comp.id, selectedEvent)
       .then((d) => {
         setRanking(d.ranking);
@@ -1460,11 +1377,20 @@ function RankingsTab({ comp, showResultsLink, limitRows }: { comp: CompetitionDe
       .finally(() => setLoading(false));
   }, [comp.id, selectedEvent]);
 
-  const visibleRanking = (limitRows !== null && !expanded) ? ranking.slice(0, limitRows) : ranking;
-  const hasMore = limitRows !== null && ranking.length > limitRows;
+  const totalPages = Math.ceil(ranking.length / ROWS_PER_PAGE);
+  const visibleRanking = ranking.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+  const pageOffset = (page - 1) * ROWS_PER_PAGE;
 
   return (
     <div>
+      <EventRoundDropdowns
+        comp={comp}
+        selectedEvent={selectedEvent}
+        selectedRound={selectedRound}
+        onEventChange={setSelectedEvent}
+        onRoundChange={setSelectedRound}
+      />
+
       {showResultsLink && (
         <div className="mb-4">
           <Link
@@ -1473,25 +1399,6 @@ function RankingsTab({ comp, showResultsLink, limitRows }: { comp: CompetitionDe
           >
             View Full Results
           </Link>
-        </div>
-      )}
-
-      {/* Event selector */}
-      {eventTypes.length > 1 && (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {eventTypes.map((e) => (
-            <button
-              key={e}
-              onClick={() => setSelectedEvent(e)}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${selectedEvent === e
-                  ? "bg-accent-primary text-zinc-950"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-                }`}
-            >
-              <span><EventIcon eventId={e} size={16} /></span>
-              {eventDisplayName(e)}
-            </button>
-          ))}
         </div>
       )}
 
@@ -1526,31 +1433,30 @@ function RankingsTab({ comp, showResultsLink, limitRows }: { comp: CompetitionDe
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {visibleRanking.map((r, i) => (
-                  <tr key={r.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
-                    <td className="px-4 py-3 font-mono text-zinc-400">
-                      {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (r.rank ?? "—")}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{r.name}</td>
-                    <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
-                      {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
-                      {r.bestSingleMs !== null ? formatTime(r.bestSingleMs) : "—"}
-                    </td>
-                  </tr>
-                ))}
+                {visibleRanking.map((r, i) => {
+                  const globalIdx = pageOffset + i;
+                  return (
+                    <tr key={r.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+                      <td className="px-4 py-3 font-mono text-zinc-400">
+                        {globalIdx === 0 ? "🥇" : globalIdx === 1 ? "🥈" : globalIdx === 2 ? "🥉" : (r.rank ?? "—")}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{r.name}</td>
+                      <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
+                        {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
+                        {r.bestSingleMs !== null ? formatTime(r.bestSingleMs) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-          {hasMore && !expanded && (
-            <button
-              onClick={() => setExpanded(true)}
-              className="mt-4 w-full rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              View all {ranking.length} rankings
-            </button>
-          )}
+          <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+          <p className="mt-2 text-center text-xs text-zinc-400">
+            Showing {pageOffset + 1}–{Math.min(page * ROWS_PER_PAGE, ranking.length)} of {ranking.length}
+          </p>
         </>
       )}
     </div>
@@ -1573,6 +1479,7 @@ function UsersAndRankingsSection({
   isCompleted: boolean;
 }) {
   const [tab, setTab] = useState<URTab>("active");
+  const [activePage, setActivePage] = useState(1);
 
   const prevRosterSize = useRef(roster.length);
   const [justJoined, setJustJoined] = useState<Set<string>>(new Set());
@@ -1591,6 +1498,9 @@ function UsersAndRankingsSection({
     { id: "participants", label: "Participants" },
     { id: "rankings", label: "Live Rankings" },
   ];
+
+  const activeTotalPages = Math.ceil(roster.length / ROWS_PER_PAGE);
+  const visibleRoster = roster.slice((activePage - 1) * ROWS_PER_PAGE, activePage * ROWS_PER_PAGE);
 
   return (
     <div>
@@ -1614,58 +1524,73 @@ function UsersAndRankingsSection({
       </div>
 
       {tab === "active" && (
-        <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
-          {roster.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-zinc-400 dark:text-zinc-600">
-              Waiting for competitors to check in…
-            </p>
-          ) : (
-            <ul className="max-h-[400px] divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800/60">
-              {roster.map((c, i) => {
-                const isMe = c.userId === user?.id;
-                return (
-                  <li
-                    key={c.userId}
-                    className={`flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
-                      justJoined.has(c.userId) ? "row-count-in bg-accent-primary/10" : ""
-                    } ${isMe ? "bg-accent-primary/5" : ""}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-5 text-right text-xs text-zinc-400">{i + 1}</span>
-                      {c.clId ? (
-                        <a href={`/profile/${c.clId}`} className="font-medium text-zinc-800 hover:text-accent-primary dark:text-zinc-200 dark:hover:text-accent-primary transition-colors">
-                          {c.name}
-                          {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
+        <div>
+          <EventRoundDropdowns
+            comp={comp}
+            selectedEvent={comp.events[0]?.eventType ?? ""}
+            selectedRound={1}
+            onEventChange={() => {}}
+            onRoundChange={() => {}}
+          />
+          <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
+            {roster.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-zinc-400 dark:text-zinc-600">
+                Waiting for competitors to check in…
+              </p>
+            ) : (
+              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                {visibleRoster.map((c, i) => {
+                  const isMe = c.userId === user?.id;
+                  const globalIdx = (activePage - 1) * ROWS_PER_PAGE + i;
+                  return (
+                    <li
+                      key={c.userId}
+                      className={`flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
+                        justJoined.has(c.userId) ? "row-count-in bg-accent-primary/10" : ""
+                      } ${isMe ? "bg-accent-primary/5" : ""}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="w-5 text-right text-xs text-zinc-400">{globalIdx + 1}</span>
+                        {c.clId ? (
+                          <a href={`/profile/${c.clId}`} className="font-medium text-zinc-800 hover:text-accent-primary dark:text-zinc-200 dark:hover:text-accent-primary transition-colors">
+                            {c.name}
+                            {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
+                          </a>
+                        ) : (
+                          <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                            {c.name}
+                            {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
+                          </span>
+                        )}
+                      </div>
+                      {c.clId && (
+                        <a href={`/profile/${c.clId}`} className="font-mono text-xs text-zinc-400 hover:text-accent-primary transition-colors">
+                          {c.clId}
                         </a>
-                      ) : (
-                        <span className="font-medium text-zinc-800 dark:text-zinc-200">
-                          {c.name}
-                          {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
-                        </span>
                       )}
-                    </div>
-                    {c.clId && (
-                      <a href={`/profile/${c.clId}`} className="font-mono text-xs text-zinc-400 hover:text-accent-primary transition-colors">
-                        {c.clId}
-                      </a>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <Pagination currentPage={activePage} totalPages={activeTotalPages} onPageChange={setActivePage} />
+          {roster.length > 0 && (
+            <p className="mt-2 text-center text-xs text-zinc-400">
+              Showing {(activePage - 1) * ROWS_PER_PAGE + 1}–{Math.min(activePage * ROWS_PER_PAGE, roster.length)} of {roster.length} online
+            </p>
           )}
         </div>
       )}
 
       {tab === "participants" && (
-        <ParticipantsTab compId={comp.id} limitRows={15} />
+        <ParticipantsTab comp={comp} />
       )}
 
       {tab === "rankings" && (
         <RankingsTab
           comp={comp}
           showResultsLink={["results_pending", "completed", "live"].includes(comp.status)}
-          limitRows={isCompleted ? null : 10}
         />
       )}
     </div>

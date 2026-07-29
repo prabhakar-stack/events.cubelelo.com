@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { acquireSocket, releaseSocket } from "./socket";
+import { acquireSocket, releaseSocket, trackJoin, trackLeave } from "./socket";
 
 export function useRoundStatus(
   roundId: string | null,
@@ -15,6 +15,7 @@ export function useRoundStatus(
 
     const socket = acquireSocket();
     socket.emit("join", { roundId });
+    trackJoin(roundId);
     const handler = (p: { roundId: string; status: string; opensAt?: string }) => {
       if (p.roundId !== roundId) return;
       setStatus(p.status);
@@ -24,6 +25,7 @@ export function useRoundStatus(
 
     return () => {
       socket.off("round:status", handler);
+      trackLeave(roundId);
       releaseSocket();
     };
   }, [roundId]);
