@@ -5,6 +5,7 @@ import Link from "next/link";
 import { assetUrl, type CompetitionSummary } from "@/lib/api";
 import { EventIcon } from "@/components/EventIcon";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
+import { Countdown } from "@/components/Countdown";
 
 function formatDate(iso?: string | null) {
   if (!iso) return null;
@@ -171,30 +172,9 @@ export function CompetitionCard({ comp }: { comp: CompetitionSummary }) {
 }
 
 function CardCountdown({ deadline }: { deadline: string }) {
-  const [label, setLabel] = useState<string | null>(null);
-
-  useEffect(() => {
-    function update() {
-      const diff = new Date(deadline).getTime() - Date.now();
-      if (diff <= 0) {
-        setLabel("Closing soon");
-        return;
-      }
-      const days = Math.floor(diff / 86_400_000);
-      const hours = Math.floor((diff % 86_400_000) / 3_600_000);
-      const mins = Math.floor((diff % 3_600_000) / 60_000);
-      setLabel(days > 0 ? `${days}d ${hours}h left` : hours > 0 ? `${hours}h ${mins}m left` : `${mins}m left`);
-    }
-    update();
-    const t = setInterval(update, 60_000);
-    return () => clearInterval(t);
-  }, [deadline]);
-
-  if (!label) return null;
-
   return (
     <span className="inline-flex items-center gap-1 rounded-lg border border-accent-warn/15 bg-accent-warn/10 px-2 py-0.5 text-[11px] font-semibold text-accent-warn">
-      ⏳ {label}
+      ⏳ <Countdown target={deadline} /> left
     </span>
   );
 }

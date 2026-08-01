@@ -10,6 +10,7 @@ import { useTimer } from "@/features/timer/useTimer";
 import { TimerDisplay } from "@/features/timer/TimerDisplay";
 import { TwistyPlayer } from "@/features/scramble/TwistyPlayer";
 import { useLeaderboard } from "@/features/realtime/useLeaderboard";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import { useAuth } from "@/features/auth/AuthProvider";
 import {
   fetchCompetition,
@@ -107,10 +108,8 @@ export function CompetitionTerminal({
         });
       } catch (e) {
         if (active) {
-          setLoad({
-            kind: "error",
-            message: e instanceof Error ? e.message : String(e),
-          });
+          const raw = e instanceof Error ? e.message : String(e);
+          setLoad({ kind: "error", message: raw });
         }
       }
     })();
@@ -305,13 +304,7 @@ export function CompetitionTerminal({
   if (load.kind === "error") {
     return (
       <CenterMessage>
-        <div className="space-y-2 text-center">
-          <p className="text-red-600 dark:text-red-400">Could not load this round.</p>
-          <p className="font-mono text-xs text-zinc-500">{load.message}</p>
-          <p className="text-sm text-zinc-500">
-            Is the API running on the configured URL?
-          </p>
-        </div>
+        <ErrorCard error={load.message} />
       </CenterMessage>
     );
   }

@@ -6,7 +6,12 @@ import { EVENT_IDS } from "@cubers/scramble-core";
 import {
   fetchSystemSettings,
   updateSystemSettings,
+  fetchAdminRuleSets,
+  createRuleSet,
+  updateRuleSet,
+  deleteRuleSet,
   type SystemSettingsDto,
+  type RuleSetDto,
 } from "@/lib/api";
 import { eventDisplayName } from "@/lib/eventNames";
 import { EventIcon } from "@/components/EventIcon";
@@ -238,7 +243,244 @@ export default function AdminSettingsPage() {
             <span className="text-sm text-emerald-400">Settings saved</span>
           )}
         </div>
+
+        {/* ── Rule Sets ── */}
+        <RuleSetsSection />
       </div>
     </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Rule Sets Section
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const RS_INPUT =
+  "rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100";
+
+function RuleSetsSection() {
+  const [sets, setSets] = useState<RuleSetDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // New rule set form
+  const [showNew, setShowNew] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newContent, setNewContent] = useState("");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    fetchAdminRuleSets()
+      .then(setSets)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await createRuleSet({ name: newName.trim(), content: newContent });
+      setNewName("");
+      setNewContent("");
+      setShowNew(false);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!editingId || !editName.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateRuleSet(editingId, { name: editName.trim(), content: editContent });
+      setEditingId(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteRuleSet(id);
+      if (editingId === id) setEditingId(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEdit = (rs: RuleSetDto) => {
+    setEditingId(rs.id);
+    setEditName(rs.name);
+    setEditContent(rs.content);
+    setShowNew(false);
+  };
+
+  return (
+    <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/30">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+          Competition Rule Sets
+        </h2>
+        <button
+          onClick={() => { setShowNew(!showNew); setEditingId(null); }}
+          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
+        >
+          + New Rule Set
+        </button>
+      </div>
+      <p className="mb-4 text-xs text-zinc-500">
+        Create reusable rule sets here. When creating or managing a competition, select a rule set instead of writing rules from scratch.
+      </p>
+
+      {error && (
+        <div className="mb-3 rounded bg-red-100 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {/* New rule set form */}
+      {showNew && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+          <h3 className="mb-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300">Create New Rule Set</h3>
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-zinc-500">Name</label>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. Standard WCA Rules, Speed Challenge Rules"
+              className={`w-full ${RS_INPUT}`}
+            />
+          </div>
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-zinc-500">Rules (Markdown)</label>
+            <textarea
+              value={newContent}
+              onChange={(e) => setNewContent(e.target.value)}
+              placeholder="Write competition rules here. Markdown formatting supported."
+              rows={6}
+              className={`w-full font-mono ${RS_INPUT}`}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              disabled={busy || !newName.trim()}
+              onClick={handleCreate}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {busy ? "Creating…" : "Create"}
+            </button>
+            <button
+              onClick={() => setShowNew(false)}
+              className="rounded-lg px-4 py-2 text-xs text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Existing rule sets */}
+      {loading ? (
+        <p className="text-xs text-zinc-500">Loading rule sets…</p>
+      ) : sets.length === 0 ? (
+        <p className="text-xs text-zinc-500">No rule sets created yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {sets.map((rs) => (
+            <div
+              key={rs.id}
+              className={`rounded-lg border p-3 transition ${
+                editingId === rs.id
+                  ? "border-emerald-300 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20"
+                  : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50"
+              }`}
+            >
+              {editingId === rs.id ? (
+                <>
+                  <div className="mb-3">
+                    <label className="mb-1 block text-xs text-zinc-500">Name</label>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className={`w-full ${RS_INPUT}`}
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="mb-1 block text-xs text-zinc-500">Rules (Markdown)</label>
+                    <textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      rows={8}
+                      className={`w-full font-mono ${RS_INPUT}`}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={busy || !editName.trim()}
+                      onClick={handleUpdate}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                    >
+                      {busy ? "Updating…" : "Update"}
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="rounded-lg px-4 py-2 text-xs text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{rs.name}</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      {rs.content ? `${rs.content.slice(0, 80)}${rs.content.length > 80 ? "…" : ""}` : "No content"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => startEdit(rs)}
+                      className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() => handleDelete(rs.id)}
+                      className="rounded border border-red-300 px-2 py-1 text-xs text-red-500 transition hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/30 disabled:opacity-40"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

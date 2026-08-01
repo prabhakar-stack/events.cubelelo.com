@@ -66,6 +66,7 @@ export interface Competition {
   cancellationReason?: string;
   videoDeadlineMinutes: number;
   registrationLimit?: number;
+  ruleSetId?: string;
   createdBy?: string;
   publishedBy?: string;
   createdAt: string;
@@ -79,6 +80,7 @@ export interface CompetitionEvent {
   cutoffMs?: number;
   timeLimitMs?: number;
   fee?: number;
+  archived?: boolean;
 }
 
 export interface AdvancementCriteria {
@@ -97,6 +99,7 @@ export interface Round {
   opensAt?: string;
   closesAt?: string;
   durationMinutes?: number;
+  resultsPublishedAt?: string;
 }
 
 export interface ScrambleSet {
@@ -324,4 +327,12 @@ export interface SystemSettings {
   gapBetweenEventsMinutes: number;
   defaultRoundDurationMinutes: number;
   videoDeadlineMinutes: number;
+}
+
+export interface RuleSet {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
 }

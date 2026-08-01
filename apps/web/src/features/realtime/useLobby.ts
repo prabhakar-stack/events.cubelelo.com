@@ -13,7 +13,7 @@ export interface LobbyLive {
 
 export function useLobby(
   roundId: string | null,
-  me: { userId: string; name: string },
+  me: { userId: string; name: string; clId?: string },
 ): LobbyLive & { fetchError: boolean } {
   const [serverRoster, setServerRoster] = useState<RosterEntry[]>([]);
   const [status, setStatus] = useState<string>("pending");
@@ -82,8 +82,8 @@ export function useLobby(
   const roster = useMemo(() => {
     if (me.userId === "guest") return serverRoster;
     if (serverRoster.some((c) => c.userId === me.userId)) return serverRoster;
-    return [{ userId: me.userId, name: me.name }, ...serverRoster];
-  }, [serverRoster, me.userId, me.name]);
+    return [{ userId: me.userId, name: me.name, clId: me.clId }, ...serverRoster];
+  }, [serverRoster, me.userId, me.name, me.clId]);
 
   return { roster, status, opensAt, rulesMd, fetchError };
 }

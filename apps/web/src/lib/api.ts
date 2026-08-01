@@ -58,6 +58,7 @@ export interface RoundRef {
   closesAt?: string | null;
   advancementCount?: number | null;
   advancementCriteria?: AdvancementCriteria | null;
+  resultsPublishedAt?: string | null;
 }
 
 export interface CompetitionSummary {
@@ -90,6 +91,7 @@ export interface EventDetail {
   cutoffMs?: number;
   timeLimitMs?: number;
   fee?: number;
+  archived?: boolean;
   rounds: RoundRef[];
 }
 
@@ -100,6 +102,7 @@ export interface CompetitionDetail {
   status: string;
   description?: string;
   rulesMd?: string;
+  ruleSetId?: string | null;
   baseFee?: number;
   perEventFee?: number;
   registrationOpensAt?: string | null;
@@ -214,7 +217,12 @@ async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() });
   if (!res.ok) {
     handleUnauthorized(res.status);
-    throw new Error(`${res.status} ${res.statusText} for ${path}`);
+    let detail = "";
+    try {
+      const body = await res.json();
+      if (body?.error) detail = body.error;
+    } catch {}
+    throw new Error(detail || `${res.status} ${res.statusText} for ${path}`);
   }
   return res.json() as Promise<T>;
 }
@@ -261,7 +269,7 @@ export interface RoundProgress {
   eventType: string | null;
   status: string;
   userStatus: string;
-  result: { rank: number | null; ao5Ms: number | null; bestSingleMs: number | null } | null;
+  result: { id: string; rank: number | null; ao5Ms: number | null; bestSingleMs: number | null; videoUrl: string | null } | null;
 }
 
 export function fetchMyProgress(compId: string): Promise<{ registered: boolean; rounds: RoundProgress[] }> {
@@ -582,6 +590,7 @@ export function createCompetition(body: {
   type: string;
   description?: string;
   rulesMd?: string;
+  ruleSetId?: string | null;
   baseFee?: number;
   perEventFee?: number;
   registrationOpensAt?: string;
@@ -612,6 +621,7 @@ export function updateCompetition(
     status?: string;
     description?: string;
     rulesMd?: string;
+    ruleSetId?: string | null;
     baseFee?: number;
     perEventFee?: number;
     registrationOpensAt?: string | null;
@@ -715,9 +725,18 @@ export function updateCompetitionEvent(
     cutoffMs?: number | null;
     timeLimitMs?: number | null;
     roundCount?: number;
+    archived?: boolean;
   },
-): Promise<{ id: string; eventType: string; fee: number | null }> {
+): Promise<{ id: string; eventType: string; fee: number | null; archived?: boolean }> {
   return sendJson("PATCH", `/api/v1/admin/competition-events/${eventId}`, body);
+}
+
+export async function deleteCompetitionEvent(eventId: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/v1/admin/competition-events/${eventId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
 }
 
 export function fetchVerificationQueue(
@@ -1700,4 +1719,34 @@ export async function fetchSchedulingDefaults(): Promise<SchedulingDefaults> {
   const res = await fetch(`${BASE_URL}/api/v1/settings/scheduling`);
   if (!res.ok) throw new Error(`Fetch scheduling defaults failed: ${res.status}`);
   return res.json();
+}
+
+// ── Rule Sets ──
+
+export interface RuleSetDto {
+  id: string;
+  name: string;
+  content: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export function fetchRuleSets(): Promise<RuleSetDto[]> {
+  return getJson("/api/v1/rule-sets");
+}
+
+export function fetchAdminRuleSets(): Promise<RuleSetDto[]> {
+  return getJson("/api/v1/admin/rule-sets");
+}
+
+export function createRuleSet(body: { name: string; content: string }): Promise<RuleSetDto> {
+  return sendJson("POST", "/api/v1/admin/rule-sets", body);
+}
+
+export function updateRuleSet(id: string, body: { name?: string; content?: string }): Promise<RuleSetDto> {
+  return sendJson("PATCH", `/api/v1/admin/rule-sets/${id}`, body);
+}
+
+export function deleteRuleSet(id: string): Promise<{ ok: boolean }> {
+  return sendJson("DELETE", `/api/v1/admin/rule-sets/${id}`);
 }

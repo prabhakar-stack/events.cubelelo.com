@@ -13,17 +13,40 @@ function formatRemaining(diffMs: number): string {
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
-/** Live-updating "starts in Xh Ym" label. Ticks every second once under a minute away. */
+function tickInterval(diffMs: number): number {
+  if (diffMs <= 60_000) return 1000;
+  if (diffMs <= 3_600_000) return 1000;
+  return 30_000;
+}
+
+/** Live-updating countdown label. Ticks every second when under 1 hour. */
 export function Countdown({ target, className = "" }: { target: string; className?: string }) {
   const [label, setLabel] = useState(() => formatRemaining(new Date(target).getTime() - Date.now()));
 
   useEffect(() => {
-    const tick = () => setLabel(formatRemaining(new Date(target).getTime() - Date.now()));
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const diff = new Date(target).getTime() - Date.now();
+      setLabel(formatRemaining(diff));
+      if (diff > 0) {
+        timer = setTimeout(tick, tickInterval(diff));
+      }
+    };
     tick();
-    const diff = new Date(target).getTime() - Date.now();
-    const interval = setInterval(tick, diff < 60_000 ? 1000 : 30_000);
-    return () => clearInterval(interval);
+    return () => clearTimeout(timer);
   }, [target]);
 
   return <span className={className}>{label}</span>;
+}
+
+/** Hook returning remaining ms that ticks every second. */
+export function useCountdownMs(target: string | null): number | null {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!target) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [target]);
+  if (!target) return null;
+  return Math.max(0, new Date(target).getTime() - now);
 }

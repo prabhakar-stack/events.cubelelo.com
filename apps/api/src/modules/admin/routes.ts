@@ -41,6 +41,7 @@ export async function registerAdminRoutes(
       type?: CompType;
       description?: string;
       rulesMd?: string;
+      ruleSetId?: string;
       baseFee?: number;
       perEventFee?: number;
       registrationOpensAt?: string;
@@ -65,12 +66,16 @@ export async function registerAdminRoutes(
       }>;
     };
   }>("/api/v1/admin/competitions", adminOnly, async (req, reply) => {
-    const { title, type, description, rulesMd, baseFee, perEventFee,
+    const { title, type, description, rulesMd, ruleSetId, baseFee, perEventFee,
             registrationOpensAt, registrationDeadline, startsAt, endsAt, saveAsDraft,
             registrationLimit } =
       req.body ?? {};
     if (!title || typeof title !== "string")
       return reply.code(400).send({ error: "missing_title" });
+
+    const existing = await repo.competitions.findByTitle(title);
+    if (existing)
+      return reply.code(409).send({ error: "duplicate_title" });
 
     const user = await repo.users.findById(req.authClaims!.sub);
     const now = new Date().toISOString();
@@ -92,6 +97,7 @@ export async function registerAdminRoutes(
       featured: false,
       videoDeadlineMinutes: 1440,
       registrationLimit: typeof registrationLimit === "number" && registrationLimit > 0 ? registrationLimit : undefined,
+      ruleSetId: typeof ruleSetId === "string" ? ruleSetId : undefined,
       createdBy: user?.id,
       createdAt: now,
     };
@@ -173,6 +179,7 @@ export async function registerAdminRoutes(
       status?: CompStatus;
       description?: string;
       rulesMd?: string;
+      ruleSetId?: string | null;
       baseFee?: number;
       perEventFee?: number;
       registrationOpensAt?: string;
@@ -192,11 +199,16 @@ export async function registerAdminRoutes(
       title, status, description, rulesMd, baseFee, perEventFee,
       registrationOpensAt, registrationDeadline, startsAt, endsAt,
       featured, featuredOrder, coverCaption, coverUrl, bannerUrl, mobileBannerUrl,
-      cancellationReason,
+      cancellationReason, ruleSetId,
     } = req.body ?? {};
 
     const fields: Partial<Competition> = {};
-    if (typeof title === "string") fields.title = title;
+    if (typeof title === "string") {
+      const dup = await repo.competitions.findByTitle(title);
+      if (dup && dup.id !== req.params.id)
+        return reply.code(409).send({ error: "duplicate_title" });
+      fields.title = title;
+    }
     if (typeof description === "string") fields.description = description;
     if (typeof rulesMd === "string") fields.rulesMd = rulesMd;
     if (typeof baseFee === "number") fields.baseFee = baseFee;
@@ -213,6 +225,7 @@ export async function registerAdminRoutes(
     if (typeof bannerUrl === "string") fields.bannerUrl = bannerUrl;
     if (typeof mobileBannerUrl === "string") fields.mobileBannerUrl = mobileBannerUrl;
     if (typeof cancellationReason === "string") fields.cancellationReason = cancellationReason;
+    if (typeof ruleSetId === "string" || ruleSetId === null) fields.ruleSetId = ruleSetId ?? undefined;
 
     if (status === "cancelled" && !cancellationReason?.trim()) {
       return reply.code(400).send({ error: "cancellation_reason_required" });
@@ -353,9 +366,15 @@ export async function registerAdminRoutes(
     const newCompId = randomUUID();
 
     const copySched = req.body?.copySchedule !== false;
+    let dupTitle = `${source.title} (copy)`;
+    let attempt = 1;
+    while (await repo.competitions.findByTitle(dupTitle)) {
+      attempt++;
+      dupTitle = `${source.title} (copy ${attempt})`;
+    }
     const comp: Competition = {
       id: newCompId,
-      title: `${source.title} (copy)`,
+      title: dupTitle,
       type: overrideType,
       status: "draft",
       description: source.description,
@@ -837,15 +856,17 @@ export async function registerAdminRoutes(
 
   app.patch<{
     Params: { id: string };
-    Body: { cutoffMs?: number; timeLimitMs?: number; roundCount?: number; fee?: number };
+    Body: { cutoffMs?: number; timeLimitMs?: number; roundCount?: number; fee?: number; archived?: boolean };
   }>("/api/v1/admin/competition-events/:id", adminOnly, async (req, reply) => {
-    const { cutoffMs, timeLimitMs, roundCount, fee } = req.body ?? {};
+    const { cutoffMs, timeLimitMs, roundCount, fee, archived } = req.body ?? {};
     const fields: Partial<CompetitionEvent> = {};
     if (cutoffMs !== undefined) fields.cutoffMs = cutoffMs;
     if (timeLimitMs !== undefined) fields.timeLimitMs = timeLimitMs;
     if (roundCount !== undefined) fields.roundCount = roundCount;
     if (fee !== undefined) fields.fee = fee;
+    if (archived !== undefined) fields.archived = archived;
     if (Object.keys(fields).length === 0) return reply.code(400).send({ error: "no_valid_fields" });
+
     const updated = await repo.competitionEvents.update(req.params.id, fields);
     if (!updated) return reply.code(404).send({ error: "event_not_found" });
     return updated;
@@ -1860,6 +1881,7 @@ export async function registerAdminRoutes(
     async (req, reply) => {
       const round = await repo.rounds.findById(req.params.id);
       if (!round) return reply.code(404).send({ error: "round_not_found" });
+      if (round.resultsPublishedAt) return reply.code(409).send({ error: "already_published" });
 
       const event = await repo.competitionEvents.findById(round.competitionEventId);
       if (!event) return reply.code(404).send({ error: "event_not_found" });
@@ -1879,6 +1901,7 @@ export async function registerAdminRoutes(
         return { to: r.email, subject: msg.subject, html: msg.html };
       });
       const sentCount = await sendBulk(messages);
+      await repo.rounds.update(round.id, { resultsPublishedAt: new Date().toISOString() });
 
       // Auto-complete: if this is the last round of the event, check completion
       const allRounds = await repo.rounds.findByCompetition(event.competitionId);
@@ -2237,6 +2260,59 @@ export async function registerAdminRoutes(
     }
     const updated = await repo.systemSettings.update(patch);
     return reply.send(updated);
+  });
+
+  // ── Rule Sets ────────────────────────────────────────────────────────
+
+  app.get("/api/v1/admin/rule-sets", adminOnly, async (_req, reply) => {
+    const sets = await repo.ruleSets.findAll();
+    return reply.send(sets);
+  });
+
+  app.post<{ Body: { name: string; content: string } }>(
+    "/api/v1/admin/rule-sets",
+    adminOnly,
+    async (req, reply) => {
+      const { name, content } = req.body ?? {};
+      if (!name || typeof name !== "string") return reply.code(400).send({ error: "missing_name" });
+      const now = new Date().toISOString();
+      const rs = { id: randomUUID(), name: name.trim(), content: typeof content === "string" ? content : "", createdAt: now, updatedAt: now };
+      try {
+        await repo.ruleSets.create(rs);
+      } catch {
+        return reply.code(409).send({ error: "duplicate_name" });
+      }
+      return reply.code(201).send(rs);
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { name?: string; content?: string } }>(
+    "/api/v1/admin/rule-sets/:id",
+    adminOnly,
+    async (req, reply) => {
+      const { name, content } = req.body ?? {};
+      const fields: Record<string, unknown> = {};
+      if (typeof name === "string") fields.name = name.trim();
+      if (typeof content === "string") fields.content = content;
+      const updated = await repo.ruleSets.update(req.params.id, fields);
+      if (!updated) return reply.code(404).send({ error: "not_found" });
+      return reply.send(updated);
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/v1/admin/rule-sets/:id",
+    adminOnly,
+    async (req, reply) => {
+      await repo.ruleSets.delete(req.params.id);
+      return reply.send({ ok: true });
+    },
+  );
+
+  // Public endpoint for fetching rule sets (for competition detail page)
+  app.get("/api/v1/rule-sets", async (_req, reply) => {
+    const sets = await repo.ruleSets.findAll();
+    return reply.send(sets.map((s) => ({ id: s.id, name: s.name, content: s.content })));
   });
 
   // Public endpoint — no auth, used by create-competition form

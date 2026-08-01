@@ -29,8 +29,12 @@ export default function AdminStaffPage() {
   const [confirmBusy, setConfirmBusy] = useState(false);
 
   const load = useCallback(() => {
-    fetchAdminUsers()
-      .then((users) => setStaff(users.filter((u) => u.role === "judge" || u.role === "moderator" || u.role === "admin")))
+    Promise.all([
+      fetchAdminUsers({ role: "admin" }),
+      fetchAdminUsers({ role: "moderator" }),
+      fetchAdminUsers({ role: "judge" }),
+    ])
+      .then(([admins, mods, judges]) => setStaff([...admins, ...mods, ...judges]))
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, []);

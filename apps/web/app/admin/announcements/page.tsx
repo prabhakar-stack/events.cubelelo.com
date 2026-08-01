@@ -11,6 +11,7 @@ import {
   uploadBannerMobileImage,
   type BannerDto,
 } from "@/lib/api";
+import { ConfirmModal } from "@/components/ui/Modal";
 
 
 const EMPTY = { title: "", linkUrl: "", expiresAt: "", active: true, order: 0 };
@@ -23,6 +24,7 @@ export default function AdminContentPage() {
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<BannerDto | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [mobileImageFile, setMobileImageFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,7 +97,6 @@ export default function AdminContentPage() {
   };
 
   const del = async (b: BannerDto) => {
-    if (!confirm(`Delete announcement "${b.title}"?`)) return;
     setBusy(`del-${b.id}`);
     try { await deleteBanner(b.id); load(); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -243,7 +244,7 @@ export default function AdminContentPage() {
                   className="rounded border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 disabled:opacity-40">
                   {b.active ? "Deactivate" : "Activate"}
                 </button>
-                <button onClick={() => del(b)} disabled={busy === `del-${b.id}`}
+                <button onClick={() => setDeleteTarget(b)} disabled={busy === `del-${b.id}`}
                   className="rounded border border-red-900/40 px-3 py-1 text-xs text-red-500 hover:bg-red-950/30 disabled:opacity-40">
                   Delete
                 </button>
@@ -252,6 +253,18 @@ export default function AdminContentPage() {
           ))}
         </div>
       )}
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          setDeleteTarget(null);
+          del(deleteTarget);
+        }}
+        title="Delete Announcement"
+        description={<>Delete <strong>{deleteTarget?.title}</strong>? This cannot be undone.</>}
+        confirmLabel="Delete"
+      />
     </div>
   );
 }

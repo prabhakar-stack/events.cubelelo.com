@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchMigrationStats, sendMigrationEmails, type MigrationStats } from "@/lib/api";
+import { ConfirmModal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 
 
 export default function AdminMigrationPage() {
+  const toast = useToast();
   const [stats, setStats] = useState<MigrationStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [confirmSend, setConfirmSend] = useState(false);
 
   useEffect(() => {
     fetchMigrationStats()
@@ -78,19 +82,28 @@ export default function AdminMigrationPage() {
                 Send personalized claim emails to all {stats.stubs.length} unclaimed stub accounts.
               </p>
               <button
-                onClick={async () => {
-                  if (!confirm(`Send migration emails to ${stats.stubs.length} unclaimed accounts?`)) return;
-                  try {
-                    const result = await sendMigrationEmails();
-                    alert(`Sent ${result.sentCount} of ${result.totalStubs} emails.`);
-                  } catch (e) {
-                    alert(e instanceof Error ? e.message : String(e));
-                  }
-                }}
+                onClick={() => setConfirmSend(true)}
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
               >
                 Send Migration Emails
               </button>
+              <ConfirmModal
+                open={confirmSend}
+                onClose={() => setConfirmSend(false)}
+                onConfirm={async () => {
+                  setConfirmSend(false);
+                  try {
+                    const result = await sendMigrationEmails();
+                    toast.show(`Sent ${result.sentCount} of ${result.totalStubs} emails.`, "success");
+                  } catch (e) {
+                    toast.show(e instanceof Error ? e.message : String(e), "error");
+                  }
+                }}
+                destructive={false}
+                title="Send Migration Emails"
+                description={`Send personalized claim emails to ${stats.stubs.length} unclaimed accounts?`}
+                confirmLabel="Send Emails"
+              />
             </div>
           )}
 

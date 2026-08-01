@@ -219,11 +219,7 @@ function SelectedRoundView({
   const videoDeadlineTarget = round.closesAt
     ? new Date(new Date(round.closesAt).getTime() + videoDeadlineMinutes * 60 * 1000).toISOString()
     : null;
-  const videoRemaining = useCountdown(
-    userRound?.result && (liveStatus === "closed" || liveStatus === "advanced") ? videoDeadlineTarget : null,
-  );
-  const videoDeadlinePassed = videoRemaining !== null && videoRemaining <= 0;
-  const showVideoUpload = userRound?.result && (liveStatus === "closed" || liveStatus === "advanced") && !videoDeadlinePassed;
+  const showVideoUpload = userRound?.result && (liveStatus === "closed" || liveStatus === "advanced") && videoDeadlineTarget;
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
@@ -322,7 +318,7 @@ function SelectedRoundView({
           <VideoUploadSection
             resultId={userRound!.result!.id}
             currentVideoUrl={userRound!.result!.videoUrl}
-            remaining={videoRemaining!}
+            deadline={videoDeadlineTarget!}
             onUpdate={onVideoUpdate}
           />
         )}

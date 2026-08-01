@@ -24,6 +24,7 @@ import type {
   ContentPage,
   JudgeAssignment,
   SystemSettings,
+  RuleSet,
 } from "./types";
 
 export interface Repository {
@@ -49,6 +50,7 @@ export interface Repository {
     findAll(search?: string): Promise<Competition[]>;
     findById(id: string): Promise<Competition | null>;
     findByIds(ids: string[]): Promise<Map<string, Competition>>;
+    findByTitle(title: string): Promise<Competition | null>;
     create(comp: Competition): Promise<void>;
     update(id: string, fields: Partial<Competition>): Promise<Competition | null>;
     delete(id: string): Promise<void>;
@@ -256,6 +258,14 @@ export interface Repository {
     findByRound(roundId: string): Promise<JudgeAssignment[]>;
     findByJudge(judgeId: string): Promise<JudgeAssignment[]>;
     create(assignment: JudgeAssignment): Promise<void>;
+    delete(id: string): Promise<void>;
+  };
+
+  ruleSets: {
+    findAll(): Promise<RuleSet[]>;
+    findById(id: string): Promise<RuleSet | null>;
+    create(ruleSet: RuleSet): Promise<void>;
+    update(id: string, fields: Partial<RuleSet>): Promise<RuleSet | null>;
     delete(id: string): Promise<void>;
   };
 

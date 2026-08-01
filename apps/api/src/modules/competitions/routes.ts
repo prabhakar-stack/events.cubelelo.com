@@ -89,7 +89,7 @@ export async function registerCompetitionRoutes(
         featured: c.featured,
         featuredOrder: c.featuredOrder,
         createdAt: c.createdAt,
-        eventTypes: (eventsMap.get(c.id) ?? []).map((e) => e.eventType),
+        eventTypes: (eventsMap.get(c.id) ?? []).filter((e) => !e.archived).map((e) => e.eventType),
         registrationCount: regCountMap.get(c.id) ?? 0,
         registrationLimit: c.registrationLimit ?? null,
         cancellationReason: c.cancellationReason ?? null,
@@ -148,7 +148,7 @@ export async function registerCompetitionRoutes(
         registrationLimit: competition.registrationLimit ?? null,
         cancellationReason: competition.cancellationReason ?? null,
         videoDeadlineMinutes: competition.videoDeadlineMinutes,
-        events: events.map((e) => {
+        events: events.filter((e) => isAdmin || !e.archived).map((e) => {
           const eventRounds = rounds
             .filter((r) => r.competitionEventId === e.id)
             .sort((a, b) => a.roundNumber - b.roundNumber);
@@ -160,6 +160,7 @@ export async function registerCompetitionRoutes(
             cutoffMs: e.cutoffMs,
             timeLimitMs: e.timeLimitMs,
             fee: e.fee,
+            archived: e.archived ?? false,
             rounds: eventRounds.map((r) => ({
               id: r.id,
               roundNumber: r.roundNumber,
@@ -170,6 +171,7 @@ export async function registerCompetitionRoutes(
               advancementCount: r.advancementCount ?? null,
               advancementCriteria: r.advancementCriteria ?? null,
               scrambleLocked: Boolean(scrambleMap.get(r.id)?.lockedAt),
+              resultsPublishedAt: r.resultsPublishedAt ?? null,
             })),
           };
         }),
@@ -231,7 +233,7 @@ export async function registerCompetitionRoutes(
               eventType: event?.eventType ?? null,
               status,
               userStatus,
-              result: result ? { rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs } : null,
+              result: result ? { id: result.id, rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs, videoUrl: result.videoUrl } : null,
             };
           }),
       );
@@ -375,7 +377,7 @@ export async function registerCompetitionRoutes(
       }
 
       // Round summary — minimal metadata per round (no scramble lookups, no result counts)
-      const eventSummaries = events.map((e) => {
+      const eventSummaries = events.filter((e) => !e.archived).map((e) => {
         const eventRounds = rounds
           .filter((r) => r.competitionEventId === e.id)
           .sort((a, b) => a.roundNumber - b.roundNumber);

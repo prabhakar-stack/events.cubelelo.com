@@ -2,6 +2,18 @@
 
 import { useState } from "react";
 import { updateResultVideo } from "@/lib/api";
+import { useCountdownMs } from "@/components/Countdown";
+
+const VIDEO_ERRORS: Record<string, string> = {
+  invalid_video_url: "Please paste a valid video link starting with https:// (e.g. YouTube or Google Drive).",
+  video_url_required: "Please paste your video link before submitting.",
+};
+
+function friendlyVideoError(raw: string): string {
+  const codeMatch = raw.match(/"error"\s*:\s*"([^"]+)"/);
+  const code = codeMatch?.[1] ?? raw;
+  return VIDEO_ERRORS[code] ?? "Something went wrong. Please check your link and try again.";
+}
 
 function fmtCountdown(ms: number): string {
   const total = Math.ceil(ms / 1000);
@@ -16,20 +28,35 @@ function fmtCountdown(ms: number): string {
 export function VideoUploadSection({
   resultId,
   currentVideoUrl,
-  remaining,
+  deadline,
+  remaining: remainingProp,
   onUpdate,
 }: {
   resultId: string;
   currentVideoUrl: string | null;
-  remaining: number;
+  deadline?: string;
+  remaining?: number;
   onUpdate: () => void;
 }) {
+  const liveRemaining = useCountdownMs(deadline ?? null);
+  const remaining = liveRemaining ?? remainingProp ?? 0;
   const [videoUrl, setVideoUrl] = useState(currentVideoUrl ?? "");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  if (remaining <= 0) return null;
+
   const handleSubmitVideo = async () => {
-    if (!videoUrl.trim()) return;
+    const url = videoUrl.trim();
+    if (!url) return;
+    if (!url.startsWith("https://")) {
+      setMsg({ type: "err", text: "Video link must start with https:// (e.g. YouTube or Google Drive)." });
+      return;
+    }
+    try { new URL(url); } catch {
+      setMsg({ type: "err", text: "That doesn't look like a valid link. Please check and try again." });
+      return;
+    }
     setBusy(true);
     setMsg(null);
     try {
@@ -37,7 +64,7 @@ export function VideoUploadSection({
       setMsg({ type: "ok", text: "Video URL saved!" });
       onUpdate();
     } catch (e) {
-      setMsg({ type: "err", text: e instanceof Error ? e.message : String(e) });
+      setMsg({ type: "err", text: friendlyVideoError(e instanceof Error ? e.message : String(e)) });
     } finally {
       setBusy(false);
     }

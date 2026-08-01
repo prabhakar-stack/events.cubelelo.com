@@ -9,6 +9,7 @@ import {
   deleteContentPage,
   type ContentPageDto,
 } from "@/lib/api";
+import { ConfirmModal } from "@/components/ui/Modal";
 
 const PAGE_EMPTY = { slug: "", title: "", bodyMd: "", published: false };
 
@@ -22,6 +23,7 @@ export default function AdminContentPage() {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const load = useCallback(() => {
     fetchAdminContentPages()
@@ -111,7 +113,7 @@ export default function AdminContentPage() {
   };
 
   const del = async () => {
-    if (!active || !confirm(`Delete page "${active.title}"?`)) return;
+    if (!active) return;
     setBusy("del");
     try {
       await deleteContentPage(active.id);
@@ -250,7 +252,7 @@ export default function AdminContentPage() {
                   {active.published ? " · Published" : " · Draft"}
                 </span>
                 <button
-                  onClick={del}
+                  onClick={() => setConfirmDelete(true)}
                   disabled={busy === "del"}
                   className="rounded-lg border border-red-900/40 px-3 py-2 text-xs text-red-500 hover:bg-red-950/30 disabled:opacity-40"
                 >
@@ -267,6 +269,17 @@ export default function AdminContentPage() {
           No pages yet. Click "+ New" to create your first footer page.
         </div>
       )}
+      <ConfirmModal
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          del();
+        }}
+        title="Delete Page"
+        description={<>Delete <strong>{active?.title}</strong>? This cannot be undone.</>}
+        confirmLabel="Delete"
+      />
     </div>
   );
 }

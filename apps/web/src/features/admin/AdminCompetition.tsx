@@ -14,6 +14,7 @@ import {
   fetchSchedulingDefaults,
   updateCompetition,
   updateCompetitionEvent,
+  deleteCompetitionEvent,
   uploadCompetitionBanner,
   uploadCompetitionMobileBanner,
   updateRound,
@@ -28,6 +29,7 @@ import { StatusBadge } from "./StatusBadge";
 import { ConfirmModal, Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Countdown } from "@/components/Countdown";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 
 // Only statuses that are manually set — the others are auto-computed from schedule
 const MANUAL_STATUSES = ["draft", "published", "cancelled", "completed"];
@@ -136,6 +138,8 @@ export function AdminCompetition({ id }: { id: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [cancelModal, setCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [publishModal, setPublishModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<EventDetail | null>(null);
 
   // Detail editor local state
   const [editTitle, setEditTitle] = useState("");
@@ -187,7 +191,7 @@ export function AdminCompetition({ id }: { id: string }) {
       setEditTitle(detail.title);
       setEditDescription(detail.description ?? "");
       setEditRules(detail.rulesMd ?? "");
-      setEditBaseFee(String((detail.baseFee ?? 0) / 100));
+      setEditBaseFee(detail.baseFee ? String(detail.baseFee / 100) : "");
       setEditPerEventFee(String((detail.perEventFee ?? 0) / 100));
       setEditRegLimit(detail.registrationLimit ? String(detail.registrationLimit) : "");
       setBannerFile(null);
@@ -257,6 +261,8 @@ export function AdminCompetition({ id }: { id: string }) {
             if (parsed.errors && Array.isArray(parsed.errors)) {
               setValidationErrors(parsed.errors);
               setError(parsed.error ?? "Validation failed");
+            } else if (parsed.error === "duplicate_title") {
+              setError("A competition with this name already exists");
             } else {
               setError(parsed.error ?? msg);
             }
@@ -327,7 +333,9 @@ export function AdminCompetition({ id }: { id: string }) {
         <Link href="/admin" className="text-emerald-500 hover:underline">
           ← Back
         </Link>
-        <div className="mt-4 rounded bg-red-100 px-4 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>
+        <div className="mt-4">
+          <ErrorCard error={error} onRetry={() => window.location.reload()} />
+        </div>
       </div>
     );
   }
@@ -352,27 +360,6 @@ export function AdminCompetition({ id }: { id: string }) {
           </Link>
           <div className="flex items-center gap-2">
             <StatusBadge status={detail.status} />
-            <select
-              value={MANUAL_STATUSES.includes(detail.status) ? detail.status : ""}
-              onChange={(e) => {
-                const newStatus = e.target.value;
-                if (!newStatus) return;
-                if (newStatus === "cancelled") {
-                  setCancelReason("");
-                  setCancelModal(true);
-                  return;
-                } else {
-                  run("status", () => updateCompetition(id, { status: newStatus }));
-                }
-              }}
-              className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-              title="Manually override status (registration_open / live / etc. are auto-computed from schedule)"
-            >
-              <option value="">— auto —</option>
-              {MANUAL_STATUSES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
             <button
               disabled={busy === "featured"}
               onClick={() =>
@@ -449,10 +436,10 @@ export function AdminCompetition({ id }: { id: string }) {
         </div>
 
         {error && (
-          <div className="mt-3 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
-            <p>{error}</p>
+          <div className="mt-3">
+            <ErrorCard error={error} onRetry={() => setError(null)} onBack={false} />
             {validationErrors.length > 0 && (
-              <ul className="mt-1 list-disc pl-5 text-xs">
+              <ul className="mt-2 list-disc rounded-lg border border-zinc-200 bg-zinc-50 px-6 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
                 {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
               </ul>
             )}
@@ -518,17 +505,6 @@ export function AdminCompetition({ id }: { id: string }) {
               </>
             )}
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Registration Limit <span className="text-zinc-400 dark:text-zinc-500">(blank = unlimited)</span></label>
-              <input
-                type="number"
-                min={1}
-                value={editRegLimit}
-                onChange={(e) => setEditRegLimit(e.target.value)}
-                placeholder="No limit"
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-            </div>
-            <div>
               <label className="mb-1 block text-xs text-zinc-500">Desktop Banner <span className="text-zinc-400 dark:text-zinc-500">(1200×400 recommended)</span></label>
               {detail.bannerUrl && !bannerFile && (
                 <div className="mb-2">
@@ -561,28 +537,6 @@ export function AdminCompetition({ id }: { id: string }) {
               />
             </div>
           </div>
-          <button
-            disabled={busy === "details"}
-            onClick={() =>
-              run("details", async () => {
-                await updateCompetition(id, {
-                  title: editTitle,
-                  description: editDescription,
-                  rulesMd: editRules,
-                  ...(detail.type !== "free" ? {
-                    baseFee: Math.round(Number(editBaseFee) * 100),
-                    perEventFee: Math.round(Number(editPerEventFee) * 100),
-                  } : {}),
-                  registrationLimit: editRegLimit ? Number(editRegLimit) : null,
-                });
-                if (bannerFile) await uploadCompetitionBanner(id, bannerFile);
-                if (mobileBannerFile) await uploadCompetitionMobileBanner(id, mobileBannerFile);
-              })
-            }
-            className="mt-3 rounded-lg bg-zinc-800 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
-          >
-            {busy === "details" ? "Saving…" : "Save Details"}
-          </button>
         </div>
 
         {/* ── Schedule editor ── */}
@@ -687,39 +641,143 @@ export function AdminCompetition({ id }: { id: string }) {
             </div>
           )}
 
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              disabled={busy === "schedule"}
-              onClick={() =>
-                run("schedule", () =>
-                  updateCompetition(id, {
-                    registrationOpensAt: toISO(regOpens),
-                    registrationDeadline: toISO(regCloses),
-                    startsAt: toISO(compStarts),
-                    endsAt: toISO(compEnds),
-                  }),
-                )
-              }
-              className="rounded-lg bg-zinc-800 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
-            >
-              {busy === "schedule" ? "Saving…" : "Save Schedule"}
-            </button>
-          </div>
         </div>
 
-        {/* Rounds management */}
-        {detail.events.map((ev) => (
-          <EventRow
-            key={ev.id}
-            event={ev}
-            competitionId={id}
-            defaultPerEventFee={detail.perEventFee ?? 0}
-            isFreeComp={detail.type === "free"}
-            busy={busy}
-            onRun={run}
-          />
-        ))}
+        {/* ── Events table ── */}
+        {detail.events.filter((e) => !e.archived).length > 0 && (
+          <div className="mt-5 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/80">
+                    <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Event</th>
+                    <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Rounds</th>
+                    {detail.type !== "free" && (
+                      <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Fee (INR)</th>
+                    )}
+                    <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Cutoff</th>
+                    <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Time Limit</th>
+                    <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.events.filter((e) => !e.archived).map((ev) => (
+                    <EventRow
+                      key={ev.id}
+                      event={ev}
+                      competitionId={id}
+                      defaultPerEventFee={detail.perEventFee ?? 0}
+                      isFreeComp={detail.type === "free"}
+                      busy={busy}
+                      onRun={run}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── Archived events ── */}
+        {detail.events.filter((e) => e.archived).length > 0 && (
+          <div className="mt-5">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Archived Events</h3>
+            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden opacity-60">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/80">
+                      <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Event</th>
+                      <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Rounds</th>
+                      <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-zinc-500" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.events.filter((e) => e.archived).map((ev) => (
+                      <tr key={ev.id} className="border-b border-zinc-200 dark:border-zinc-800">
+                        <td className="px-4 py-3 text-zinc-500">{ev.eventType}</td>
+                        <td className="px-4 py-3 text-zinc-500">{ev.roundCount}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              disabled={busy === `unarchive-${ev.id}`}
+                              onClick={() =>
+                                run(`unarchive-${ev.id}`, () =>
+                                  updateCompetitionEvent(ev.id, { archived: false }),
+                                )
+                              }
+                              className="rounded px-2.5 py-1 text-xs font-medium text-indigo-400 transition hover:bg-indigo-500/10"
+                            >
+                              Restore
+                            </button>
+                            <button
+                              disabled={busy === `delete-${ev.id}`}
+                              onClick={() => setDeleteTarget(ev)}
+                              className="rounded px-2.5 py-1 text-xs font-medium text-red-400 transition hover:bg-red-500/10"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
+
+      {/* ── Bottom action bar ── */}
+      <div className="sticky bottom-0 z-20 -mx-8 mt-6 border-t border-zinc-200 bg-white/90 px-8 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-end gap-3">
+          <button
+            disabled={busy === "details"}
+            onClick={() =>
+              run("details", async () => {
+                await updateCompetition(id, {
+                  title: editTitle,
+                  description: editDescription,
+                  rulesMd: editRules,
+                  ...(detail.type !== "free" ? {
+                    baseFee: editBaseFee ? Math.round(Number(editBaseFee) * 100) : 0,
+                    perEventFee: editPerEventFee ? Math.round(Number(editPerEventFee) * 100) : 0,
+                  } : {}),
+                  registrationLimit: editRegLimit ? Number(editRegLimit) : null,
+                  registrationOpensAt: toISO(regOpens),
+                  registrationDeadline: toISO(regCloses),
+                  startsAt: toISO(compStarts),
+                  endsAt: toISO(compEnds),
+                });
+                if (bannerFile) await uploadCompetitionBanner(id, bannerFile);
+                if (mobileBannerFile) await uploadCompetitionMobileBanner(id, mobileBannerFile);
+              })
+            }
+            className="rounded-lg bg-emerald-700 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-50"
+          >
+            {busy === "details" ? "Saving…" : "Save"}
+          </button>
+          {(detail.status === "draft") && (
+            <button
+              disabled={busy === "status"}
+              onClick={() => setPublishModal(true)}
+              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
+            >
+              Publish
+            </button>
+          )}
+          {(detail.status === "published" || detail.status === "registration_open" || detail.status === "live") && (
+            <button
+              disabled={busy === "status"}
+              onClick={() => { setCancelReason(""); setCancelModal(true); }}
+              className="rounded-lg bg-red-700 px-5 py-2 text-sm font-semibold text-white transition hover:bg-red-600 disabled:opacity-50"
+            >
+              Cancel Competition
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* ── Bulk Email Modal ── */}
       {showEmailModal && (
@@ -767,6 +825,42 @@ export function AdminCompetition({ id }: { id: string }) {
         </div>
       </Modal>
 
+      <Modal open={publishModal} onClose={() => setPublishModal(false)} title="Publish Competition" size="md">
+        <p className="mb-2 text-sm text-zinc-300">
+          You are about to publish <strong>{detail.title}</strong>.
+        </p>
+        <ul className="mb-4 list-disc pl-5 text-xs text-zinc-400 space-y-1">
+          <li>The competition will become visible to all users.</li>
+          <li>Registration will open according to the schedule.</li>
+          <li>Make sure all event details and schedule are finalized.</li>
+        </ul>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setPublishModal(false)}>Go Back</Button>
+          <Button
+            loading={busy === "status"}
+            onClick={() => {
+              setPublishModal(false);
+              run("status", () => updateCompetition(id, { status: "published" }));
+            }}
+          >
+            Publish
+          </Button>
+        </div>
+      </Modal>
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          setDeleteTarget(null);
+          run(`delete-${deleteTarget.id}`, () => deleteCompetitionEvent(deleteTarget.id));
+        }}
+        title="Delete Event"
+        description={<>Permanently delete <strong>{deleteTarget?.eventType}</strong>? This cannot be undone.</>}
+        confirmLabel="Delete"
+      />
+
     </div>
   );
 }
@@ -788,14 +882,13 @@ function EventRow({
   busy: string | null;
   onRun: (key: string, fn: () => Promise<unknown>) => void;
 }) {
-  // fee in INR (display units); empty string = use competition default
+  const [expanded, setExpanded] = useState(false);
   const [feeInput, setFeeInput] = useState(
     event.fee != null ? String(event.fee / 100) : "",
   );
   const [feeError, setFeeError] = useState<string | null>(null);
   const [feeSaved, setFeeSaved] = useState(false);
 
-  // Keep in sync when parent reloads
   useEffect(() => {
     setFeeInput(event.fee != null ? String(event.fee / 100) : "");
   }, [event.fee]);
@@ -804,7 +897,6 @@ function EventRow({
     setFeeError(null);
     setFeeSaved(false);
     const trimmed = feeInput.trim();
-    // empty → remove override (pass null)
     const feePaise = trimmed === "" ? null : Math.round(Number(trimmed) * 100);
     if (trimmed !== "" && (isNaN(feePaise!) || feePaise! < 0)) {
       setFeeError("Enter a valid amount or leave blank to use the default");
@@ -820,68 +912,91 @@ function EventRow({
     }
   };
 
+  const feeDisplay = event.fee != null
+    ? `₹${(event.fee / 100).toFixed(0)}`
+    : `₹${(defaultPerEventFee / 100).toFixed(0)}`;
 
   return (
-    <div className="mt-5">
-      {/* Event header */}
-      <div className="mb-2 flex flex-wrap items-center gap-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          {event.eventType} — {event.roundCount} round
-          {event.roundCount !== 1 ? "s" : ""}
-        </h3>
-
+    <>
+      <tr
+        className="border-b border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <td className="px-4 py-3 font-medium text-zinc-800 dark:text-zinc-200">{event.eventType}</td>
+        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{event.roundCount}</td>
         {!isFreeComp && (
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Fee (INR)</span>
-            <div className="relative flex items-center">
-              <span className="pointer-events-none absolute left-2 text-xs text-zinc-400">₹</span>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={feeInput}
-                onChange={(e) => { setFeeInput(e.target.value); setFeeSaved(false); }}
-                placeholder={String(defaultPerEventFee / 100)}
-                title={`Leave blank to use competition default (₹${defaultPerEventFee / 100})`}
-                className="w-24 rounded-lg border border-zinc-300 bg-white py-1 pl-6 pr-2 text-xs text-zinc-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-              />
-            </div>
-            <button
-              onClick={saveFee}
-              disabled={busy?.startsWith(`fee-${event.id}`) ?? false}
-              className="rounded-lg bg-emerald-700 px-3 py-1 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-50"
-            >
-              {feeSaved ? "✓ Saved" : "Save"}
-            </button>
-            {event.fee != null ? (
-              <span className="text-xs text-emerald-400">
-                ₹{(event.fee / 100).toFixed(2)} override
-              </span>
-            ) : (
-              <span className="text-xs text-zinc-500 dark:text-zinc-600">
-                default (₹{(defaultPerEventFee / 100).toFixed(2)})
-              </span>
-            )}
-          </div>
+          <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{feeDisplay}</td>
         )}
-      </div>
-
-      {feeError && (
-        <p className="mb-2 text-xs text-red-400">{feeError}</p>
+        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+          {event.cutoffMs ? formatTime(event.cutoffMs) : "—"}
+        </td>
+        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+          {event.timeLimitMs ? formatTime(event.timeLimitMs) : "—"}
+        </td>
+        <td className="px-4 py-3 text-right">
+          <div className="flex items-center justify-end gap-2">
+            <button
+              disabled={busy === `archive-${event.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRun(`archive-${event.id}`, () =>
+                  updateCompetitionEvent(event.id, { archived: true }),
+                );
+              }}
+              className="flex items-center gap-1 rounded bg-amber-600/30 px-2.5 py-1 text-xs text-zinc-800 transition hover:bg-amber-600/40 dark:bg-amber-500/25 dark:text-zinc-100 dark:hover:bg-amber-500/35"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V21H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+              Archive
+            </button>
+            <span className="text-xs text-zinc-400">{expanded ? "▲" : "▼"}</span>
+          </div>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={isFreeComp ? 5 : 6} className="bg-zinc-50 px-4 py-3 dark:bg-zinc-900/30">
+            {!isFreeComp && (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-zinc-500">Fee override (INR)</span>
+                <div className="relative flex items-center">
+                  <span className="pointer-events-none absolute left-2 text-xs text-zinc-400">₹</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={feeInput}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => { setFeeInput(e.target.value); setFeeSaved(false); }}
+                    placeholder={String(defaultPerEventFee / 100)}
+                    title={`Leave blank to use competition default (₹${defaultPerEventFee / 100})`}
+                    className="w-24 rounded-lg border border-zinc-300 bg-white py-1 pl-6 pr-2 text-xs text-zinc-900 focus:border-emerald-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); saveFee(); }}
+                  disabled={busy?.startsWith(`fee-${event.id}`) ?? false}
+                  className="rounded-lg bg-emerald-700 px-3 py-1 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-50"
+                >
+                  {feeSaved ? "✓ Saved" : "Save"}
+                </button>
+                {feeError && <span className="text-xs text-red-400">{feeError}</span>}
+              </div>
+            )}
+            <div className="space-y-2">
+              {event.rounds.map((r) => (
+                <RoundRow
+                  key={r.id}
+                  round={r}
+                  competitionId={competitionId}
+                  busy={busy}
+                  onRun={onRun}
+                />
+              ))}
+            </div>
+          </td>
+        </tr>
       )}
-
-      <div className="space-y-2">
-        {event.rounds.map((r) => (
-          <RoundRow
-            key={r.id}
-            round={r}
-            competitionId={competitionId}
-            busy={busy}
-            onRun={onRun}
-          />
-        ))}
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -1505,4 +1620,3 @@ function CancelConsequences({ status, title }: { status: string; title: string }
     </>
   );
 }
-

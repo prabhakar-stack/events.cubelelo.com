@@ -1,0 +1,1 @@
+ALTER TABLE rounds ADD COLUMN IF NOT EXISTS results_published_at TIMESTAMPTZ;

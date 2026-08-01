@@ -20,10 +20,11 @@ import {
   type AvailableJudgeDto,
 } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/Badge";
+import { ConfirmModal } from "@/components/ui/Modal";
 
 type EventRound = {
   eventType: string;
-  rounds: { id: string; roundNumber: number; status: string }[];
+  rounds: { id: string; roundNumber: number; status: string; resultsPublishedAt?: string | null }[];
 };
 
 export default function AdminVerificationPage() {
@@ -42,6 +43,7 @@ export default function AdminVerificationPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [publishMsg, setPublishMsg] = useState<string | null>(null);
+  const [confirmPublish, setConfirmPublish] = useState(false);
 
   useEffect(() => {
     fetchCompetitions().then(setCompetitions).catch(() => {});
@@ -62,6 +64,7 @@ export default function AdminVerificationPage() {
             id: r.id,
             roundNumber: r.roundNumber,
             status: r.status,
+            resultsPublishedAt: r.resultsPublishedAt,
           })),
         }));
         setEvents(evts);
@@ -146,7 +149,6 @@ export default function AdminVerificationPage() {
   };
 
   const handlePublish = async () => {
-    if (!confirm("Publish results and notify all participants?")) return;
     setBusy("publish");
     setPublishMsg(null);
     try {
@@ -410,36 +412,62 @@ export default function AdminVerificationPage() {
           )}
 
           {/* Publish Results */}
-          {selectedRoundId && (
-            <div className="mt-8 border-t border-zinc-200 pt-6 dark:border-zinc-700">
-              {publishMsg && (
-                <div className="mb-4 rounded-lg bg-emerald-100 px-4 py-3 text-sm text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                  {publishMsg}
+          {selectedRoundId && (() => {
+            const currentRound = filteredRounds.find((r) => r.id === selectedRoundId);
+            const isPublished = !!currentRound?.resultsPublishedAt || !!publishMsg;
+            return (
+              <div className="mt-8 border-t border-zinc-200 pt-6 dark:border-zinc-700">
+                {publishMsg && (
+                  <div className="mb-4 rounded-lg bg-emerald-100 px-4 py-3 text-sm text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                    {publishMsg}
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                      {isPublished ? "Results Published" : "Publish Results"}
+                    </h3>
+                    <p className="text-xs text-zinc-500">
+                      {isPublished
+                        ? "Results for this round have been published and participants notified."
+                        : allVerified
+                          ? "Notify all participants that results for this round are available."
+                          : `All results must be verified before publishing. ${totalResults - verifiedCount} remaining.`}
+                    </p>
+                  </div>
+                  {isPublished ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                      Published
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmPublish(true)}
+                      disabled={busy === "publish" || !allVerified}
+                      className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                    >
+                      {busy === "publish" ? "Publishing..." : "Publish Results"}
+                    </button>
+                  )}
                 </div>
-              )}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                    Publish Results
-                  </h3>
-                  <p className="text-xs text-zinc-500">
-                    {allVerified
-                      ? "Notify all participants that results for this round are available."
-                      : `All results must be verified before publishing. ${totalResults - verifiedCount} remaining.`}
-                  </p>
-                </div>
-                <button
-                  onClick={handlePublish}
-                  disabled={busy === "publish" || !allVerified}
-                  className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                >
-                  {busy === "publish" ? "Publishing..." : "Publish Results"}
-                </button>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </>
       )}
+
+      <ConfirmModal
+        open={confirmPublish}
+        onClose={() => setConfirmPublish(false)}
+        onConfirm={() => {
+          setConfirmPublish(false);
+          handlePublish();
+        }}
+        destructive={false}
+        title="Publish Results"
+        description="Publish results and notify all participants? This cannot be undone."
+        confirmLabel="Publish"
+      />
     </div>
   );
 }

@@ -6,9 +6,6 @@ import { CompetitionCard } from "@/features/competitions/CompetitionCard";
 import { SkeletonCard } from "@/components/Skeleton";
 import { useAuthStore } from "@/stores/authStore";
 import Link from "next/link";
-import { StatusBadge } from "@/features/competitions/StatusBadge";
-import { EventIcon } from "@/components/EventIcon";
-import { assetUrl } from "@/lib/api";
 
 const FILTERS = [
   { label: "All", value: "" },
@@ -72,16 +69,7 @@ export default function CompetitionsPage() {
     return list;
   }, [comps, tab, myRegIds, search, sort]);
 
-  const featured = useMemo(() => {
-    const live = comps.find((c) => c.status === "live");
-    if (live) return live;
-    const upcoming = comps
-      .filter((c) => ["registration_open", "registration_closed"].includes(c.status))
-      .sort((a, b) => new Date(a.startsAt ?? 0).getTime() - new Date(b.startsAt ?? 0).getTime());
-    return upcoming[0] ?? null;
-  }, [comps]);
-
-  const myUpcoming = tab === "my" ? filtered.filter((c) => ["registration_open", "registration_closed"].includes(c.status)).length : 0;
+  const myUpcoming = tab === "my" ? filtered.filter((c) => ["upcoming", "registration_open", "registration_closed"].includes(c.status)).length : 0;
   const myLive = tab === "my" ? filtered.filter((c) => c.status === "live").length : 0;
   const myPast = tab === "my" ? filtered.filter((c) => ["results_pending", "completed"].includes(c.status)).length : 0;
 
@@ -224,10 +212,6 @@ export default function CompetitionsPage() {
             </select>
           </div>
 
-          {/* Featured competition hero */}
-          {featured && tab === "all" && !search && !filter && (
-            <FeaturedHero comp={featured} />
-          )}
 
           {/* My competitions stats */}
           {tab === "my" && !user && (
@@ -302,76 +286,3 @@ export default function CompetitionsPage() {
   );
 }
 
-function FeaturedHero({ comp }: { comp: CompetitionSummary }) {
-  const hasBanner = comp.bannerUrl || comp.mobileBannerUrl;
-  const isLive = comp.status === "live";
-
-  return (
-    <Link
-      href={`/competitions/${comp.id}`}
-      className="group relative mb-8 block overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-card)] backdrop-blur-md transition hover:border-[var(--border-hover)] hover:shadow-[0_16px_48px_var(--accent-glow)]"
-    >
-      <div className="flex flex-col">
-        {/* Banner — 3:2 mobile, 3:1 desktop */}
-        <div className="relative w-full overflow-hidden">
-          <div className="aspect-[3/2] sm:aspect-[3/1]">
-            {hasBanner ? (
-              <img
-                src={assetUrl(comp.bannerUrl ?? comp.mobileBannerUrl!)}
-                alt=""
-                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-accent-primary/10 to-[var(--accent-secondary)]/10">
-                <span className="text-6xl opacity-20">🧊</span>
-              </div>
-            )}
-          </div>
-          <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-card)]/40 to-transparent" />
-        </div>
-
-        {/* Details */}
-        <div className="flex flex-col gap-3 p-5 sm:p-6">
-          <div className="flex items-center gap-2">
-            <StatusBadge status={comp.status} />
-            {isLive && (
-              <span className="inline-flex items-center gap-1 text-xs font-semibold text-accent-primary">
-                <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-accent-primary" />
-                LIVE NOW
-              </span>
-            )}
-          </div>
-          <h2 className="text-lg font-bold leading-tight text-[var(--text-primary)] group-hover:text-accent-primary sm:text-xl">
-            {comp.title}
-          </h2>
-          {comp.eventTypes && comp.eventTypes.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {comp.eventTypes.slice(0, 8).map((et) => (
-                <span
-                  key={et}
-                  className="flex h-6 w-6 items-center justify-center rounded-md border border-accent-primary/10 bg-accent-primary/10 text-accent-primary"
-                >
-                  <EventIcon eventId={et} size={13} />
-                </span>
-              ))}
-              {comp.eventTypes.length > 8 && (
-                <span className="flex h-6 items-center rounded-md px-1.5 text-[11px] font-medium text-[var(--text-tertiary)]">
-                  +{comp.eventTypes.length - 8}
-                </span>
-              )}
-            </div>
-          )}
-          <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
-            {comp.startsAt && (
-              <span>{new Date(comp.startsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
-            )}
-            <span className="tabular-nums">{comp.registrationCount ?? 0}{comp.registrationLimit ? `/${comp.registrationLimit}` : ""} registered</span>
-            <span className="font-semibold text-accent-primary">
-              {comp.type === "free" ? "Free" : `₹${((comp.baseFee ?? 0) / 100).toFixed(0)}+`}
-            </span>
-          </div>
-        </div>
-      </div>
-    </Link>
-  );
-}

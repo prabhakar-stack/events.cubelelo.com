@@ -27,10 +27,12 @@ import { UserStatusBadge } from "@/features/competitions/UserStatusBadge";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 import { formatTime } from "@cubers/timer-core";
 import { Button } from "@/components/ui/Button";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import { useToast } from "@/components/ui/Toast";
 import { Skeleton, SkeletonRow } from "@/components/Skeleton";
 import { Countdown } from "@/components/Countdown";
 import { Markdown } from "@/components/Markdown";
+import { VideoUploadSection } from "@/features/competitions/detail/VideoUploadSection";
 
 /* ── Dynamic nav items based on competition state ── */
 
@@ -55,13 +57,14 @@ function getNavItems(
 
   items.push({ id: "schedule", label: "Schedule" });
   items.push({ id: "events", label: "Events" });
-  items.push({ id: "video-rules", label: "Video Rules" });
-  items.push({ id: "rules", label: "Rules" });
 
   // Users & Rankings: hide for cancelled
   if (!isCancelled) {
     items.push({ id: "users-rankings", label: "Users & Rankings" });
   }
+
+  items.push({ id: "video-rules", label: "Video Rules" });
+  items.push({ id: "rules", label: "Rules" });
 
   // Organizers: only if staff data exists
   if ((comp as any).staff) {
@@ -194,7 +197,7 @@ export default function CompetitionDetailPage() {
   }, [comp]);
 
   const me = useMemo(
-    () => user ? { userId: user.id, name: user.name } : { userId: "guest", name: "Guest" },
+    () => user ? { userId: user.id, name: user.name, clId: user.clId } : { userId: "guest", name: "Guest" },
     [user],
   );
   const lobby = useLobby(activeRoundId, me);
@@ -216,8 +219,8 @@ export default function CompetitionDetailPage() {
 
   if (error || !comp) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center text-red-500 dark:text-red-400">
-        {error ?? "Competition not found"}
+      <main className="flex min-h-[60vh] items-center justify-center">
+        <ErrorCard error={error ?? "competition_not_found"} onRetry={() => window.location.reload()} />
       </main>
     );
   }
@@ -435,25 +438,25 @@ export default function CompetitionDetailPage() {
               <EventCardsSection comp={comp} myProgress={myProgress} isRegistered={!!myReg} />
             </section>
 
-            {/* 5. Video Rules */}
-            <section id="section-video-rules" className="scroll-mt-20">
-              <SectionHeading>Video Rules</SectionHeading>
-              <VideoRulesSection comp={comp} />
-            </section>
-
-            {/* 6. Rules */}
-            <section id="section-rules" className="scroll-mt-20">
-              <SectionHeading>Rules</SectionHeading>
-              <RulesTab comp={comp} />
-            </section>
-
-            {/* 7. Users & Rankings (Active / Participants / Rankings) */}
+            {/* 5. Users & Rankings */}
             {showUsersRankings && (
               <section id="section-users-rankings" className="scroll-mt-20">
                 <SectionHeading>Users &amp; Rankings</SectionHeading>
                 <UsersAndRankingsSection comp={comp} roster={lobby.roster} user={user} isCompleted={isCompleted} />
               </section>
             )}
+
+            {/* 6. Video Rules */}
+            <section id="section-video-rules" className="scroll-mt-20">
+              <SectionHeading>Video Rules</SectionHeading>
+              <VideoRulesSection comp={comp} />
+            </section>
+
+            {/* 7. Rules */}
+            <section id="section-rules" className="scroll-mt-20">
+              <SectionHeading>Rules</SectionHeading>
+              <RulesTab comp={comp} />
+            </section>
 
             {/* 10. Organizers */}
             {hasStaff && (
@@ -884,6 +887,13 @@ function EventCardsSection({
                       </span>
                     );
                   }
+                  if (userRound?.userStatus === "locked" || userRound?.userStatus === "eliminated") {
+                    return (
+                      <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                        Not qualified for this round
+                      </span>
+                    );
+                  }
                   return (
                     <Link href={`/competitions/${comp.id}/round/${openRound.roundNumber}?eventId=${ev.eventType}`}>
                       <Button size="sm">Enter Round {openRound.roundNumber}</Button>
@@ -892,6 +902,23 @@ function EventCardsSection({
                 })()}
               </div>
             )}
+
+            {/* Video upload for closed/advanced rounds */}
+            {isRegistered && ev.rounds.map((r) => {
+              if (r.status !== "closed" && r.status !== "advanced") return null;
+              const userRound = myProgress.find((p) => p.roundId === r.id);
+              if (!userRound?.result?.id || !r.closesAt) return null;
+              const deadlineIso = new Date(new Date(r.closesAt).getTime() + (comp.videoDeadlineMinutes ?? 1440) * 60_000).toISOString();
+              return (
+                <VideoUploadSection
+                  key={`video-${r.id}`}
+                  resultId={userRound.result.id}
+                  currentVideoUrl={userRound.result.videoUrl}
+                  deadline={deadlineIso}
+                  onUpdate={() => {}}
+                />
+              );
+            })}
           </div>
         );
       })}
@@ -1151,7 +1178,7 @@ function RegistrationSteps({ paymentStatus }: { paymentStatus: string | null }) 
 const ROWS_PER_PAGE = 10;
 
 function Pagination({ currentPage, totalPages, onPageChange }: { currentPage: number; totalPages: number; onPageChange: (p: number) => void }) {
-  if (totalPages <= 1) return null;
+  if (totalPages < 1) return null;
 
   const pages: (number | "...")[] = [];
   if (totalPages <= 7) {
@@ -1220,7 +1247,7 @@ function EventRoundDropdowns({
   const rounds = event?.rounds ?? [];
 
   return (
-    <div className="mb-4 flex flex-wrap gap-3">
+    <div className="flex flex-wrap gap-3">
       <select
         value={selectedEvent}
         onChange={(e) => { onEventChange(e.target.value); onRoundChange(1); }}
@@ -1250,7 +1277,7 @@ function EventRoundDropdowns({
 
 /* ── Participants Tab ── */
 
-function ParticipantsTab({ comp }: { comp: CompetitionDetail }) {
+function ParticipantsTab({ comp, onCountChange }: { comp: CompetitionDetail; onCountChange?: (n: number) => void }) {
   const [selectedEvent, setSelectedEvent] = useState(comp.events[0]?.eventType ?? "");
   const [selectedRound, setSelectedRound] = useState(1);
   const [participants, setParticipants] = useState<ParticipantEntry[]>([]);
@@ -1268,23 +1295,26 @@ function ParticipantsTab({ comp }: { comp: CompetitionDetail }) {
           : d.participants;
         setParticipants(filtered);
         setCount(filtered.length);
+        onCountChange?.(filtered.length);
       })
       .catch(() => { })
       .finally(() => setLoading(false));
-  }, [comp.id, selectedEvent]);
+  }, [comp.id, selectedEvent, onCountChange]);
 
   const totalPages = Math.ceil(count / ROWS_PER_PAGE);
   const visibleParticipants = participants.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
 
   return (
     <div>
-      <EventRoundDropdowns
-        comp={comp}
-        selectedEvent={selectedEvent}
-        selectedRound={selectedRound}
-        onEventChange={setSelectedEvent}
-        onRoundChange={setSelectedRound}
-      />
+      <div className="mb-4">
+        <EventRoundDropdowns
+          comp={comp}
+          selectedEvent={selectedEvent}
+          selectedRound={selectedRound}
+          onEventChange={setSelectedEvent}
+          onRoundChange={setSelectedRound}
+        />
+      </div>
 
       {selectedRound > 1 && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
@@ -1293,57 +1323,54 @@ function ParticipantsTab({ comp }: { comp: CompetitionDetail }) {
         </div>
       )}
 
-      {loading ? (
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-          <table className="w-full text-sm">
-            <tbody>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} cols={4} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : participants.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
-          No participants yet.
-        </div>
-      ) : (
+      <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-zinc-50 dark:bg-zinc-900/60">
+            <tr>
+              <th className="px-4 py-3 font-medium text-zinc-500">#</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">CL ID</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">Events</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {!loading && visibleParticipants.map((p, i) => (
+              <tr key={p.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+                <td className="px-4 py-3 text-zinc-400">{(page - 1) * ROWS_PER_PAGE + i + 1}</td>
+                <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
+                  <a href={`/profile/${p.clId}`} className="hover:text-accent-primary transition-colors">{p.name}</a>
+                </td>
+                <td className="px-4 py-3 font-mono text-xs text-zinc-500">
+                  <a href={`/profile/${p.clId}`} className="hover:text-accent-primary transition-colors">{p.clId}</a>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-1">
+                    {p.eventTypes.map((e) => (
+                      <span
+                        key={e}
+                        title={eventDisplayName(e)}
+                        className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                      >
+                        <EventIcon eventId={e} size={16} /> {eventDisplayName(e)}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {Array.from({ length: ROWS_PER_PAGE - (loading ? 0 : visibleParticipants.length) }).map((_, i) => (
+              <tr key={`empty-${i}`} className="bg-white dark:bg-zinc-900/40">
+                <td className="px-4 py-3 text-zinc-300 dark:text-zinc-700">—</td>
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3" />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!loading && participants.length > 0 && (
         <>
-          <p className="mb-3 text-sm text-zinc-500">{count} participant{count !== 1 ? "s" : ""}</p>
-          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 dark:bg-zinc-900/60">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-zinc-500">#</th>
-                  <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
-                  <th className="px-4 py-3 font-medium text-zinc-500">CL ID</th>
-                  <th className="px-4 py-3 font-medium text-zinc-500">Events</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {visibleParticipants.map((p, i) => (
-                  <tr key={p.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
-                    <td className="px-4 py-3 text-zinc-400">{(page - 1) * ROWS_PER_PAGE + i + 1}</td>
-                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{p.name}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500">{p.clId}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {p.eventTypes.map((e) => (
-                          <span
-                            key={e}
-                            title={eventDisplayName(e)}
-                            className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                          >
-                            <EventIcon eventId={e} size={16} /> {eventDisplayName(e)}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
           <p className="mt-2 text-center text-xs text-zinc-400">
             Showing {(page - 1) * ROWS_PER_PAGE + 1}–{Math.min(page * ROWS_PER_PAGE, count)} of {count}
@@ -1383,76 +1410,75 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
 
   return (
     <div>
-      <EventRoundDropdowns
-        comp={comp}
-        selectedEvent={selectedEvent}
-        selectedRound={selectedRound}
-        onEventChange={setSelectedEvent}
-        onRoundChange={setSelectedRound}
-      />
-
-      {showResultsLink && (
-        <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <EventRoundDropdowns
+          comp={comp}
+          selectedEvent={selectedEvent}
+          selectedRound={selectedRound}
+          onEventChange={setSelectedEvent}
+          onRoundChange={setSelectedRound}
+        />
+        <div className="ml-auto flex items-center gap-2">
+          {showResultsLink && (
+            <Link
+              href={`/competitions/${comp.id}/results`}
+              className="rounded-lg border border-accent-primary/30 bg-accent-primary/10 px-3 py-2 text-sm font-medium text-accent-primary transition hover:bg-accent-primary/20"
+            >
+              View Full Results
+            </Link>
+          )}
           <Link
-            href={`/competitions/${comp.id}/results`}
-            className="text-sm text-accent-primary underline hover:brightness-110"
+            href={`/competitions/${comp.id}/appeal`}
+            className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-500 transition hover:bg-amber-400/20"
           >
-            View Full Results
+            Appeal
           </Link>
         </div>
-      )}
+      </div>
 
-      {roundInfo.roundNumber && (
-        <p className="mb-3 text-xs text-zinc-500">Round {roundInfo.roundNumber}</p>
-      )}
-
-      {loading ? (
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-          <table className="w-full text-sm">
-            <tbody>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} cols={4} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : ranking.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700">
-          No results yet for this event.
-        </div>
-      ) : (
-        <>
-          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 dark:bg-zinc-900/60">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-zinc-500">Rank</th>
-                  <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
-                  <th className="px-4 py-3 font-medium text-zinc-500">ao5</th>
-                  <th className="px-4 py-3 font-medium text-zinc-500">Best</th>
+      <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-zinc-50 dark:bg-zinc-900/60">
+            <tr>
+              <th className="px-4 py-3 font-medium text-zinc-500">Rank</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">ao5</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">Best</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {!loading && visibleRanking.map((r, i) => {
+              const globalIdx = pageOffset + i;
+              return (
+                <tr key={r.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+                  <td className="px-4 py-3 font-mono text-zinc-400">
+                    {globalIdx === 0 ? "🥇" : globalIdx === 1 ? "🥈" : globalIdx === 2 ? "🥉" : (r.rank ?? "—")}
+                  </td>
+                  <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
+                    <a href={`/profile/${r.clId}`} className="hover:text-accent-primary transition-colors">{r.name}</a>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
+                    {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
+                    {r.bestSingleMs !== null ? formatTime(r.bestSingleMs) : "—"}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {visibleRanking.map((r, i) => {
-                  const globalIdx = pageOffset + i;
-                  return (
-                    <tr key={r.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
-                      <td className="px-4 py-3 font-mono text-zinc-400">
-                        {globalIdx === 0 ? "🥇" : globalIdx === 1 ? "🥈" : globalIdx === 2 ? "🥉" : (r.rank ?? "—")}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{r.name}</td>
-                      <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
-                        {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
-                        {r.bestSingleMs !== null ? formatTime(r.bestSingleMs) : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+              );
+            })}
+            {Array.from({ length: ROWS_PER_PAGE - (loading ? 0 : visibleRanking.length) }).map((_, i) => (
+              <tr key={`empty-${i}`} className="bg-white dark:bg-zinc-900/40">
+                <td className="px-4 py-3 font-mono text-zinc-300 dark:text-zinc-700">—</td>
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3" />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!loading && ranking.length > 0 && (
+        <>
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
           <p className="mt-2 text-center text-xs text-zinc-400">
             Showing {pageOffset + 1}–{Math.min(page * ROWS_PER_PAGE, ranking.length)} of {ranking.length}
@@ -1480,6 +1506,7 @@ function UsersAndRankingsSection({
 }) {
   const [tab, setTab] = useState<URTab>("active");
   const [activePage, setActivePage] = useState(1);
+  const [participantCount, setParticipantCount] = useState<number | null>(null);
 
   const prevRosterSize = useRef(roster.length);
   const [justJoined, setJustJoined] = useState<Set<string>>(new Set());
@@ -1495,7 +1522,7 @@ function UsersAndRankingsSection({
 
   const tabs: { id: URTab; label: string; count?: number }[] = [
     { id: "active", label: "Active Competitors", count: roster.length },
-    { id: "participants", label: "Participants" },
+    { id: "participants", label: "Participants", count: participantCount ?? undefined },
     { id: "rankings", label: "Live Rankings" },
   ];
 
@@ -1525,54 +1552,58 @@ function UsersAndRankingsSection({
 
       {tab === "active" && (
         <div>
-          <EventRoundDropdowns
-            comp={comp}
-            selectedEvent={comp.events[0]?.eventType ?? ""}
-            selectedRound={1}
-            onEventChange={() => {}}
-            onRoundChange={() => {}}
-          />
-          <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
-            {roster.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-zinc-400 dark:text-zinc-600">
-                Waiting for competitors to check in…
-              </p>
-            ) : (
-              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900/60">
+                <tr>
+                  <th className="px-4 py-3 font-medium text-zinc-500">#</th>
+                  <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
+                  <th className="px-4 py-3 font-medium text-zinc-500">CL ID</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {visibleRoster.map((c, i) => {
                   const isMe = c.userId === user?.id;
                   const globalIdx = (activePage - 1) * ROWS_PER_PAGE + i;
                   return (
-                    <li
+                    <tr
                       key={c.userId}
-                      className={`flex items-center justify-between px-4 py-2.5 text-sm transition-colors ${
-                        justJoined.has(c.userId) ? "row-count-in bg-accent-primary/10" : ""
-                      } ${isMe ? "bg-accent-primary/5" : ""}`}
+                      className={`row-count-in transition-colors ${
+                        justJoined.has(c.userId) ? "bg-accent-primary/10" : isMe ? "bg-accent-primary/5" : "bg-white dark:bg-zinc-900/40"
+                      }`}
+                      style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="w-5 text-right text-xs text-zinc-400">{globalIdx + 1}</span>
+                      <td className="px-4 py-3 text-zinc-400">{globalIdx + 1}</td>
+                      <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
                         {c.clId ? (
-                          <a href={`/profile/${c.clId}`} className="font-medium text-zinc-800 hover:text-accent-primary dark:text-zinc-200 dark:hover:text-accent-primary transition-colors">
+                          <a href={`/profile/${c.clId}`} className="hover:text-accent-primary transition-colors">
                             {c.name}
                             {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
                           </a>
                         ) : (
-                          <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                          <>
                             {c.name}
                             {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
-                          </span>
+                          </>
                         )}
-                      </div>
-                      {c.clId && (
-                        <a href={`/profile/${c.clId}`} className="font-mono text-xs text-zinc-400 hover:text-accent-primary transition-colors">
-                          {c.clId}
-                        </a>
-                      )}
-                    </li>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-zinc-500">
+                        {c.clId ? (
+                          <a href={`/profile/${c.clId}`} className="hover:text-accent-primary transition-colors">{c.clId}</a>
+                        ) : "—"}
+                      </td>
+                    </tr>
                   );
                 })}
-              </ul>
-            )}
+                {Array.from({ length: ROWS_PER_PAGE - visibleRoster.length }).map((_, i) => (
+                  <tr key={`empty-${i}`} className="bg-white dark:bg-zinc-900/40">
+                    <td className="px-4 py-3 text-zinc-300 dark:text-zinc-700">—</td>
+                    <td className="px-4 py-3" />
+                    <td className="px-4 py-3" />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
           <Pagination currentPage={activePage} totalPages={activeTotalPages} onPageChange={setActivePage} />
           {roster.length > 0 && (
@@ -1584,7 +1615,7 @@ function UsersAndRankingsSection({
       )}
 
       {tab === "participants" && (
-        <ParticipantsTab comp={comp} />
+        <ParticipantsTab comp={comp} onCountChange={setParticipantCount} />
       )}
 
       {tab === "rankings" && (

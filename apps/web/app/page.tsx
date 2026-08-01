@@ -7,6 +7,7 @@ import { StatusBadge } from "@/features/competitions/StatusBadge";
 import { EventIcon } from "@/components/EventIcon";
 import { Skeleton } from "@/components/Skeleton";
 import { Hero } from "@/features/competitions/Hero";
+import { Countdown } from "@/components/Countdown";
 
 export default function Home() {
   const [comps, setComps] = useState<CompetitionSummary[]>([]);
@@ -25,7 +26,7 @@ export default function Home() {
 
   const live = comps.filter((c) => c.status === "live");
   const upcoming = comps.filter((c) =>
-    ["registration_open", "registration_closed"].includes(c.status),
+    ["upcoming", "registration_open", "registration_closed"].includes(c.status),
   );
   const past = comps.filter((c) =>
     ["results_pending", "completed"].includes(c.status),
@@ -192,56 +193,64 @@ function BannerSlide({ banner }: { banner: BannerDto }) {
    ═══════════════════════════════════════════════════════ */
 
 function LiveCard({ comp }: { comp: CompetitionSummary }) {
-  const hasBanner = comp.bannerUrl || comp.mobileBannerUrl;
+  const banner = comp.bannerUrl || comp.mobileBannerUrl;
+  const events = comp.eventTypes ?? [];
 
   return (
     <Link
       href={`/competitions/${comp.id}`}
-      className="group relative grid min-h-[170px] grid-cols-1 overflow-hidden rounded-[14px] border border-accent-danger/20 bg-[var(--bg-card)] backdrop-blur-md transition hover:-translate-y-0.5 hover:border-accent-danger/40 hover:shadow-[0_12px_40px_rgba(255,71,87,0.08)] sm:grid-cols-2"
+      className="group overflow-hidden rounded-xl border border-accent-danger/30 bg-[var(--bg-card)] transition hover:-translate-y-0.5 hover:border-accent-danger/50 hover:shadow-[0_12px_40px_rgba(255,71,87,0.08)]"
     >
-      <div className="relative h-[120px] overflow-hidden bg-gradient-to-br from-[#1a0f18] to-[#120a15] sm:h-full">
-        {hasBanner ? (
-          <img
-            src={assetUrl((comp.bannerUrl || comp.mobileBannerUrl)!)}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <span className="text-4xl opacity-[0.06]">🧊</span>
+      <div className="flex flex-col md:h-[220px] md:flex-row">
+        {/* Banner — matches Hero 3:1 aspect at half width */}
+        <div className="relative shrink-0 md:w-1/2">
+          <div className="aspect-[3/1] w-full md:aspect-auto md:h-full md:min-h-[200px]" />
+          {banner ? (
+            <img
+              src={assetUrl(banner)}
+              alt={comp.title}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#1a0f18] to-[#120a15]">
+              <span className="text-4xl opacity-[0.06]">🧊</span>
+            </div>
+          )}
+          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-accent-danger px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_2px_12px_rgba(255,71,87,0.3)]">
+            <span className="live-dot h-[5px] w-[5px] rounded-full bg-white" />
+            Live
           </div>
-        )}
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-[var(--bg-card)] sm:block hidden" />
-        <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-accent-danger px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_2px_12px_rgba(255,71,87,0.3)]">
-          <span className="live-dot h-[5px] w-[5px] rounded-full bg-white" />
-          Live
+        </div>
+
+        {/* Content — fills height set by banner */}
+        <div className="flex flex-1 flex-col justify-center overflow-hidden px-5 py-5 md:px-7 md:py-4">
+          <h3 className="truncate text-lg font-bold text-[var(--text-primary)] md:text-xl">{comp.title}</h3>
+
+          {comp.description && (
+            <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-[var(--text-tertiary)] md:text-sm">
+              {comp.description.length > 200 ? comp.description.slice(0, 200) + " …" : comp.description}
+            </p>
+          )}
+
+          {events.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2.5">
+              {events.slice(0, 8).map((et) => (
+                <EventIcon key={et} eventId={et} size={24} className="text-[var(--text-primary)]" />
+              ))}
+            </div>
+          )}
+
+          <div className="mt-4 flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
+              <span className="font-semibold text-[var(--text-primary)]">{comp.registrationCount ?? 0}</span> competing
+            </span>
+            <span className="rounded-full bg-accent-danger px-4 py-2 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(255,71,87,0.25)] transition group-hover:shadow-[0_6px_20px_rgba(255,71,87,0.35)]">
+              Watch Live →
+            </span>
+          </div>
         </div>
       </div>
-      <div className="flex flex-col justify-center p-5">
-        <h3 className="mb-2 text-base font-bold leading-snug text-[var(--text-primary)] sm:text-lg">{comp.title}</h3>
-        {comp.eventTypes && comp.eventTypes.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-1">
-            {comp.eventTypes.slice(0, 8).map((et) => (
-              <span
-                key={et}
-                title={et}
-                className="flex h-[24px] w-[24px] items-center justify-center rounded-md border border-accent-primary/10 bg-accent-primary/10 text-accent-primary"
-              >
-                <EventIcon eventId={et} size={12} />
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
-          <span className="flex items-center gap-1.5">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
-            <span className="font-semibold text-[var(--text-primary)]">{comp.registrationCount ?? 0}{comp.registrationLimit ? `/${comp.registrationLimit}` : ""}</span> competing
-          </span>
-        </div>
-      </div>
-      <span className="absolute bottom-4 right-5 rounded-lg bg-accent-danger px-3 py-1.5 text-xs font-semibold text-white shadow-[0_4px_14px_rgba(255,71,87,0.25)] transition group-hover:shadow-[0_6px_20px_rgba(255,71,87,0.35)]">
-        Watch Live →
-      </span>
     </Link>
   );
 }
@@ -449,30 +458,9 @@ function ScrollCard({ comp }: { comp: CompetitionSummary }) {
    ═══════════════════════════════════════════════════════ */
 
 function RegistrationCountdown({ deadline }: { deadline: string }) {
-  const [label, setLabel] = useState<string | null>(null);
-
-  useEffect(() => {
-    function update() {
-      const diff = new Date(deadline).getTime() - Date.now();
-      if (diff <= 0) {
-        setLabel("Closing soon");
-        return;
-      }
-      const days = Math.floor(diff / 86_400_000);
-      const hours = Math.floor((diff % 86_400_000) / 3_600_000);
-      const mins = Math.floor((diff % 3_600_000) / 60_000);
-      setLabel(days > 0 ? `${days}d ${hours}h left` : hours > 0 ? `${hours}h ${mins}m left` : `${mins}m left`);
-    }
-    update();
-    const t = setInterval(update, 60_000);
-    return () => clearInterval(t);
-  }, [deadline]);
-
-  if (!label) return null;
-
   return (
     <div className="relative mb-3 inline-flex w-fit items-center gap-1 rounded-full border border-accent-warn/15 bg-accent-warn/10 px-2.5 py-0.5 text-xs font-medium text-accent-warn">
-      ⏳ {label}
+      ⏳ <Countdown target={deadline} /> left
     </div>
   );
 }

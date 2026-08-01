@@ -25,6 +25,7 @@ import type {
   ContentPage,
   JudgeAssignment,
   SystemSettings,
+  RuleSet,
 } from "./types";
 
 /**
@@ -133,6 +134,10 @@ export function createMemRepo(): Repository {
         return all.filter((c) => c.title.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q));
       },
       async findById(id) { return competitions.get(id) ?? null; },
+      async findByTitle(title) {
+        const t = title.toLowerCase();
+        return [...competitions.values()].find((c) => c.title.toLowerCase() === t && c.status !== "cancelled") ?? null;
+      },
       async findByIds(ids) {
         const map = new Map<string, Competition>();
         for (const id of ids) {
@@ -679,6 +684,22 @@ export function createMemRepo(): Repository {
       },
       async delete(id) { contentPageStore.delete(id); },
     },
+
+    ruleSets: (() => {
+      const store = new Map<string, RuleSet>();
+      return {
+        async findAll() { return [...store.values()].sort((a, b) => a.name.localeCompare(b.name)); },
+        async findById(id: string) { return store.get(id) ?? null; },
+        async create(rs: RuleSet) { store.set(rs.id, rs); },
+        async update(id: string, fields: Partial<RuleSet>) {
+          const rs = store.get(id);
+          if (!rs) return null;
+          Object.assign(rs, fields, { updatedAt: new Date().toISOString() });
+          return rs;
+        },
+        async delete(id: string) { store.delete(id); },
+      };
+    })(),
 
     systemSettings: (() => {
       let settings: SystemSettings = {

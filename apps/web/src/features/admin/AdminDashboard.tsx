@@ -89,6 +89,7 @@ function OldCompetitions({
   const [dupPopup, setDupPopup] = useState<CompetitionSummary | null>(null);
   const [cancelPopup, setCancelPopup] = useState<CompetitionSummary | null>(null);
   const [deletePopup, setDeletePopup] = useState<CompetitionSummary | null>(null);
+  const [publishPopup, setPublishPopup] = useState<CompetitionSummary | null>(null);
 
   const PER_PAGE = 10;
 
@@ -162,6 +163,20 @@ function OldCompetitions({
     setDeletePopup(null);
     try {
       await deleteCompetition(id);
+      onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handlePublish = async (id: string) => {
+    setBusy(id);
+    setError(null);
+    setPublishPopup(null);
+    try {
+      await updateCompetition(id, { status: "published" });
       onRefresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -289,6 +304,16 @@ function OldCompetitions({
                       Scrambles
                     </button>
 
+                    {c.status === "draft" && (
+                      <button
+                        disabled={busy === c.id}
+                        onClick={() => setPublishPopup(c)}
+                        className="rounded border border-emerald-600 bg-emerald-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
+                      >
+                        Publish
+                      </button>
+                    )}
+
                     {c.status !== "cancelled" ? (
                       <button
                         disabled={busy === c.id}
@@ -403,6 +428,14 @@ function OldCompetitions({
           comp={deletePopup}
           onConfirm={() => handleDelete(deletePopup.id)}
           onClose={() => setDeletePopup(null)}
+        />
+      )}
+      {publishPopup && (
+        <PublishPopup
+          comp={publishPopup}
+          loading={busy === publishPopup.id}
+          onConfirm={() => handlePublish(publishPopup.id)}
+          onClose={() => setPublishPopup(null)}
         />
       )}
     </section>
@@ -717,6 +750,73 @@ function DeletePopup({
             className="rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-40"
           >
             Delete Permanently
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Publish Popup
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function PublishPopup({
+  comp,
+  loading,
+  onConfirm,
+  onClose,
+}: {
+  comp: CompetitionSummary;
+  loading: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const hasEvents = (comp.eventTypes?.length ?? 0) > 0;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 w-[420px] rounded-xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-lg dark:bg-emerald-900/40">🚀</span>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Publish Competition</h3>
+          </div>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          </button>
+        </div>
+
+        <p className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+          Are you sure you want to publish <strong className="text-zinc-900 dark:text-zinc-100">&ldquo;{comp.title}&rdquo;</strong>? It will become visible to all users.
+        </p>
+
+        {!hasEvents && (
+          <div className="my-3 rounded-lg border border-amber-800/30 bg-amber-950/20 p-3">
+            <p className="text-xs font-semibold text-amber-400">Warning: This competition has no events added yet.</p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg px-4 py-2 text-xs text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            Go Back
+          </button>
+          <button
+            disabled={loading}
+            onClick={onConfirm}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
+          >
+            {loading ? "Publishing…" : "Publish"}
           </button>
         </div>
       </div>

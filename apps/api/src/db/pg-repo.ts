@@ -27,6 +27,7 @@ import type {
   ContentPage,
   JudgeAssignment,
   SystemSettings,
+  RuleSet,
 } from "./types";
 
 // ── row → domain type mappers ──────────────────────────────────────────────
@@ -91,6 +92,7 @@ function toComp(r: Row): Competition {
     cancellationReason: (r.cancellation_reason as string) ?? undefined,
     videoDeadlineMinutes: (r.video_deadline_minutes as number) ?? 1440,
     registrationLimit: (r.registration_limit as number) ?? undefined,
+    ruleSetId: (r.rule_set_id as string) ?? undefined,
     createdBy: (r.created_by as string) ?? undefined,
     publishedBy: (r.published_by as string) ?? undefined,
     createdAt: ts(r.created_at),
@@ -120,6 +122,7 @@ function toEvent(r: Row): CompetitionEvent {
     cutoffMs: (r.cutoff_ms as number) ?? undefined,
     timeLimitMs: (r.time_limit_ms as number) ?? undefined,
     fee: (r.fee as number) ?? undefined,
+    archived: (r.archived as boolean) ?? false,
   };
 }
 
@@ -155,6 +158,7 @@ function toRound(r: Row): Round {
     opensAt: r.opens_at ? ts(r.opens_at) : undefined,
     closesAt: r.closes_at ? ts(r.closes_at) : undefined,
     durationMinutes: (r.duration_minutes as number) ?? undefined,
+    resultsPublishedAt: r.results_published_at ? ts(r.results_published_at) : undefined,
   };
 }
 
@@ -404,8 +408,8 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
              (id, title, type, status, cover_url, banner_url, mobile_banner_url, description, rules_md,
               base_fee, per_event_fee, registration_opens_at, registration_deadline,
               starts_at, ends_at, featured, created_by, cancellation_reason, published_by,
-              registration_limit, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21)`,
+              registration_limit, rule_set_id, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$22)`,
           [
             comp.id, comp.title, comp.type, comp.status,
             comp.coverUrl ?? null, comp.bannerUrl ?? null, comp.mobileBannerUrl ?? null,
@@ -415,9 +419,16 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
             comp.startsAt ?? null, comp.endsAt ?? null,
             comp.featured ?? false, comp.createdBy ?? null,
             comp.cancellationReason ?? null, comp.publishedBy ?? null,
-            comp.registrationLimit ?? null, comp.createdAt,
+            comp.registrationLimit ?? null, comp.ruleSetId ?? null, comp.createdAt,
           ],
         );
+      },
+      async findByTitle(title) {
+        const { rows } = await pool.query(
+          "SELECT * FROM competitions WHERE lower(title) = lower($1) AND status <> 'cancelled' LIMIT 1",
+          [title],
+        );
+        return rows[0] ? toComp(rows[0]) : null;
       },
       async findByIds(ids) {
         const map = new Map<string, Competition>();
@@ -442,7 +453,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           coverUrl: "cover_url", bannerUrl: "banner_url", mobileBannerUrl: "mobile_banner_url",
           featured: "featured", featuredOrder: "featured_order", coverCaption: "cover_caption",
           cancellationReason: "cancellation_reason", videoDeadlineMinutes: "video_deadline_minutes",
-          registrationLimit: "registration_limit", publishedBy: "published_by",
+          registrationLimit: "registration_limit", ruleSetId: "rule_set_id", publishedBy: "published_by",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -545,7 +556,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       async update(id, fields) {
         const COL: Record<string, string> = {
           roundCount: "round_count", cutoffMs: "cutoff_ms", timeLimitMs: "time_limit_ms",
-          fee: "fee",
+          fee: "fee", archived: "archived",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
@@ -604,7 +615,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         const COL: Record<string, string> = {
           status: "status", opensAt: "opens_at", closesAt: "closes_at",
           advancementCount: "advancement_count", durationMinutes: "duration_minutes",
-          advancementCriteria: "advancement_criteria",
+          advancementCriteria: "advancement_criteria", resultsPublishedAt: "results_published_at",
         };
         const raw = fields as Record<string, unknown>;
         if (raw.advancementCriteria !== undefined) {
@@ -1711,6 +1722,52 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
       },
       async delete(id: string) {
         await pool.query("DELETE FROM content_pages WHERE id = $1", [id]);
+      },
+    },
+
+    ruleSets: {
+      async findAll() {
+        const { rows } = await pool.query("SELECT * FROM rule_sets ORDER BY name ASC");
+        return rows.map((r: Row) => ({
+          id: r.id as string,
+          name: r.name as string,
+          content: r.content as string,
+          createdAt: ts(r.created_at),
+          updatedAt: ts(r.updated_at),
+        }));
+      },
+      async findById(id) {
+        const { rows } = await pool.query("SELECT * FROM rule_sets WHERE id = $1", [id]);
+        if (!rows[0]) return null;
+        const r = rows[0];
+        return { id: r.id as string, name: r.name as string, content: r.content as string, createdAt: ts(r.created_at), updatedAt: ts(r.updated_at) };
+      },
+      async create(ruleSet) {
+        await pool.query(
+          "INSERT INTO rule_sets (id, name, content, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)",
+          [ruleSet.id, ruleSet.name, ruleSet.content, ruleSet.createdAt, ruleSet.updatedAt],
+        );
+      },
+      async update(id, fields) {
+        const sets: string[] = [];
+        const vals: unknown[] = [];
+        let i = 1;
+        if (typeof fields.name === "string") { sets.push(`name = $${i++}`); vals.push(fields.name); }
+        if (typeof fields.content === "string") { sets.push(`content = $${i++}`); vals.push(fields.content); }
+        if (sets.length === 0) return this.findById(id);
+        sets.push(`updated_at = $${i++}`);
+        vals.push(new Date().toISOString());
+        vals.push(id);
+        const { rows } = await pool.query(
+          `UPDATE rule_sets SET ${sets.join(", ")} WHERE id = $${i} RETURNING *`,
+          vals,
+        );
+        if (!rows[0]) return null;
+        const r = rows[0];
+        return { id: r.id as string, name: r.name as string, content: r.content as string, createdAt: ts(r.created_at), updatedAt: ts(r.updated_at) };
+      },
+      async delete(id) {
+        await pool.query("DELETE FROM rule_sets WHERE id = $1", [id]);
       },
     },
 

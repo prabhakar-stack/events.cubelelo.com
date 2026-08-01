@@ -9,11 +9,14 @@ import {
   uploadCompetitionBanner,
   uploadCompetitionMobileBanner,
   fetchSchedulingDefaults,
+  fetchRuleSets,
   type AdvancementCriteria,
   type SchedulingDefaults,
+  type RuleSetDto,
 } from "@/lib/api";
 import { eventDisplayName } from "@/lib/eventNames";
 import { EventIcon } from "@/components/EventIcon";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 
 interface RoundSchedule {
   startTime?: string;
@@ -106,9 +109,11 @@ export default function CreateCompetitionPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [rulesMd, setRulesMd] = useState("");
+  const [ruleSets, setRuleSets] = useState<RuleSetDto[]>([]);
+  const [selectedRuleSetId, setSelectedRuleSetId] = useState<string>("");
   const [type, setType] = useState<"free" | "paid">("free");
-  const [baseFee, setBaseFee] = useState(0);
-  const [perEventFee, setPerEventFee] = useState(0);
+  const [baseFee, setBaseFee] = useState("");
+  const [perEventFee, setPerEventFee] = useState("");
   const [registrationOpensAt, setRegistrationOpensAt] = useState("");
   const [registrationDeadline, setRegistrationDeadline] = useState("");
   const [startsAt, setStartsAt] = useState("");
@@ -126,8 +131,11 @@ export default function CreateCompetitionPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const draftIdRef = useRef<string | null>(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load scheduling defaults from system settings
+  // Load scheduling defaults and rule sets
   useEffect(() => {
     fetchSchedulingDefaults()
       .then((s) => {
@@ -137,7 +145,71 @@ export default function CreateCompetitionPage() {
         setSettingsLoaded(true);
       })
       .catch(() => setSettingsLoaded(true));
+    fetchRuleSets().then(setRuleSets).catch(() => {});
   }, []);
+
+  const buildBody = useCallback(() => {
+    const toISO = (v: string) => (v ? new Date(v).toISOString() : undefined);
+    return {
+      title: title.trim(),
+      type,
+      description: description.trim() || undefined,
+      rulesMd: rulesMd.trim() || undefined,
+      ruleSetId: selectedRuleSetId || undefined,
+      baseFee: type === "paid" ? Math.round(Number(baseFee) * 100) : 0,
+      perEventFee: type === "paid" ? Math.round(Number(perEventFee) * 100) : 0,
+      registrationOpensAt: toISO(registrationOpensAt),
+      registrationDeadline: toISO(registrationDeadline),
+      startsAt: toISO(startsAt),
+      endsAt: toISO(endsAt),
+      events: events.map((ev) => ({
+        ...ev,
+        fee: ev.fee != null ? Math.round(ev.fee * 100) : undefined,
+        roundSchedule: ev.roundSchedule?.map((rs) =>
+          rs ? { ...rs, startTime: rs.startTime ? new Date(rs.startTime).toISOString() : undefined } : undefined,
+        ),
+      })),
+    } as Parameters<typeof createCompetition>[0];
+  }, [title, type, description, rulesMd, selectedRuleSetId, baseFee, perEventFee, registrationOpensAt, registrationDeadline, startsAt, endsAt, events]);
+
+  const doAutoSave = useCallback(async () => {
+    if (!title.trim()) return;
+    setAutoSaveStatus("saving");
+    try {
+      if (!draftIdRef.current) {
+        const { id } = await createCompetition(buildBody());
+        draftIdRef.current = id;
+      } else {
+        await updateCompetition(draftIdRef.current, buildBody() as Parameters<typeof updateCompetition>[1]);
+      }
+      setAutoSaveStatus("saved");
+    } catch {
+      setAutoSaveStatus("error");
+    }
+  }, [title, buildBody]);
+
+  useEffect(() => {
+    if (!title.trim()) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    setAutoSaveStatus("idle");
+    autoSaveTimer.current = setTimeout(() => { doAutoSave(); }, 3000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [title, description, rulesMd, selectedRuleSetId, type, baseFee, perEventFee, registrationOpensAt, registrationDeadline, startsAt, endsAt, events, featured, doAutoSave]);
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (autoSaveTimer.current) {
+        clearTimeout(autoSaveTimer.current);
+        autoSaveTimer.current = null;
+        doAutoSave();
+      }
+      if (autoSaveStatus === "idle" && title.trim()) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [doAutoSave, autoSaveStatus, title]);
 
   // Track which schedule fields the admin has manually set
   const userSetRef = useRef<Set<ScheduleField>>(new Set());
@@ -274,39 +346,20 @@ export default function CreateCompetitionPage() {
 
   const onSubmit = async (status: "draft" | "published") => {
     if (!title.trim()) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     setCreating(true);
     setError(null);
     setValidationErrors([]);
     try {
-      const toISO = (v: string) =>
-        v ? new Date(v).toISOString() : undefined;
-      const body: Parameters<typeof createCompetition>[0] = {
-        title: title.trim(),
-        type,
-        description: description.trim() || undefined,
-        rulesMd: rulesMd.trim() || undefined,
-        baseFee: type === "paid" ? Math.round(baseFee * 100) : 0,
-        perEventFee: type === "paid" ? Math.round(perEventFee * 100) : 0,
-        registrationOpensAt: toISO(registrationOpensAt),
-        registrationDeadline: toISO(registrationDeadline),
-        startsAt: toISO(startsAt),
-        endsAt: toISO(endsAt),
-        events: events.map((ev) => ({
-          ...ev,
-          fee: ev.fee != null ? Math.round(ev.fee * 100) : undefined,
-          roundSchedule: ev.roundSchedule?.map((rs) =>
-            rs
-              ? {
-                  ...rs,
-                  startTime: rs.startTime
-                    ? new Date(rs.startTime).toISOString()
-                    : undefined,
-                }
-              : undefined,
-          ),
-        })),
-      };
-      const { id } = await createCompetition(body);
+      const body = buildBody();
+      let id = draftIdRef.current;
+      if (!id) {
+        const res = await createCompetition(body);
+        id = res.id;
+        draftIdRef.current = id;
+      } else {
+        await updateCompetition(id, body as Parameters<typeof updateCompetition>[1]);
+      }
       const updates: Record<string, unknown> = {};
       if (status !== "draft") updates.status = status;
       if (featured) updates.featured = true;
@@ -328,6 +381,8 @@ export default function CreateCompetitionPage() {
           if (parsed.errors && Array.isArray(parsed.errors)) {
             setValidationErrors(parsed.errors);
             setError(parsed.error ?? "Validation failed");
+          } else if (parsed.error === "duplicate_title") {
+            setError("A competition with this name already exists");
           } else {
             setError(parsed.error ?? msg);
           }
@@ -349,10 +404,10 @@ export default function CreateCompetitionPage() {
       </h1>
 
       {error && (
-        <div className="mb-4 rounded bg-red-100 px-4 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
-          <p>{error}</p>
+        <div className="mb-4">
+          <ErrorCard error={error} onRetry={() => setError(null)} onBack={false} />
           {validationErrors.length > 0 && (
-            <ul className="mt-1 list-disc pl-5 text-xs">
+            <ul className="mt-2 list-disc rounded-lg border border-zinc-200 bg-zinc-50 px-6 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
               {validationErrors.map((e, i) => (
                 <li key={i}>{e}</li>
               ))}
@@ -375,32 +430,56 @@ export default function CreateCompetitionPage() {
           />
         </div>
 
-        {/* Description + Rules */}
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-500">
-              Description
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Short description for competitors..."
-              rows={3}
-              className={INPUT}
-            />
+        {/* Description */}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">
+            Description
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Short description for competitors..."
+            rows={3}
+            className={INPUT}
+          />
+        </div>
+
+        {/* Rules */}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">
+            Rules
+          </label>
+          <div className="flex items-center gap-3">
+            <select
+              value={selectedRuleSetId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setSelectedRuleSetId(id);
+                if (id) {
+                  const rs = ruleSets.find((r) => r.id === id);
+                  if (rs) setRulesMd(rs.content);
+                }
+              }}
+              className={`flex-1 ${INPUT}`}
+            >
+              <option value="">— Select a rule set or write custom —</option>
+              {ruleSets.map((rs) => (
+                <option key={rs.id} value={rs.id}>{rs.name}</option>
+              ))}
+            </select>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-500">
-              Rules (markdown)
-            </label>
-            <textarea
-              value={rulesMd}
-              onChange={(e) => setRulesMd(e.target.value)}
-              placeholder="WCA regulations apply..."
-              rows={3}
-              className={INPUT}
-            />
-          </div>
+          <textarea
+            value={rulesMd}
+            onChange={(e) => setRulesMd(e.target.value)}
+            placeholder={selectedRuleSetId ? "Rules loaded from selected set. Edit below to customize." : "Write custom rules (Markdown)..."}
+            rows={4}
+            className={`mt-2 font-mono ${INPUT}`}
+          />
+          {selectedRuleSetId && (
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Editing the text above won&apos;t change the saved rule set. To edit rule sets, go to Settings.
+            </p>
+          )}
         </div>
 
         {/* Banners */}
@@ -473,7 +552,7 @@ export default function CreateCompetitionPage() {
                   type="number"
                   min={0}
                   value={baseFee}
-                  onChange={(e) => setBaseFee(Number(e.target.value))}
+                  onChange={(e) => setBaseFee(e.target.value)}
                   className={`w-28 ${INPUT}`}
                 />
               </div>
@@ -485,7 +564,7 @@ export default function CreateCompetitionPage() {
                   type="number"
                   min={0}
                   value={perEventFee}
-                  onChange={(e) => setPerEventFee(Number(e.target.value))}
+                  onChange={(e) => setPerEventFee(e.target.value)}
                   className={`w-28 ${INPUT}`}
                 />
               </div>
@@ -578,222 +657,143 @@ export default function CreateCompetitionPage() {
               + Add event
             </button>
           </div>
-          <div className="space-y-3">
-            {events.map((ev, i) => (
-              <div
-                key={i}
-                className="rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60 p-4"
-              >
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <EventIcon eventId={ev.eventType} size={18} />
-                    <select
-                      value={ev.eventType}
-                      onChange={(e) =>
-                        updateEvent(i, { eventType: e.target.value })
-                      }
-                      className={SMALL_INPUT}
-                    >
-                      {EVENT_IDS.map((id) => (
-                        <option key={id} value={id}>
-                          {eventDisplayName(id)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                    Rounds
-                    <input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={ev.roundCount}
-                      onChange={(e) =>
-                        updateEvent(i, {
-                          roundCount: Number(e.target.value),
-                        })
-                      }
-                      className={`w-16 ${SMALL_INPUT}`}
-                    />
-                  </label>
-                  {type === "paid" && (
-                    <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                      Fee (₹)
-                      <input
-                        type="number"
-                        min={0}
-                        value={ev.fee ?? ""}
-                        placeholder="default"
-                        onChange={(e) =>
-                          updateEvent(i, {
-                            fee: e.target.value ? Number(e.target.value) : undefined,
-                          })
-                        }
-                        className={`w-24 ${SMALL_INPUT}`}
-                      />
-                    </label>
-                  )}
-                  {events.length > 1 && (
-                    <button
-                      onClick={() => removeEvent(i)}
-                      className="ml-auto text-xs text-zinc-500 transition hover:text-red-400"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-
-                {/* Per-round config */}
-                <div className="mt-3 space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-                  {Array.from({ length: ev.roundCount }, (_, ri) => {
-                    const isLast = ri === ev.roundCount - 1;
-                    const criteria = ev.roundCriteria?.[ri];
-                    const schedule = ev.roundSchedule?.[ri];
-                    const updateRoundCriteria = (
-                      c: AdvancementCriteria | undefined,
-                    ) => {
-                      const arr = [
-                        ...(ev.roundCriteria ??
-                          new Array(ev.roundCount).fill(undefined)),
-                      ];
-                      while (arr.length < ev.roundCount) arr.push(undefined);
-                      arr[ri] = c;
-                      updateEvent(i, { roundCriteria: arr });
-                    };
-                    const updateRoundSchedule = (
-                      patch: Partial<RoundSchedule>,
-                    ) => {
-                      const arr = [
-                        ...(ev.roundSchedule ??
-                          new Array(ev.roundCount).fill(undefined)),
-                      ];
-                      while (arr.length < ev.roundCount) arr.push(undefined);
-                      arr[ri] = { ...(arr[ri] ?? {}), ...patch };
-                      updateEvent(i, { roundSchedule: arr });
-                    };
-                    return (
-                      <div
-                        key={ri}
-                        className="rounded-lg border border-zinc-100 bg-white/50 px-3 py-2 dark:border-zinc-800/60 dark:bg-zinc-900/30"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="w-24 text-xs font-medium text-zinc-400">
-                            Round {ri + 1}
-                            {isLast ? " (Final)" : ""}
-                          </span>
-                          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                            Start
-                            <input
-                              type="datetime-local"
-                              value={schedule?.startTime ?? ""}
-                              onChange={(e) =>
-                                updateRoundSchedule({
-                                  startTime: e.target.value || undefined,
-                                })
-                              }
-                              className={SMALL_INPUT}
-                            />
-                          </label>
-                          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                            Duration (min)
-                            <input
-                              type="number"
-                              min={1}
-                              value={schedule?.durationMinutes ?? ""}
-                              onChange={(e) =>
-                                updateRoundSchedule({
-                                  durationMinutes: e.target.value
-                                    ? Number(e.target.value)
-                                    : undefined,
-                                })
-                              }
-                              placeholder="—"
-                              className={`w-20 ${SMALL_INPUT}`}
-                            />
-                          </label>
-                          {ev.roundCount > 1 && (
-                            <>
-                              <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                                {isLast ? "Top Finishers" : "Shortlist"}
-                                <select
-                                  value={criteria?.method ?? "none"}
-                                  onChange={(e) => {
-                                    const m = e.target.value;
-                                    if (m === "none")
-                                      updateRoundCriteria(undefined);
-                                    else
-                                      updateRoundCriteria({
-                                        method: m as "rank" | "time",
-                                      });
-                                  }}
-                                  className={SMALL_INPUT}
-                                >
-                                  <option value="none">None</option>
-                                  <option value="rank">Top N</option>
-                                  <option value="time">ao5 ≤ X</option>
-                                </select>
-                              </label>
-                              {criteria?.method === "rank" && (
-                                <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                                  N
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    value={criteria.rankLimit ?? ""}
-                                    onChange={(e) =>
-                                      updateRoundCriteria({
-                                        method: "rank",
-                                        rankLimit: Number(e.target.value),
-                                      })
-                                    }
-                                    placeholder="10"
-                                    className={`w-16 ${SMALL_INPUT}`}
-                                  />
-                                </label>
-                              )}
-                              {criteria?.method === "time" && (
-                                <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                                  Limit (s)
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    value={
-                                      criteria.timeLimitMs
-                                        ? criteria.timeLimitMs / 1000
-                                        : ""
-                                    }
-                                    onChange={(e) =>
-                                      updateRoundCriteria({
-                                        method: "time",
-                                        timeLimitMs:
-                                          Number(e.target.value) * 1000,
-                                      })
-                                    }
-                                    placeholder="30"
-                                    className={`w-20 ${SMALL_INPUT}`}
-                                  />
-                                </label>
-                              )}
-                            </>
-                          )}
+          <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60">
+                  <th className="px-3 py-2 font-medium text-zinc-500">Event</th>
+                  <th className="px-3 py-2 font-medium text-zinc-500">Rounds</th>
+                  {type === "paid" && <th className="px-3 py-2 font-medium text-zinc-500">Fee (₹)</th>}
+                  <th className="px-3 py-2 font-medium text-zinc-500">Round Schedule</th>
+                  <th className="px-3 py-2 font-medium text-zinc-500 w-16" />
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((ev, i) => {
+                  const updateRoundCriteriaFor = (ri: number, c: AdvancementCriteria | undefined) => {
+                    const arr = [...(ev.roundCriteria ?? new Array(ev.roundCount).fill(undefined))];
+                    while (arr.length < ev.roundCount) arr.push(undefined);
+                    arr[ri] = c;
+                    updateEvent(i, { roundCriteria: arr });
+                  };
+                  const updateRoundScheduleFor = (ri: number, patch: Partial<RoundSchedule>) => {
+                    const arr = [...(ev.roundSchedule ?? new Array(ev.roundCount).fill(undefined))];
+                    while (arr.length < ev.roundCount) arr.push(undefined);
+                    arr[ri] = { ...(arr[ri] ?? {}), ...patch };
+                    updateEvent(i, { roundSchedule: arr });
+                  };
+                  return (
+                    <tr key={i} className="border-b border-zinc-100 dark:border-zinc-800/60">
+                      <td className="px-3 py-2 align-top">
+                        <div className="flex items-center gap-2">
+                          <EventIcon eventId={ev.eventType} size={18} />
+                          <select
+                            value={ev.eventType}
+                            onChange={(e) => updateEvent(i, { eventType: e.target.value })}
+                            className={SMALL_INPUT}
+                          >
+                            {EVENT_IDS.map((id) => (
+                              <option key={id} value={id}>{eventDisplayName(id)}</option>
+                            ))}
+                          </select>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={ev.roundCount}
+                          onChange={(e) => updateEvent(i, { roundCount: Number(e.target.value) })}
+                          className={`w-16 ${SMALL_INPUT}`}
+                        />
+                      </td>
+                      {type === "paid" && (
+                        <td className="px-3 py-2 align-top">
+                          <input
+                            type="number"
+                            min={0}
+                            value={ev.fee ?? ""}
+                            placeholder="default"
+                            onChange={(e) => updateEvent(i, { fee: e.target.value ? Number(e.target.value) : undefined })}
+                            className={`w-24 ${SMALL_INPUT}`}
+                          />
+                        </td>
+                      )}
+                      <td className="px-3 py-2 align-top">
+                        <div className="space-y-1.5">
+                          {Array.from({ length: ev.roundCount }, (_, ri) => {
+                            const isLast = ri === ev.roundCount - 1;
+                            const criteria = ev.roundCriteria?.[ri];
+                            const schedule = ev.roundSchedule?.[ri];
+                            return (
+                              <div key={ri} className="flex flex-wrap items-center gap-2">
+                                <span className="w-16 text-[11px] font-medium text-zinc-400">
+                                  R{ri + 1}{isLast ? " (F)" : ""}
+                                </span>
+                                <input
+                                  type="datetime-local"
+                                  value={schedule?.startTime ?? ""}
+                                  onChange={(e) => updateRoundScheduleFor(ri, { startTime: e.target.value || undefined })}
+                                  className={SMALL_INPUT}
+                                />
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={schedule?.durationMinutes ?? ""}
+                                  onChange={(e) => updateRoundScheduleFor(ri, { durationMinutes: e.target.value ? Number(e.target.value) : undefined })}
+                                  placeholder="min"
+                                  className={`w-16 ${SMALL_INPUT}`}
+                                />
+                                {ev.roundCount > 1 && (
+                                  <>
+                                    <select
+                                      value={criteria?.method ?? "none"}
+                                      onChange={(e) => {
+                                        const m = e.target.value;
+                                        if (m === "none") updateRoundCriteriaFor(ri, undefined);
+                                        else updateRoundCriteriaFor(ri, { method: m as "rank" | "time" });
+                                      }}
+                                      className={SMALL_INPUT}
+                                    >
+                                      <option value="none">No shortlist</option>
+                                      <option value="rank">Top N</option>
+                                      <option value="time">ao5 ≤ X</option>
+                                    </select>
+                                    {criteria?.method === "rank" && (
+                                      <input type="number" min={1} value={criteria.rankLimit ?? ""} onChange={(e) => updateRoundCriteriaFor(ri, { method: "rank", rankLimit: Number(e.target.value) })} placeholder="N" className={`w-14 ${SMALL_INPUT}`} />
+                                    )}
+                                    {criteria?.method === "time" && (
+                                      <input type="number" min={1} value={criteria.timeLimitMs ? criteria.timeLimitMs / 1000 : ""} onChange={(e) => updateRoundCriteriaFor(ri, { method: "time", timeLimitMs: Number(e.target.value) * 1000 })} placeholder="sec" className={`w-16 ${SMALL_INPUT}`} />
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {events.length > 1 && (
+                          <button onClick={() => removeEvent(i)} className="text-xs text-zinc-400 transition hover:text-red-400">✕</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+        <div className="sticky bottom-0 z-10 -mx-6 flex items-center gap-3 border-t border-zinc-200 bg-white/95 px-6 py-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95">
           <button
             onClick={() => onSubmit("draft")}
             disabled={creating || !title.trim()}
             className="rounded-lg border border-zinc-300 px-5 py-2 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {creating ? "Saving…" : "Save as Draft"}
+            {creating ? "Saving…" : draftIdRef.current ? "Update Draft" : "Save as Draft"}
           </button>
           <button
             onClick={() => onSubmit("published")}
@@ -802,6 +802,11 @@ export default function CreateCompetitionPage() {
           >
             {creating ? "Publishing…" : "Publish"}
           </button>
+          <span className="ml-auto text-xs text-zinc-400">
+            {autoSaveStatus === "saving" && "Auto-saving…"}
+            {autoSaveStatus === "saved" && "✓ Draft saved"}
+            {autoSaveStatus === "error" && "Auto-save failed"}
+          </span>
         </div>
       </div>
     </div>
