@@ -302,6 +302,25 @@ export default function CreateCompetitionPage() {
     }
   };
 
+  // Recalculate compEnd from the actual round schedule entries
+  const recalcCompEnd = useCallback(
+    (evts: EventSpec[]) => {
+      if (!startsAt) return;
+      let latest = new Date(startsAt);
+      for (const ev of evts) {
+        for (const rs of ev.roundSchedule ?? []) {
+          if (rs?.startTime && rs.durationMinutes) {
+            const end = new Date(new Date(rs.startTime).getTime() + rs.durationMinutes * 60000);
+            if (end > latest) latest = end;
+          }
+        }
+      }
+      setEndsAt(toLocalDatetime(latest));
+      userSetRef.current.delete("compEnd");
+    },
+    [startsAt],
+  );
+
   // Re-cascade when events, gap, or durations change (recompute round schedules + compEnd)
   const recascadeRounds = useCallback(
     (newEvents: EventSpec[], gap: number, durOverrides: Record<string, number>) => {
@@ -313,13 +332,14 @@ export default function CreateCompetitionPage() {
         durOverrides,
       );
       setEvents((prev) =>
-        prev.map((ev, i) => ({
-          ...ev,
-          roundSchedule: schedules[i] ?? ev.roundSchedule,
-        })),
+        prev.map((ev, i) => {
+          const computed = schedules[i];
+          if (!computed) return ev;
+          const existing = ev.roundSchedule ?? [];
+          const merged = computed.map((cs, ri) => existing[ri] ?? cs);
+          return { ...ev, roundSchedule: merged };
+        }),
       );
-      // compEnd always follows when rounds change (events/durations/gap),
-      // since those directly define when the competition actually finishes
       setEndsAt(toLocalDatetime(newEnd));
       userSetRef.current.delete("compEnd");
     },
@@ -341,6 +361,8 @@ export default function CreateCompetitionPage() {
     setEvents(next);
     if ("roundCount" in patch || "eventType" in patch) {
       recascadeRounds(next, gapMinutes, durationOverrides);
+    } else if ("roundSchedule" in patch) {
+      recalcCompEnd(next);
     }
   };
 

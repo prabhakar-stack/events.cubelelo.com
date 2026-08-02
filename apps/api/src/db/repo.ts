@@ -76,6 +76,7 @@ export interface Repository {
     findByCompetition(compId: string): Promise<Round[]>;
     create(round: Round): Promise<void>;
     update(id: string, fields: Partial<Round>): Promise<Round | null>;
+    delete(id: string): Promise<void>;
     /** Atomic CAS: update status only if current status matches expectedStatus. Returns true if updated. */
     compareAndUpdateStatus(id: string, expectedStatus: string, newStatus: string): Promise<boolean>;
   };

@@ -630,6 +630,9 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
         return rows[0] ? toRound(rows[0]) : null;
       },
+      async delete(id) {
+        await pool.query("DELETE FROM rounds WHERE id = $1", [id]);
+      },
       async compareAndUpdateStatus(id, expectedStatus, newStatus) {
         const { rowCount } = await pool.query(
           "UPDATE rounds SET status = $1 WHERE id = $2 AND status = $3",

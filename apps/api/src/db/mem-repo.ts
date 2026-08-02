@@ -227,6 +227,7 @@ export function createMemRepo(): Repository {
         Object.assign(round, fields);
         return round;
       },
+      async delete(id) { rounds.delete(id); },
       async compareAndUpdateStatus(id, expectedStatus, newStatus) {
         const round = rounds.get(id);
         if (!round || round.status !== expectedStatus) return false;

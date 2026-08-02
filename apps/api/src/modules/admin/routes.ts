@@ -193,6 +193,18 @@ export async function registerAdminRoutes(
       bannerUrl?: string;
       mobileBannerUrl?: string;
       cancellationReason?: string;
+      events?: Array<{
+        eventType: string;
+        roundCount?: number;
+        cutoffMs?: number;
+        timeLimitMs?: number;
+        fee?: number;
+        durationMinutes?: number;
+        advancementCount?: number;
+        advancementCriteria?: { method: string; rankLimit?: number; timeLimitMs?: number };
+        roundCriteria?: Array<{ method: string; rankLimit?: number; timeLimitMs?: number } | undefined>;
+        roundSchedule?: Array<{ startTime?: string; durationMinutes?: number } | undefined>;
+      }>;
     };
   }>("/api/v1/admin/competitions/:id", adminOnly, async (req, reply) => {
     const {
@@ -274,6 +286,130 @@ export async function registerAdminRoutes(
       }
     }
     if (!updated) return reply.code(404).send({ error: "competition_not_found" });
+
+    // Sync events and rounds when events array is provided
+    const eventSpecs = req.body?.events;
+    if (eventSpecs && eventSpecs.length > 0) {
+      const existingEvents = await repo.competitionEvents.findByCompetition(req.params.id);
+      const existingRounds = await repo.rounds.findByCompetition(req.params.id);
+
+      for (const spec of eventSpecs) {
+        if (!spec.eventType || !isEventId(spec.eventType)) continue;
+        const rounds = Math.max(1, Math.min(spec.roundCount ?? 1, 10));
+
+        const existing = existingEvents.find((e) => e.eventType === spec.eventType && !e.archived);
+        if (existing) {
+          const evFields: Partial<CompetitionEvent> = {};
+          if (spec.cutoffMs !== undefined) evFields.cutoffMs = spec.cutoffMs;
+          if (spec.timeLimitMs !== undefined) evFields.timeLimitMs = spec.timeLimitMs;
+          if (spec.fee !== undefined) evFields.fee = spec.fee;
+          if (rounds !== existing.roundCount) evFields.roundCount = rounds;
+          if (Object.keys(evFields).length > 0) {
+            await repo.competitionEvents.update(existing.id, evFields);
+          }
+
+          const eventRounds = existingRounds.filter((r) => r.competitionEventId === existing.id);
+
+          // Create missing round rows
+          for (let i = 1; i <= rounds; i++) {
+            if (eventRounds.some((r) => r.roundNumber === i)) {
+              // Update existing round's schedule if provided
+              const er = eventRounds.find((r) => r.roundNumber === i)!;
+              const rs = spec.roundSchedule?.[i - 1];
+              const rc = spec.roundCriteria?.[i - 1];
+              const rFields: Partial<Round> = {};
+              if (rs?.startTime) rFields.opensAt = rs.startTime;
+              if (rs?.durationMinutes) {
+                rFields.durationMinutes = rs.durationMinutes;
+                if (rs.startTime) {
+                  rFields.closesAt = new Date(new Date(rs.startTime).getTime() + rs.durationMinutes * 60_000).toISOString();
+                }
+              }
+              if (rc) {
+                rFields.advancementCriteria = { method: rc.method as "rank" | "time", rankLimit: rc.rankLimit, timeLimitMs: rc.timeLimitMs };
+              }
+              if (Object.keys(rFields).length > 0) await repo.rounds.update(er.id, rFields);
+              continue;
+            }
+            const rc = spec.roundCriteria?.[i - 1];
+            const fallback = i < rounds && spec.advancementCriteria ? spec.advancementCriteria : undefined;
+            const criteria = rc ?? fallback;
+            const rs = spec.roundSchedule?.[i - 1];
+            const roundDuration = rs?.durationMinutes ?? spec.durationMinutes;
+            const opensAt = rs?.startTime;
+            let closesAt: string | undefined;
+            if (opensAt && roundDuration) {
+              closesAt = new Date(new Date(opensAt).getTime() + roundDuration * 60_000).toISOString();
+            }
+            const round: Round = {
+              id: randomUUID(),
+              competitionEventId: existing.id,
+              roundNumber: i,
+              status: "pending",
+              advancementCount: i < rounds ? (spec.advancementCount ?? undefined) : undefined,
+              advancementCriteria: criteria
+                ? { method: criteria.method as "rank" | "time", rankLimit: criteria.rankLimit, timeLimitMs: criteria.timeLimitMs }
+                : undefined,
+              opensAt,
+              closesAt,
+              durationMinutes: roundDuration,
+            };
+            await repo.rounds.create(round);
+            if (round.opensAt || round.closesAt) await scheduleRoundJobs(round);
+          }
+
+          // Delete excess rounds (only if no results)
+          for (const r of eventRounds) {
+            if (r.roundNumber > rounds) {
+              const results = await repo.results.findByRound(r.id);
+              if (results.length === 0) {
+                await repo.rounds.delete(r.id);
+              }
+            }
+          }
+        } else {
+          // Create new event + rounds
+          const event: CompetitionEvent = {
+            id: randomUUID(),
+            competitionId: req.params.id,
+            eventType: spec.eventType,
+            roundCount: rounds,
+            cutoffMs: spec.cutoffMs,
+            timeLimitMs: spec.timeLimitMs,
+            fee: spec.fee,
+          };
+          await repo.competitionEvents.create(event);
+
+          for (let i = 1; i <= rounds; i++) {
+            const rc = spec.roundCriteria?.[i - 1];
+            const fallback = i < rounds && spec.advancementCriteria ? spec.advancementCriteria : undefined;
+            const criteria = rc ?? fallback;
+            const rs = spec.roundSchedule?.[i - 1];
+            const roundDuration = rs?.durationMinutes ?? spec.durationMinutes;
+            const opensAt = rs?.startTime;
+            let closesAt: string | undefined;
+            if (opensAt && roundDuration) {
+              closesAt = new Date(new Date(opensAt).getTime() + roundDuration * 60_000).toISOString();
+            }
+            const round: Round = {
+              id: randomUUID(),
+              competitionEventId: event.id,
+              roundNumber: i,
+              status: "pending",
+              advancementCriteria: criteria
+                ? { method: criteria.method as "rank" | "time", rankLimit: criteria.rankLimit, timeLimitMs: criteria.timeLimitMs }
+                : undefined,
+              opensAt,
+              closesAt,
+              durationMinutes: roundDuration,
+            };
+            await repo.rounds.create(round);
+            if (round.opensAt || round.closesAt) await scheduleRoundJobs(round);
+          }
+        }
+      }
+    }
+
     return {
       id: updated.id, title: updated.title,
       status: effectiveCompStatus(updated),
