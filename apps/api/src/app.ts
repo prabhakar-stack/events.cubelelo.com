@@ -53,6 +53,15 @@ export async function buildApp(
   });
   registerAuth(app, repo, verifier);
 
+  app.setErrorHandler((error, _req, reply) => {
+    const status = error.statusCode ?? 500;
+    if (status >= 500) {
+      app.log.error(error);
+      return reply.code(status).send({ error: "Something went wrong. Please try again." });
+    }
+    return reply.code(status).send({ error: error.message });
+  });
+
   app.get("/health", async (_req, reply) => {
     return reply.redirect("/api/v1/health");
   });

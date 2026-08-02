@@ -243,7 +243,7 @@ export async function registerPaymentRoutes(
         );
         await client.query(
           "INSERT INTO audit_log (id, admin_id, action, target, reason, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
-          [auditId, "system", "payment_confirmed", payment.id, `checkout verified: order=${razorpay_order_id} payment=${razorpay_payment_id}`, now],
+          [auditId, null, "payment_confirmed", payment.id, `checkout verified: order=${razorpay_order_id} payment=${razorpay_payment_id}`, now],
         );
       });
 
@@ -315,7 +315,7 @@ export async function registerPaymentRoutes(
         );
         await client.query(
           "INSERT INTO audit_log (id, admin_id, action, target, reason, created_at) VALUES ($1,$2,$3,$4,$5,$6)",
-          [auditId, "system", "payment_confirmed", payment.id, `webhook ${event}: order=${rzpOrderId} payment=${rzpPaymentId}`, now],
+          [auditId, null, "payment_confirmed", payment.id, `webhook ${event}: order=${rzpOrderId} payment=${rzpPaymentId}`, now],
         );
       });
       return { status: "confirmed" };
