@@ -1427,12 +1427,14 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
               View Full Results
             </Link>
           )}
-          <Link
-            href={`/competitions/${comp.id}/appeal`}
-            className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-500 transition hover:bg-amber-400/20"
-          >
-            Appeal
-          </Link>
+          {showResultsLink && (
+            <Link
+              href={`/competitions/${comp.id}/appeal`}
+              className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-500 transition hover:bg-amber-400/20"
+            >
+              Appeal
+            </Link>
+          )}
         </div>
       </div>
 

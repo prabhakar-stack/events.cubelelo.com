@@ -34,6 +34,14 @@ const TYPE_DESCRIPTIONS: Record<PromoCodeType, string> = {
   special: "Available to everyone — 1 per user, limited total count, date range",
 };
 
+function toLocalDatetime(iso: string | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
 export default function AdminPromoCodesPage() {
   const toast = useToast();
   const [codes, setCodes] = useState<PromoCodeDto[]>([]);
@@ -41,6 +49,7 @@ export default function AdminPromoCodesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [filterCompId, setFilterCompId] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<PromoCodeDto | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -94,23 +103,47 @@ export default function AdminPromoCodesPage() {
     setValidFrom("");
     setValidTo("");
     setShowForm(false);
+    setEditingId(null);
   };
 
-  const handleCreate = async () => {
+  const startEdit = (p: PromoCodeDto) => {
+    setEditingId(p.id);
+    setCouponType(p.type);
+    setCode(p.code);
+    setDiscountType(p.discountType);
+    setDiscountValue(
+      p.discountType === "flat" ? (p.discountValue / 100).toString() : p.discountValue.toString(),
+    );
+    setMaxUses(p.maxUses > 0 ? p.maxUses.toString() : "");
+    setCompetitionId(p.competitionId ?? "");
+    setCompetitionEventId(p.competitionEventId ?? "");
+    setValidFrom(toLocalDatetime(p.validFrom));
+    setValidTo(toLocalDatetime(p.validTo));
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
-      await createPromoCode({
+      const payload = {
         code,
         type: couponType,
         discountType,
         discountValue: discountType === "flat" ? Math.round(Number(discountValue) * 100) : Number(discountValue),
-        maxUses: maxUses ? Number(maxUses) : undefined,
+        maxUses: maxUses ? Number(maxUses) : 0,
         competitionId: competitionId || undefined,
         competitionEventId: competitionEventId || undefined,
         validFrom: validFrom ? new Date(validFrom).toISOString() : undefined,
         validTo: validTo ? new Date(validTo).toISOString() : undefined,
-      });
+      };
+      if (editingId) {
+        await updatePromoCode(editingId, payload);
+        toast.show("Promo code updated", "success");
+      } else {
+        await createPromoCode(payload);
+        toast.show("Promo code created", "success");
+      }
       resetForm();
       load();
     } catch (e) {
@@ -144,6 +177,8 @@ export default function AdminPromoCodesPage() {
     }
   };
 
+  const isEditing = !!editingId;
+
   return (
     <div className="mx-auto max-w-[1400px] px-8 py-10">
       <div className="mb-5 flex items-center justify-between gap-3">
@@ -161,7 +196,7 @@ export default function AdminPromoCodesPage() {
           </select>
         </div>
         <button
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => { if (showForm) resetForm(); else setShowForm(true); }}
           className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
         >
           {showForm ? "Cancel" : "+ New Code"}
@@ -172,7 +207,9 @@ export default function AdminPromoCodesPage() {
 
       {showForm && (
         <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/30 p-5">
-          <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Create Promo Code</h2>
+          <h2 className="mb-4 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+            {isEditing ? "Edit Promo Code" : "Create Promo Code"}
+          </h2>
 
           {/* Coupon type selector */}
           <div className="mb-4 flex gap-2">
@@ -341,13 +378,23 @@ export default function AdminPromoCodesPage() {
             )}
           </div>
 
-          <button
-            disabled={saving || !code.trim() || !discountValue || (couponType === "competition" && !competitionId)}
-            onClick={handleCreate}
-            className="mt-4 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
-          >
-            {saving ? "Creating…" : "Create Code"}
-          </button>
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              disabled={saving || !code.trim() || !discountValue || (couponType === "competition" && !competitionId)}
+              onClick={handleSave}
+              className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-40"
+            >
+              {saving ? "Saving…" : isEditing ? "Save Changes" : "Create Code"}
+            </button>
+            {isEditing && (
+              <button
+                onClick={resetForm}
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                Cancel Edit
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -372,7 +419,10 @@ export default function AdminPromoCodesPage() {
             </thead>
             <tbody>
               {filteredCodes.map((p) => (
-                <tr key={p.id} className="border-b border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-900/40">
+                <tr
+                  key={p.id}
+                  className={`border-b border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-900/40 ${editingId === p.id ? "ring-2 ring-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10" : ""}`}
+                >
                   <td className="px-4 py-3 font-mono font-semibold text-zinc-800 dark:text-zinc-200">
                     {p.code}
                   </td>
@@ -427,6 +477,12 @@ export default function AdminPromoCodesPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => startEdit(p)}
+                        className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      >
+                        Edit
+                      </button>
                       <button
                         onClick={() => toggleActive(p)}
                         className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"

@@ -2,6 +2,59 @@ import type { Solve } from "@cubers/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+const FRIENDLY_ERRORS: Record<string, string> = {
+  // Registration
+  registration_full: "This competition is full — no more spots available.",
+  registration_not_open: "Registration is not open for this competition.",
+  already_registered: "You are already registered for this competition.",
+  email_not_verified: "Please verify your email before registering.",
+  no_events_selected: "Please select at least one event.",
+  not_synced: "Your account isn't synced yet. Please sign in again.",
+  invalid_event_id: "One of the selected events is invalid.",
+  event_not_available: "One of the selected events is not available.",
+  registration_closed_cannot_withdraw: "Registration is closed — you can no longer withdraw.",
+  paid_registration_contact_admin: "You have a paid registration. Please contact the organiser to withdraw.",
+  competition_not_found: "Competition not found.",
+  // Payments
+  missing_registration_id: "Registration not found. Please try again.",
+  registration_not_found: "Registration not found.",
+  already_paid: "This registration is already paid.",
+  missing_fields: "Something went wrong. Please try again.",
+  invalid_signature: "Payment verification failed. Please contact support if you were charged.",
+  payment_not_found: "Payment not found.",
+  forbidden: "You don't have permission for this action.",
+  razorpay_not_configured: "Online payments are not available right now. Please try later.",
+  payment_not_completed: "This payment has not been completed yet.",
+  // Promo codes
+  invalid_code: "This promo code is invalid or inactive.",
+  code_required: "Please enter a promo code.",
+  code_exhausted: "This promo code has been fully redeemed.",
+  code_not_yet_valid: "This promo code is not active yet.",
+  code_expired: "This promo code has expired.",
+  code_not_for_this_competition: "This promo code doesn't apply to this competition.",
+  code_not_for_selected_events: "This promo code doesn't apply to your selected events.",
+  invalid_promo_code: "This promo code is invalid or inactive.",
+  promo_not_valid_for_competition: "This promo code doesn't apply to this competition.",
+  promo_not_for_selected_events: "This promo code doesn't apply to your selected events.",
+  promo_registration_closed: "This promo code is only valid during open registration.",
+  promo_welcome_only: "This promo code is only for first-time competitors.",
+  promo_expired: "This promo code has expired.",
+  promo_already_used: "You've already used this promo code.",
+  promo_fully_redeemed: "This promo code has been fully redeemed.",
+  // Auth
+  invalid_credentials: "Incorrect email or password.",
+  account_locked: "Your account has been locked. Please contact support.",
+  user_not_found: "Account not found.",
+};
+
+export function friendlyError(raw: string): string {
+  const codeMatch = raw.match(/"error"\s*:\s*"([^"]+)"/);
+  const code = codeMatch?.[1] ?? raw;
+  if (FRIENDLY_ERRORS[code]) return FRIENDLY_ERRORS[code];
+  if (/^\d{3}\s/.test(raw)) return "Something went wrong. Please try again.";
+  return raw;
+}
+
 export function assetUrl(path: string | undefined | null): string {
   if (!path) return "";
   const url = path.startsWith("http://") || path.startsWith("https://") ? path : `${BASE_URL}${path}`;
@@ -222,7 +275,7 @@ async function getJson<T>(path: string): Promise<T> {
       const body = await res.json();
       if (body?.error) detail = body.error;
     } catch {}
-    throw new Error(detail || `${res.status} ${res.statusText} for ${path}`);
+    throw new Error(friendlyError(detail || `${res.status} ${res.statusText}`));
   }
   return res.json() as Promise<T>;
 }
@@ -248,7 +301,7 @@ async function sendJson<T>(
     } catch {
       /* ignore */
     }
-    throw new Error(`${res.status} ${res.statusText} ${detail}`);
+    throw new Error(friendlyError(detail || `${res.status} ${res.statusText}`));
   }
   return res.json() as Promise<T>;
 }

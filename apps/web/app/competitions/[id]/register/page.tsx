@@ -184,17 +184,7 @@ function RegisterContent() {
         setSuccess(true);
       }
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
-      const codeMatch = raw.match(/"error"\s*:\s*"([^"]+)"/);
-      const code = codeMatch?.[1] ?? raw;
-      const friendly: Record<string, string> = {
-        registration_full: "This competition is full — no more spots available.",
-        registration_not_open: "Registration is not open for this competition.",
-        already_registered: "You are already registered for this competition.",
-        email_not_verified: "Please verify your email before registering.",
-        no_events_selected: "Please select at least one event.",
-      };
-      setError(friendly[code] ?? raw);
+      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(false);
     }
