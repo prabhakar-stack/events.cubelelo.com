@@ -1602,7 +1602,7 @@ export async function registerAdminRoutes(
 
   app.patch<{
     Params: { id: string };
-    Body: Partial<Pick<PromoCode, "code" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "competitionEventId" | "validFrom" | "validTo" | "active">>;
+    Body: Partial<Pick<PromoCode, "code" | "type" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "competitionEventId" | "validFrom" | "validTo" | "active">>;
   }>("/api/v1/admin/promo-codes/:id", adminOnly, async (req, reply) => {
     const updated = await repo.promoCodes.update(req.params.id, req.body ?? {});
     if (!updated) return reply.code(404).send({ error: "promo_not_found" });

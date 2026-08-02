@@ -230,7 +230,7 @@ export async function reshortlistAdvancedRound(
       if (dqResult && dqResult.flagStatus !== "disqualified") {
         await repo.results.update(dqResult.id, {
           flagStatus: "disqualified",
-          verifiedBy: null,
+          verifiedBy: undefined,
           verifiedAt: new Date().toISOString(),
         });
         await recomputeRanks(repo, nextRound.id);

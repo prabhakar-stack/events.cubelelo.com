@@ -53,7 +53,7 @@ export async function buildApp(
   });
   registerAuth(app, repo, verifier);
 
-  app.setErrorHandler((error, _req, reply) => {
+  app.setErrorHandler((error: { statusCode?: number; message?: string }, _req, reply) => {
     const status = error.statusCode ?? 500;
     if (status >= 500) {
       app.log.error(error);

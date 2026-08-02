@@ -1559,7 +1559,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
           code: "code", type: "type", discountType: "discount_type", discountValue: "discount_value",
           maxUses: "max_uses", maxUsesPerUser: "max_uses_per_user", active: "active",
           validFrom: "valid_from", validTo: "valid_until",
-          competitionEventId: "competition_event_id",
+          competitionId: "competition_id", competitionEventId: "competition_event_id",
         };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);

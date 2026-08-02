@@ -1002,7 +1002,7 @@ export function createPromoCode(body: {
 
 export function updatePromoCode(
   id: string,
-  body: Partial<Pick<PromoCodeDto, "code" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "competitionEventId" | "validFrom" | "validTo" | "active">>,
+  body: Partial<Pick<PromoCodeDto, "code" | "type" | "discountType" | "discountValue" | "maxUses" | "competitionId" | "competitionEventId" | "validFrom" | "validTo" | "active">>,
 ): Promise<PromoCodeDto> {
   return sendJson("PATCH", `/api/v1/admin/promo-codes/${id}`, body);
 }
