@@ -550,8 +550,9 @@ export function fetchMyRegistrations(): Promise<RegistrationDto[]> {
 // ── Payments ──
 export function createPaymentOrder(
   registrationId: string,
+  promoCode?: string,
 ): Promise<{ orderId: string; amount: number; currency: string; paymentId: string; keyId: string | null }> {
-  return sendJson("POST", `/api/v1/payments/order`, { registrationId });
+  return sendJson("POST", `/api/v1/payments/order`, { registrationId, promoCode });
 }
 
 export function verifyPayment(

@@ -162,7 +162,7 @@ function RegisterContent() {
     try {
       const reg = await registerForCompetition(comp.id, [...selected]);
       if (!isFree && reg.paymentStatus === "pending") {
-        const order = await createPaymentOrder(reg.registrationId);
+        const order = await createPaymentOrder(reg.registrationId, promoApplied?.code);
 
         if (order.keyId) {
           await loadRazorpayScript();
