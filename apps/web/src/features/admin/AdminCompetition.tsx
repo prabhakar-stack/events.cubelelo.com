@@ -160,6 +160,7 @@ export function AdminCompetition({ id }: { id: string }) {
   // On load, all existing fields are pinned (from server). Editing a field
   // unpins everything downstream so cascade auto-fills them.
   const schedPinnedRef = useRef<Set<ScheduleField>>(new Set(SCHEDULE_CHAIN));
+  const schedInitRef = useRef(false); // only sync schedule fields on first load
   const [schedDefaults, setSchedDefaults] = useState<SchedulingDefaults | null>(null);
   const [gapMinutes, setGapMinutes] = useState(0);
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -185,7 +186,7 @@ export function AdminCompetition({ id }: { id: string }) {
       .catch(() => {});
   }, []);
 
-  // Sync all inputs whenever detail refreshes
+  // Sync inputs whenever detail refreshes — schedule fields only on first load
   useEffect(() => {
     if (detail) {
       setEditTitle(detail.title);
@@ -196,12 +197,20 @@ export function AdminCompetition({ id }: { id: string }) {
       setEditRegLimit(detail.registrationLimit ? String(detail.registrationLimit) : "");
       setBannerFile(null);
       setMobileBannerFile(null);
-      setRegOpens(toLocal(detail.registrationOpensAt));
-      setRegCloses(toLocal(detail.registrationDeadline));
-      setCompStarts(toLocal(detail.startsAt));
-      setCompEnds(toLocal(detail.endsAt));
+      if (!schedInitRef.current) {
+        setRegOpens(toLocal(detail.registrationOpensAt));
+        setRegCloses(toLocal(detail.registrationDeadline));
+        setCompStarts(toLocal(detail.startsAt));
+        setCompEnds(toLocal(detail.endsAt));
+        schedInitRef.current = true;
+      }
     }
   }, [detail]);
+
+  const dismissError = useCallback(() => {
+    setError(null);
+    setValidationErrors([]);
+  }, []);
 
   const handleScheduleChange = useCallback(
     (field: ScheduleField, value: string) => {
@@ -227,8 +236,55 @@ export function AdminCompetition({ id }: { id: string }) {
       setRegCloses(vals.regClose);
       setCompStarts(vals.compStart);
       setCompEnds(vals.compEnd);
+
+      // Auto-recompute round times when compStart changes (directly or via cascade)
+      const newCompStart = vals.compStart;
+      const prevCompStart = compStarts;
+      if (newCompStart && newCompStart !== prevCompStart && detail) {
+        const times = computeRoundTimes(
+          new Date(newCompStart),
+          detail.events,
+          gapMinutes,
+          schedDefaults?.eventDurations ?? DEFAULT_EVENT_DURATION,
+          schedDefaults?.defaultRoundDurationMinutes ?? DEFAULT_DURATION,
+        );
+        // Update competition startsAt/endsAt FIRST, then rounds (validation needs updated window)
+        (async () => {
+          try {
+            // Compute new endsAt from the last round
+            let newEnd: string | undefined;
+            if (times.length > 0) {
+              const last = times[times.length - 1]!;
+              newEnd = new Date(
+                new Date(last.opensAt).getTime() + last.durationMinutes * 60000,
+              ).toISOString();
+            }
+            // Save ALL cascaded schedule fields + round window so load() won't revert them
+            await updateCompetition(detail.id, {
+              registrationOpensAt: toISO(vals.regOpens),
+              registrationDeadline: toISO(vals.regClose),
+              startsAt: toISO(newCompStart)!,
+              endsAt: newEnd ?? toISO(newCompStart)!,
+            });
+            if (newEnd) setCompEnds(toLocal(newEnd));
+
+            // Now update each round's schedule
+            for (const t of times) {
+              const closesAt = new Date(
+                new Date(t.opensAt).getTime() + t.durationMinutes * 60000,
+              ).toISOString();
+              await updateRound(t.roundId, { opensAt: t.opensAt, closesAt, durationMinutes: t.durationMinutes });
+            }
+            load();
+          } catch (e) {
+            console.error("Auto-recompute round schedule failed:", e);
+            setError(e instanceof Error ? e.message : String(e));
+            load();
+          }
+        })();
+      }
     },
-    [regOpens, regCloses, compStarts, compEnds, schedDefaults],
+    [regOpens, regCloses, compStarts, compEnds, schedDefaults, detail, gapMinutes, load],
   );
 
   const resetScheduleToAuto = useCallback(() => {
@@ -434,17 +490,6 @@ export function AdminCompetition({ id }: { id: string }) {
             </button>
           </div>
         </div>
-
-        {error && (
-          <div className="mt-3">
-            <ErrorCard error={error} onRetry={() => setError(null)} onBack={false} />
-            {validationErrors.length > 0 && (
-              <ul className="mt-2 list-disc rounded-lg border border-zinc-200 bg-zinc-50 px-6 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-                {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
-              </ul>
-            )}
-          </div>
-        )}
 
         {/* ── Details editor ── */}
         <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 p-4">
@@ -845,6 +890,21 @@ export function AdminCompetition({ id }: { id: string }) {
           >
             Publish
           </Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!error} onClose={dismissError} title="Something Went Wrong" size="sm">
+        <div className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+          {validationErrors.length > 0 ? (
+            <ul className="list-disc pl-5 space-y-1">
+              {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          ) : (
+            <p>{error?.replace(/_/g, " ")}</p>
+          )}
+        </div>
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={dismissError}>Dismiss</Button>
         </div>
       </Modal>
 

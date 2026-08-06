@@ -13,23 +13,23 @@ import {
   fetchParticipants,
   fetchLiveRanking,
   fetchPublicPage,
+  submitAppeal,
   type CompetitionDetail,
   type RegistrationDto,
   type ParticipantEntry,
   type LiveRankingEntry,
   type RoundProgress,
-  type RosterEntry,
 } from "@/lib/api";
 import { useAuth } from "@/features/auth/AuthProvider";
-import { useLobby } from "@/features/realtime/useLobby";
 import { acquireSocket, releaseSocket } from "@/features/realtime/socket";
 import { UserStatusBadge } from "@/features/competitions/UserStatusBadge";
 import { StatusBadge } from "@/features/competitions/StatusBadge";
 import { formatTime } from "@cubers/timer-core";
 import { Button } from "@/components/ui/Button";
 import { ErrorCard } from "@/components/ui/ErrorCard";
+import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { Skeleton, SkeletonRow } from "@/components/Skeleton";
+import { Skeleton } from "@/components/Skeleton";
 import { Countdown } from "@/components/Countdown";
 import { Markdown } from "@/components/Markdown";
 import { VideoUploadSection } from "@/features/competitions/detail/VideoUploadSection";
@@ -183,24 +183,7 @@ export default function CompetitionDetailPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const activeRoundId = useMemo(() => {
-    if (!comp) return null;
-    for (const ev of comp.events) {
-      const open = ev.rounds.find((r) => r.status === "open");
-      if (open) return open.id;
-    }
-    for (const ev of comp.events) {
-      const pending = ev.rounds.find((r) => r.status === "pending");
-      if (pending) return pending.id;
-    }
-    return comp.events[0]?.rounds[0]?.id ?? null;
-  }, [comp]);
 
-  const me = useMemo(
-    () => user ? { userId: user.id, name: user.name, clId: user.clId } : { userId: "guest", name: "Guest" },
-    [user],
-  );
-  const lobby = useLobby(activeRoundId, me);
 
   if (loading) {
     return (
@@ -442,7 +425,7 @@ export default function CompetitionDetailPage() {
             {showUsersRankings && (
               <section id="section-users-rankings" className="scroll-mt-20">
                 <SectionHeading>Users &amp; Rankings</SectionHeading>
-                <UsersAndRankingsSection comp={comp} roster={lobby.roster} user={user} isCompleted={isCompleted} />
+                <UsersAndRankingsSection comp={comp} user={user} isCompleted={isCompleted} myProgress={myProgress} />
               </section>
             )}
 
@@ -1383,13 +1366,18 @@ function ParticipantsTab({ comp, onCountChange }: { comp: CompetitionDetail; onC
 
 /* ── Rankings Tab ── */
 
-function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showResultsLink: boolean }) {
+function RankingsTab({ comp, showResultsLink, userId }: { comp: CompetitionDetail; showResultsLink: boolean; userId?: string }) {
   const [selectedEvent, setSelectedEvent] = useState(comp.events[0]?.eventType ?? "");
   const [selectedRound, setSelectedRound] = useState(1);
   const [ranking, setRanking] = useState<LiveRankingEntry[]>([]);
   const [roundInfo, setRoundInfo] = useState<{ roundNumber: number | null }>({ roundNumber: null });
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+
+  const [appealTarget, setAppealTarget] = useState<{ resultId: string; name: string } | null>(null);
+  const [appealReason, setAppealReason] = useState("");
+  const [appealStatus, setAppealStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [appealError, setAppealError] = useState("");
 
   useEffect(() => {
     if (!selectedEvent) return;
@@ -1407,6 +1395,8 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
   const totalPages = Math.ceil(ranking.length / ROWS_PER_PAGE);
   const visibleRanking = ranking.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
   const pageOffset = (page - 1) * ROWS_PER_PAGE;
+
+  const myEntry = userId ? ranking.find((r) => r.userId === userId) : null;
 
   return (
     <div>
@@ -1427,13 +1417,17 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
               View Full Results
             </Link>
           )}
-          {showResultsLink && (
-            <Link
-              href={`/competitions/${comp.id}/appeal`}
+          {showResultsLink && myEntry && (
+            <button
+              onClick={() => {
+                setAppealTarget({ resultId: myEntry.resultId, name: myEntry.name });
+                setAppealReason("");
+                setAppealStatus("idle");
+              }}
               className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-500 transition hover:bg-amber-400/20"
             >
               Appeal
-            </Link>
+            </button>
           )}
         </div>
       </div>
@@ -1451,13 +1445,15 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {!loading && visibleRanking.map((r, i) => {
               const globalIdx = pageOffset + i;
+              const isMe = r.userId === userId;
               return (
-                <tr key={r.userId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+                <tr key={r.userId} className={`row-count-in ${isMe ? "bg-accent-primary/5 ring-1 ring-accent-primary/20" : "bg-white dark:bg-zinc-900/40"}`} style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
                   <td className="px-4 py-3 font-mono text-zinc-400">
                     {globalIdx === 0 ? "🥇" : globalIdx === 1 ? "🥈" : globalIdx === 2 ? "🥉" : (r.rank ?? "—")}
                   </td>
                   <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
                     <a href={`/profile/${r.clId}`} className="hover:text-accent-primary transition-colors">{r.name}</a>
+                    {isMe && <span className="ml-2 rounded bg-accent-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-accent-primary">YOU</span>}
                   </td>
                   <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
                     {r.ao5Ms !== null ? formatTime(r.ao5Ms) : "—"}
@@ -1487,54 +1483,82 @@ function RankingsTab({ comp, showResultsLink }: { comp: CompetitionDetail; showR
           </p>
         </>
       )}
+
+      <Modal open={!!appealTarget} onClose={() => setAppealTarget(null)} title="Submit Appeal">
+        <p className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+          Appeal your result for <strong>{selectedEvent}</strong> — Round {roundInfo.roundNumber ?? 1}
+        </p>
+        <textarea
+          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          rows={4}
+          value={appealReason}
+          onChange={(e) => setAppealReason(e.target.value)}
+          placeholder="Describe the issue with your result..."
+        />
+        {appealStatus === "error" && (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{appealError}</p>
+        )}
+        {appealStatus === "sent" && (
+          <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">Appeal submitted successfully!</p>
+        )}
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <Button variant="secondary" onClick={() => setAppealTarget(null)}>
+            {appealStatus === "sent" ? "Close" : "Cancel"}
+          </Button>
+          {appealStatus !== "sent" && (
+            <Button
+              disabled={!appealReason.trim()}
+              loading={appealStatus === "sending"}
+              onClick={async () => {
+                setAppealStatus("sending");
+                try {
+                  await submitAppeal(appealTarget!.resultId, appealReason.trim());
+                  setAppealStatus("sent");
+                } catch (e) {
+                  setAppealError(e instanceof Error ? e.message : String(e));
+                  setAppealStatus("error");
+                }
+              }}
+            >
+              Submit Appeal
+            </Button>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
 
 /* ── Users & Rankings (tabbed section) ── */
 
-type URTab = "active" | "participants" | "rankings";
+type URTab = "rankings" | "participants" | "glance";
 
 function UsersAndRankingsSection({
   comp,
-  roster,
   user,
   isCompleted,
+  myProgress,
 }: {
   comp: CompetitionDetail;
-  roster: RosterEntry[];
   user: { id: string; clId: string; name: string } | null;
   isCompleted: boolean;
+  myProgress: RoundProgress[];
 }) {
-  const [tab, setTab] = useState<URTab>("active");
-  const [activePage, setActivePage] = useState(1);
+  const [tab, setTab] = useState<URTab>("rankings");
   const [participantCount, setParticipantCount] = useState<number | null>(null);
 
-  const prevRosterSize = useRef(roster.length);
-  const [justJoined, setJustJoined] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (roster.length > prevRosterSize.current) {
-      const newIds = new Set(roster.slice(prevRosterSize.current).map((c) => c.userId));
-      setJustJoined(newIds);
-      const t = setTimeout(() => setJustJoined(new Set()), 900);
-      return () => clearTimeout(t);
-    }
-    prevRosterSize.current = roster.length;
-  }, [roster]);
-
-  const tabs: { id: URTab; label: string; count?: number }[] = [
-    { id: "active", label: "Active Competitors", count: roster.length },
-    { id: "participants", label: "Participants", count: participantCount ?? undefined },
+  const tabs: { id: URTab; label: string; count?: number; hidden?: boolean }[] = [
     { id: "rankings", label: "Live Rankings" },
+    { id: "participants", label: "Participants", count: participantCount ?? undefined },
+    { id: "glance", label: "At a Glance", hidden: !user },
   ];
 
-  const activeTotalPages = Math.ceil(roster.length / ROWS_PER_PAGE);
-  const visibleRoster = roster.slice((activePage - 1) * ROWS_PER_PAGE, activePage * ROWS_PER_PAGE);
+  const visibleTabs = tabs.filter((t) => !t.hidden);
 
   return (
     <div>
       <div className="mb-4 flex gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800/60">
-        {tabs.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -1552,80 +1576,173 @@ function UsersAndRankingsSection({
         ))}
       </div>
 
-      {tab === "active" && (
-        <div>
-          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 dark:bg-zinc-900/60">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-zinc-500">#</th>
-                  <th className="px-4 py-3 font-medium text-zinc-500">Name</th>
-                  <th className="px-4 py-3 font-medium text-zinc-500">CL ID</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {visibleRoster.map((c, i) => {
-                  const isMe = c.userId === user?.id;
-                  const globalIdx = (activePage - 1) * ROWS_PER_PAGE + i;
-                  return (
-                    <tr
-                      key={c.userId}
-                      className={`row-count-in transition-colors ${
-                        justJoined.has(c.userId) ? "bg-accent-primary/10" : isMe ? "bg-accent-primary/5" : "bg-white dark:bg-zinc-900/40"
-                      }`}
-                      style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
-                    >
-                      <td className="px-4 py-3 text-zinc-400">{globalIdx + 1}</td>
-                      <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
-                        {c.clId ? (
-                          <a href={`/profile/${c.clId}`} className="hover:text-accent-primary transition-colors">
-                            {c.name}
-                            {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
-                          </a>
-                        ) : (
-                          <>
-                            {c.name}
-                            {isMe && <span className="ml-1 text-xs text-accent-primary">(you)</span>}
-                          </>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-zinc-500">
-                        {c.clId ? (
-                          <a href={`/profile/${c.clId}`} className="hover:text-accent-primary transition-colors">{c.clId}</a>
-                        ) : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {Array.from({ length: ROWS_PER_PAGE - visibleRoster.length }).map((_, i) => (
-                  <tr key={`empty-${i}`} className="bg-white dark:bg-zinc-900/40">
-                    <td className="px-4 py-3 text-zinc-300 dark:text-zinc-700">—</td>
-                    <td className="px-4 py-3" />
-                    <td className="px-4 py-3" />
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination currentPage={activePage} totalPages={activeTotalPages} onPageChange={setActivePage} />
-          {roster.length > 0 && (
-            <p className="mt-2 text-center text-xs text-zinc-400">
-              Showing {(activePage - 1) * ROWS_PER_PAGE + 1}–{Math.min(activePage * ROWS_PER_PAGE, roster.length)} of {roster.length} online
-            </p>
-          )}
-        </div>
+      {tab === "rankings" && (
+        <RankingsTab
+          comp={comp}
+          showResultsLink={["results_pending", "completed", "live"].includes(comp.status)}
+          userId={user?.id}
+        />
       )}
 
       {tab === "participants" && (
         <ParticipantsTab comp={comp} onCountChange={setParticipantCount} />
       )}
 
-      {tab === "rankings" && (
-        <RankingsTab
-          comp={comp}
-          showResultsLink={["results_pending", "completed", "live"].includes(comp.status)}
-        />
+      {tab === "glance" && user && (
+        <GlanceTab comp={comp} myProgress={myProgress} />
       )}
+    </div>
+  );
+}
+
+/* ── At a Glance — user's per-event, per-round data with all solves ── */
+
+function glanceSolveLabel(s: { time_ms: number; penalty: string; inspectionPenalty?: string }): string {
+  if (s.penalty === "dnf" || s.inspectionPenalty === "dnf") return "DNF";
+  const extra = (s.penalty === "plus2" ? 2000 : 0) + (s.inspectionPenalty === "plus2" ? 2000 : 0);
+  const t = s.time_ms + extra;
+  const formatted = formatTime(t);
+  return extra > 0 ? `${formatted}+` : formatted;
+}
+
+function GlanceTab({ comp, myProgress }: { comp: CompetitionDetail; myProgress: RoundProgress[] }) {
+  const eventGroups = useMemo(() => {
+    const groups: { eventType: string; eventName: string; rounds: RoundProgress[] }[] = [];
+    for (const ev of comp.events) {
+      const rounds = myProgress
+        .filter((p) => p.eventType === ev.eventType)
+        .sort((a, b) => a.roundNumber - b.roundNumber);
+      groups.push({ eventType: ev.eventType, eventName: eventDisplayName(ev.eventType), rounds });
+    }
+    return groups;
+  }, [comp.events, myProgress]);
+
+  // Build flat rows: one per round, grouped under event headers
+  const rows: Array<
+    | { type: "event-header"; eventType: string; eventName: string }
+    | { type: "round"; rp: RoundProgress }
+    | { type: "no-data"; eventType: string }
+  > = [];
+  for (const g of eventGroups) {
+    rows.push({ type: "event-header", eventType: g.eventType, eventName: g.eventName });
+    if (g.rounds.length === 0) {
+      rows.push({ type: "no-data", eventType: g.eventType });
+    } else {
+      for (const rp of g.rounds) rows.push({ type: "round", rp });
+    }
+  }
+
+  // Fixed-height container matching the other tabs (ROWS_PER_PAGE rows)
+  return (
+    <div>
+      <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-zinc-50 dark:bg-zinc-900/60">
+            <tr>
+              <th className="px-4 py-3 font-medium text-zinc-500">Event / Round</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">Solves</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">ao5</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">Best</th>
+              <th className="px-4 py-3 font-medium text-zinc-500">Rank</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {rows.map((row, i) => {
+              if (row.type === "event-header") {
+                return (
+                  <tr key={`eh-${row.eventType}`} className="bg-zinc-50 dark:bg-zinc-900/60">
+                    <td colSpan={5} className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <EventIcon eventId={row.eventType} size={16} className="text-accent-primary" />
+                        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{row.eventName}</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }
+
+              if (row.type === "no-data") {
+                return (
+                  <tr key={`nd-${row.eventType}`} className="bg-white dark:bg-zinc-900/40">
+                    <td colSpan={5} className="px-4 py-3 text-center text-sm text-zinc-400">Not participated</td>
+                  </tr>
+                );
+              }
+
+              const rp = row.rp;
+              const statusLabel =
+                rp.userStatus === "submitted" ? "Submitted" :
+                rp.userStatus === "locked" || rp.userStatus === "eliminated" ? "Not Qualified" :
+                rp.status === "open" ? "Open" :
+                rp.status === "pending" ? "Upcoming" : "Closed";
+              const statusColor =
+                rp.userStatus === "submitted" ? "text-emerald-600 dark:text-emerald-400" :
+                rp.userStatus === "locked" || rp.userStatus === "eliminated" ? "text-red-500 dark:text-red-400" :
+                rp.status === "open" ? "text-amber-600 dark:text-amber-400" :
+                "text-zinc-400";
+
+              return (
+                <tr key={rp.roundId} className="row-count-in bg-white dark:bg-zinc-900/40" style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-zinc-700 dark:text-zinc-300">Round {rp.roundNumber}</div>
+                    <span className={`text-xs font-semibold ${statusColor}`}>{statusLabel}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {rp.result?.solves && rp.result.solves.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {rp.result.solves.map((s, si) => (
+                          <span
+                            key={si}
+                            className={`rounded px-1.5 py-0.5 font-mono text-xs ${
+                              s.penalty === "dnf" || s.inspectionPenalty === "dnf"
+                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                : s.penalty === "plus2" || s.inspectionPenalty === "plus2"
+                                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                  : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                            }`}
+                          >
+                            {glanceSolveLabel(s)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-zinc-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
+                    {rp.result?.ao5Ms != null ? formatTime(rp.result.ao5Ms) : "—"}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-zinc-700 dark:text-zinc-300">
+                    {rp.result?.bestSingleMs != null ? formatTime(rp.result.bestSingleMs) : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {rp.result?.rank != null ? (
+                      <span className="inline-flex items-center gap-1 font-mono font-semibold text-zinc-900 dark:text-zinc-100">
+                        {rp.result.rank <= 3 && (
+                          <span>{rp.result.rank === 1 ? "🥇" : rp.result.rank === 2 ? "🥈" : "🥉"}</span>
+                        )}
+                        #{rp.result.rank}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-400">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {/* Fill empty rows to match fixed table height */}
+            {Array.from({ length: Math.max(0, ROWS_PER_PAGE - rows.length) }).map((_, i) => (
+              <tr key={`empty-${i}`} className="bg-white dark:bg-zinc-900/40">
+                <td className="px-4 py-3 text-zinc-300 dark:text-zinc-700">—</td>
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3" />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -322,7 +322,7 @@ export interface RoundProgress {
   eventType: string | null;
   status: string;
   userStatus: string;
-  result: { id: string; rank: number | null; ao5Ms: number | null; bestSingleMs: number | null; videoUrl: string | null } | null;
+  result: { id: string; rank: number | null; ao5Ms: number | null; bestSingleMs: number | null; videoUrl: string | null; solves?: Array<{ time_ms: number; penalty: string; inspectionPenalty?: string }> } | null;
 }
 
 export function fetchMyProgress(compId: string): Promise<{ registered: boolean; rounds: RoundProgress[] }> {
@@ -330,6 +330,7 @@ export function fetchMyProgress(compId: string): Promise<{ registered: boolean; 
 }
 
 export interface LiveRankingEntry {
+  resultId: string;
   userId: string;
   clId: string;
   name: string;
@@ -561,29 +562,6 @@ export interface GlobalSearchResult {
 
 export function globalSearch(q: string): Promise<GlobalSearchResult[]> {
   return getJson<GlobalSearchResult[]>(`/api/v1/search?q=${encodeURIComponent(q)}`);
-}
-
-// ── Lobby ──
-export interface RosterEntry {
-  userId: string;
-  name: string;
-  clId?: string;
-}
-
-export interface LobbyState {
-  round: {
-    id: string;
-    roundNumber: number;
-    status: string;
-    opensAt: string | null;
-    eventType: string | null;
-  };
-  competition: { id: string | null; title: string | null; rulesMd: string | null };
-  roster: RosterEntry[];
-}
-
-export function fetchLobby(roundId: string): Promise<LobbyState> {
-  return getJson<LobbyState>(`/api/v1/rounds/${roundId}/lobby`);
 }
 
 // ── Registration ──
@@ -1119,11 +1097,21 @@ export interface AppealDto {
   reason: string;
   status: "pending" | "accepted" | "rejected";
   adminResponse?: string;
+  resolvedBy?: string;
+  resolvedByName?: string;
   createdAt: string;
   resolvedAt?: string;
   userName?: string;
   userClId?: string;
   flagStatus?: string;
+  competitionId?: string;
+  competitionName?: string;
+  eventType?: string;
+  roundNumber?: number;
+  solves?: Array<{ time_ms: number; penalty: string; inspectionPenalty?: string }>;
+  ao5Ms?: number | null;
+  bestSingleMs?: number | null;
+  videoUrl?: string | null;
 }
 
 export async function submitAppeal(resultId: string, reason: string): Promise<AppealDto> {

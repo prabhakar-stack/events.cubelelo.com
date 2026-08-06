@@ -109,12 +109,20 @@ export default function ProfilePage() {
               </div>
 
               {isOwnProfile && (
-                <Link
-                  href="/settings"
-                  className="mt-4 w-full rounded-lg border border-zinc-300 px-4 py-2 text-center text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  Edit Profile
-                </Link>
+                <div className="mt-4 flex w-full flex-col gap-2">
+                  <Link
+                    href="/settings"
+                    className="w-full rounded-lg border border-zinc-300 px-4 py-2 text-center text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    Edit Profile
+                  </Link>
+                  <Link
+                    href="/profile/me/appeals"
+                    className="w-full rounded-lg border border-zinc-300 px-4 py-2 text-center text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    My Appeals
+                  </Link>
+                </div>
               )}
             </div>
           </section>

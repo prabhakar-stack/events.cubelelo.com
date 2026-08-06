@@ -233,7 +233,7 @@ export async function registerCompetitionRoutes(
               eventType: event?.eventType ?? null,
               status,
               userStatus,
-              result: result ? { id: result.id, rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs, videoUrl: result.videoUrl } : null,
+              result: result ? { id: result.id, rank: result.rank, ao5Ms: result.ao5Ms, bestSingleMs: result.bestSingleMs, videoUrl: result.videoUrl, solves: result.solves } : null,
             };
           }),
       );
@@ -277,6 +277,7 @@ export async function registerCompetitionRoutes(
       const ranking = results.map((r) => {
         const u = usersMap.get(r.userId);
         return {
+          resultId: r.id,
           userId: r.userId,
           clId: u?.clId ?? r.userId,
           name: u?.name ?? "Unknown",

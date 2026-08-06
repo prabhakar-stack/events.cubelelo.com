@@ -248,6 +248,7 @@ export interface Appeal {
   reason: string;
   status: "pending" | "accepted" | "rejected";
   adminResponse?: string;
+  resolvedBy?: string;
   createdAt: string;
   resolvedAt?: string;
 }

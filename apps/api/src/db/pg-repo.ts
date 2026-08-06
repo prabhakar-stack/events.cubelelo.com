@@ -1462,7 +1462,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         );
       },
       async update(id: string, fields: Partial<Appeal>) {
-        const COL: Record<string, string> = { status: "status", adminResponse: "admin_response" };
+        const COL: Record<string, string> = { status: "status", adminResponse: "admin_response", resolvedBy: "resolved_by" };
         const { sets, vals, next } = buildSet(COL, fields as Record<string, unknown>);
         if (sets.length === 0) return this.findById(id);
         let idx = next;
@@ -1483,6 +1483,7 @@ export function createPgRepo(pool: InstanceType<typeof import("pg").Pool>): Repo
         return { id: r.id as string, resultId: r.result_id as string, userId: r.user_id as string,
           reason: r.reason as string, status: r.status as Appeal["status"],
           adminResponse: (r.admin_response as string) ?? undefined,
+          resolvedBy: (r.resolved_by as string) ?? undefined,
           createdAt: ts(r.created_at), resolvedAt: r.resolved_at ? ts(r.resolved_at) : undefined };
       },
     },

@@ -39,12 +39,12 @@ function parseSolves(input: unknown, expectedCount: number): Solve[] | null {
     }
     const timeMs = (raw as Solve).time_ms;
     const penalty = (raw as Solve).penalty;
-    if (penalty !== "dnf" && timeMs < MIN_SOLVE_MS) return null;
-    if (timeMs < 0) return null;
     const r = raw as Record<string, unknown>;
     const inspPenalty = typeof r.inspectionPenalty === "string" && PENALTIES.includes(r.inspectionPenalty as SolvePenalty)
       ? (r.inspectionPenalty as SolvePenalty)
       : "none";
+    if (penalty !== "dnf" && inspPenalty !== "dnf" && timeMs < MIN_SOLVE_MS) return null;
+    if (timeMs < 0) return null;
     solves.push({
       time_ms: timeMs,
       inspectionPenalty: inspPenalty,

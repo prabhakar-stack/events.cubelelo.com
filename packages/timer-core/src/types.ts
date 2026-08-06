@@ -26,7 +26,7 @@ export const DEFAULT_CONFIG: TimerConfig = {
   useInspection: true,
   inspectionPlus2Ms: 15_000,
   inspectionDnfMs: 17_000,
-  holdToStartMs: 0,
+  holdToStartMs: 550,
 };
 
 /** A read-only view of the engine's current state, safe to render. */

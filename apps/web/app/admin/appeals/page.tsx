@@ -4,13 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchAllAppeals, resolveAppeal, type AppealDto } from "@/lib/api";
 import { EmptyState } from "@/components/EmptyState";
-
+import { formatTime } from "@cubers/timer-core";
 
 const STATUS_COLOR: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
   accepted: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
   rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
+
+function solvePenaltyLabel(s: { time_ms: number; penalty: string; inspectionPenalty?: string }): string {
+  if (s.penalty === "dnf" || s.inspectionPenalty === "dnf") return "DNF";
+  const extra = (s.penalty === "plus2" ? 2000 : 0) + (s.inspectionPenalty === "plus2" ? 2000 : 0);
+  const t = s.time_ms + extra;
+  const formatted = formatTime(t);
+  return extra > 0 ? `${formatted}+` : formatted;
+}
 
 export default function AdminAppealsPage() {
   const [appeals, setAppeals] = useState<AppealDto[]>([]);
@@ -74,7 +82,8 @@ export default function AdminAppealsPage() {
         <div className="space-y-4">
           {filtered.map((a) => (
             <div key={a.id} className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
-              <div className="flex items-start justify-between gap-4">
+              {/* Header: user info + status */}
+              <div className="mb-3 flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="mb-1 flex items-center gap-2">
                     <span className="font-medium text-zinc-900 dark:text-white">{a.userName ?? "Unknown"}</span>
@@ -83,19 +92,100 @@ export default function AdminAppealsPage() {
                       {a.status}
                     </span>
                   </div>
-                  <p className="mb-2 text-sm text-zinc-700 dark:text-zinc-300">{a.reason}</p>
-                  <p className="text-xs text-zinc-500">
-                    Result: {a.resultId.slice(0, 8)}... | Flag: {a.flagStatus ?? "—"} |{" "}
-                    {new Date(a.createdAt).toLocaleDateString()}
-                  </p>
-                  {a.adminResponse && (
-                    <p className="mt-2 rounded bg-zinc-100 px-3 py-2 text-sm text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                      Admin: {a.adminResponse}
-                    </p>
-                  )}
+
+                  {/* Competition / Event / Round context */}
+                  <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    {a.competitionName && (
+                      <Link
+                        href={`/competitions/${a.competitionId}`}
+                        className="font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                      >
+                        {a.competitionName}
+                      </Link>
+                    )}
+                    {a.eventType && (
+                      <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium dark:bg-zinc-800">
+                        {a.eventType}
+                      </span>
+                    )}
+                    {a.roundNumber != null && <span>Round {a.roundNumber}</span>}
+                    <span className="text-zinc-400">•</span>
+                    <span>Flag: {a.flagStatus ?? "—"}</span>
+                  </div>
                 </div>
+                <span className="shrink-0 text-xs text-zinc-500">
+                  {new Date(a.createdAt).toLocaleDateString()}
+                </span>
               </div>
 
+              {/* Reason */}
+              <div className="mb-3 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/60">
+                <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Reason</p>
+                <p className="text-sm text-zinc-800 dark:text-zinc-200">{a.reason}</p>
+              </div>
+
+              {/* Solve times + ao5 */}
+              {a.solves && a.solves.length > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+                  <span className="font-medium text-zinc-500 dark:text-zinc-400">Solves:</span>
+                  <div className="flex gap-2">
+                    {a.solves.map((s, i) => (
+                      <span
+                        key={i}
+                        className={`rounded px-2 py-0.5 text-xs font-mono ${
+                          s.penalty === "dnf" || s.inspectionPenalty === "dnf"
+                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                            : s.penalty === "plus2" || s.inspectionPenalty === "plus2"
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                        }`}
+                      >
+                        {solvePenaltyLabel(s)}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-zinc-400">|</span>
+                  <span className="font-medium text-zinc-500 dark:text-zinc-400">ao5:</span>
+                  <span className="font-mono text-zinc-800 dark:text-zinc-200">
+                    {a.ao5Ms != null ? formatTime(a.ao5Ms) : "DNF"}
+                  </span>
+                  {a.bestSingleMs != null && (
+                    <>
+                      <span className="text-zinc-400">|</span>
+                      <span className="font-medium text-zinc-500 dark:text-zinc-400">Best:</span>
+                      <span className="font-mono text-zinc-800 dark:text-zinc-200">{formatTime(a.bestSingleMs)}</span>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Video URL */}
+              {a.videoUrl && (
+                <div className="mb-3 text-sm">
+                  <span className="font-medium text-zinc-500 dark:text-zinc-400">Video: </span>
+                  <a
+                    href={a.videoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-700 hover:underline dark:text-emerald-400"
+                  >
+                    {a.videoUrl.length > 60 ? a.videoUrl.slice(0, 60) + "…" : a.videoUrl}
+                  </a>
+                </div>
+              )}
+
+              {/* Admin response (for resolved appeals) */}
+              {a.adminResponse && (
+                <div className="mb-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800/60">
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    Response by {a.resolvedByName ?? "Admin"}
+                    {a.resolvedAt && <> • {new Date(a.resolvedAt).toLocaleDateString()}</>}
+                  </p>
+                  <p className="text-sm text-zinc-800 dark:text-zinc-200">{a.adminResponse}</p>
+                </div>
+              )}
+
+              {/* Resolution controls for pending appeals */}
               {a.status === "pending" && (
                 <div className="mt-3 border-t border-zinc-200 dark:border-zinc-800 pt-3">
                   <textarea

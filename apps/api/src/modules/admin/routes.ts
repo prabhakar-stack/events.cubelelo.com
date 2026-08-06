@@ -279,12 +279,6 @@ export async function registerAdminRoutes(
     }
     const updated = await repo.competitions.update(req.params.id, fields);
 
-    if (fields.status === "published" && updated) {
-      const allRounds = await repo.rounds.findByCompetition(req.params.id);
-      for (const round of allRounds) {
-        await ensureScramblesGenerated(repo, round);
-      }
-    }
     if (!updated) return reply.code(404).send({ error: "competition_not_found" });
 
     // Sync events and rounds when events array is provided
@@ -407,6 +401,14 @@ export async function registerAdminRoutes(
             if (round.opensAt || round.closesAt) await scheduleRoundJobs(round);
           }
         }
+      }
+    }
+
+    // Pre-generate scrambles for every round AFTER events/rounds are synced
+    if (fields.status === "published") {
+      const allRounds = await repo.rounds.findByCompetition(req.params.id);
+      for (const round of allRounds) {
+        await ensureScramblesGenerated(repo, round);
       }
     }
 
@@ -1764,7 +1766,29 @@ export async function registerAdminRoutes(
   });
 
   app.get("/api/v1/me/appeals", { preHandler: requireRole(repo, "user", "admin", "moderator", "judge") }, async (req) => {
-    return repo.appeals.findByUser(req.authClaims!.sub);
+    const appeals = await repo.appeals.findByUser(req.authClaims!.sub);
+    return Promise.all(
+      appeals.map(async (a) => {
+        const result = await repo.results.findById(a.resultId);
+        let competitionName: string | undefined;
+        let eventType: string | undefined;
+        let roundNumber: number | undefined;
+        if (result) {
+          const round = await repo.rounds.findById(result.roundId);
+          if (round) {
+            const compEvent = await repo.competitionEvents.findByRound(round.id);
+            if (compEvent) {
+              eventType = compEvent.eventType;
+              const comp = await repo.competitions.findById(compEvent.competitionId);
+              competitionName = comp?.title;
+            }
+            roundNumber = round.roundNumber;
+          }
+        }
+        const resolvedByName = a.resolvedBy ? (await repo.users.findById(a.resolvedBy))?.name : undefined;
+        return { ...a, competitionName, eventType, roundNumber, resolvedByName };
+      }),
+    );
   });
 
   // Admin: list all appeals
@@ -1779,7 +1803,39 @@ export async function registerAdminRoutes(
       paginated.map(async (a) => {
         const user = await repo.users.findById(a.userId);
         const result = await repo.results.findById(a.resultId);
-        return { ...a, userName: user?.name, userClId: user?.clId, flagStatus: result?.flagStatus };
+        let competitionName: string | undefined;
+        let eventType: string | undefined;
+        let roundNumber: number | undefined;
+        let competitionId: string | undefined;
+        if (result) {
+          const round = await repo.rounds.findById(result.roundId);
+          if (round) {
+            const compEvent = await repo.competitionEvents.findByRound(round.id);
+            if (compEvent) {
+              eventType = compEvent.eventType;
+              competitionId = compEvent.competitionId;
+              const comp = await repo.competitions.findById(compEvent.competitionId);
+              competitionName = comp?.title;
+            }
+            roundNumber = round.roundNumber;
+          }
+        }
+        const resolverName = a.resolvedBy ? (await repo.users.findById(a.resolvedBy))?.name : undefined;
+        return {
+          ...a,
+          userName: user?.name,
+          userClId: user?.clId,
+          flagStatus: result?.flagStatus,
+          competitionId,
+          competitionName,
+          eventType,
+          roundNumber,
+          solves: result?.solves,
+          ao5Ms: result?.ao5Ms,
+          bestSingleMs: result?.bestSingleMs,
+          videoUrl: result?.videoUrl,
+          resolvedByName: resolverName,
+        };
       }),
     );
     return { data, total, page, limit };
@@ -1797,6 +1853,7 @@ export async function registerAdminRoutes(
     const updated = await repo.appeals.update(req.params.id, {
       status: action,
       adminResponse: adminResponse?.trim(),
+      resolvedBy: req.authClaims!.sub,
       resolvedAt: new Date().toISOString(),
     });
     if (!updated) return reply.code(404).send({ error: "appeal_not_found" });
